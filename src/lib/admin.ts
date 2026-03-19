@@ -1,0 +1,505 @@
+import { api, getApiErrorMessage } from "@/lib/api/client";
+
+export type AdminApplicant = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  groupName: string;
+  applicationDate: string;
+  status: "pending" | "approved" | "rejected";
+  notes?: string | null;
+};
+
+export async function listMemberApprovals(
+  params: { status?: string; groupId?: string } = {},
+) {
+  try {
+    const res = await api.get("/admin/member-approvals", { params });
+    return (res.data?.data?.applicants ?? []) as AdminApplicant[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function approveMemberApproval(
+  membershipId: string,
+  payload: { notes?: string } = {},
+) {
+  try {
+    const res = await api.patch(
+      `/admin/member-approvals/${membershipId}/approve`,
+      payload,
+    );
+    return res.data?.data?.membership;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function rejectMemberApproval(
+  membershipId: string,
+  payload: { notes?: string } = {},
+) {
+  try {
+    const res = await api.patch(
+      `/admin/member-approvals/${membershipId}/reject`,
+      payload,
+    );
+    return res.data?.data?.membership;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminContributionTrackerRecord = {
+  id: string; // `${userId}|${groupId}|${year}|${month}`
+  userId: string;
+  groupId: string;
+  memberName: string;
+  groupName: string;
+  expectedAmount: number;
+  paidAmount: number;
+  dueDate: string;
+  status: "paid" | "partial" | "pending" | "defaulted";
+  monthsDefaulted: number;
+};
+
+export async function listContributionTracker(
+  params: { month?: number; year?: number; groupId?: string } = {},
+) {
+  try {
+    const res = await api.get("/admin/contributions/tracker", { params });
+    return (res.data?.data?.contributions ??
+      []) as AdminContributionTrackerRecord[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function markContributionPaid(payload: {
+  userId: string;
+  groupId: string;
+  month: number;
+  year: number;
+  amount: number;
+  notes?: string;
+}) {
+  try {
+    const res = await api.post("/admin/contributions/mark-paid", payload);
+    return res.data?.data?.contribution;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminGroupRow = {
+  _id: string;
+  groupNumber: number;
+  groupName: string;
+  imageUrl?: string | null;
+  isOpen?: boolean | string | null;
+  rules?: string | null;
+  coordinatorId?: string | null;
+  coordinatorName?: string | null;
+  coordinatorPhone?: string | null;
+  coordinatorEmail?: string | null;
+  category?: string | null;
+  description?: string | null;
+  location?: string | null;
+  meetingFrequency?: string | null;
+  meetingDay?: string | null;
+  monthlyContribution: number;
+  totalSavings?: number;
+  memberCount?: number;
+  maxMembers: number;
+  isSpecial?: boolean;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  activeMemberCount?: number;
+  expectedContributions?: number;
+  collectedContributions?: number;
+  collectionRate?: number;
+};
+
+export async function listAdminGroups(
+  params: {
+    search?: string;
+    status?: string;
+    page?: number;
+    limit?: number;
+    includeMetrics?: boolean;
+    year?: number;
+    month?: number;
+  } = {},
+) {
+  try {
+    const res = await api.get("/admin/groups", { params });
+    return res.data?.data as {
+      groups: AdminGroupRow[];
+      summary?: {
+        totalGroups: number;
+        withCoordinators: number;
+        contributionPeriod: { year: number; month: number };
+        totalCollected: number;
+        contributionTypeTotalsYtd?: {
+          regular: number;
+          festival: number;
+          end_well: number;
+          special_savings: number;
+        };
+      };
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminFinancialMonthlyRow = {
+  month: string;
+  contributions: number;
+  loans: number;
+  repayments: number;
+  interest: number;
+};
+
+export type AdminFinancialGroupPerformanceRow = {
+  groupName: string;
+  totalContributions: number;
+  activeLoans: number;
+  collectionRate: number;
+  memberCount: number;
+};
+
+export type AdminFinancialReportsResponse = {
+  monthlyData: AdminFinancialMonthlyRow[];
+  groupPerformance: AdminFinancialGroupPerformanceRow[];
+  summary: {
+    contributionsChangePct: number;
+    loansChangePct: number;
+    repaymentRatePct: number;
+    interestRatePct: number;
+  };
+  period?: { months: number; end: { year: number; month: number } };
+};
+
+export async function getAdminFinancialReports(
+  params: {
+    period?: "3months" | "6months" | "12months";
+    year?: number;
+    month?: number;
+  } = {},
+) {
+  try {
+    const res = await api.get("/admin/financial-reports", { params });
+    return res.data?.data as AdminFinancialReportsResponse;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminAttendanceMeetingRow = {
+  id: string;
+  title: string;
+  groupId: string;
+  groupName: string;
+  scheduledDate: string;
+  durationMinutes: number;
+  status: string;
+  meetingType: string;
+  location?: string | null;
+  meetingLink?: string | null;
+  totalMembers: number;
+  present: number;
+  absent: number;
+  excused: number;
+  late: number;
+};
+
+export async function listAdminAttendanceMeetings(
+  params: {
+    q?: string;
+    groupId?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  } = {},
+) {
+  try {
+    const res = await api.get("/admin/attendance/meetings", { params });
+    return (res.data?.data?.meetings ?? []) as AdminAttendanceMeetingRow[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function createAdminAttendanceMeeting(payload: {
+  groupId: string;
+  title: string;
+  description?: string;
+  meetingType: "physical" | "zoom" | "google_meet";
+  location?: string | null;
+  meetingLink?: string | null;
+  meetingId?: string | null;
+  meetingPassword?: string | null;
+  scheduledDate: string;
+  durationMinutes: number;
+  status?: "scheduled" | "completed" | "cancelled";
+}) {
+  try {
+    const res = await api.post("/admin/attendance/meetings", payload);
+    return res.data?.data?.meeting as
+      | {
+          id: string;
+          title: string;
+          groupId: string;
+          groupName: string;
+          scheduledDate: string;
+          durationMinutes: number;
+          status: string;
+          meetingType: string;
+          location?: string | null;
+          meetingLink?: string | null;
+        }
+      | undefined;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminMeetingAttendanceRosterItem = {
+  id: string;
+  memberId: string;
+  memberName: string;
+  status: "present" | "absent" | "excused" | "late";
+  checkInTime?: string | null;
+  notes?: string | null;
+};
+
+export async function getAdminMeetingAttendanceRoster(meetingId: string) {
+  try {
+    const res = await api.get(
+      `/admin/attendance/meetings/${meetingId}/attendance`,
+    );
+    return res.data?.data as {
+      meeting: {
+        id: string;
+        title: string;
+        groupId: string;
+        groupName: string;
+        scheduledDate: string;
+        durationMinutes: number;
+        status: string;
+        meetingType: string;
+        location?: string | null;
+        meetingLink?: string | null;
+      };
+      roster: AdminMeetingAttendanceRosterItem[];
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function upsertAdminMeetingAttendance(payload: {
+  meetingId: string;
+  userId: string;
+  status: "present" | "absent" | "excused" | "late";
+  checkInTime?: string | null;
+  notes?: string | null;
+}) {
+  try {
+    const res = await api.put(
+      `/admin/attendance/meetings/${payload.meetingId}/attendance`,
+      {
+        userId: payload.userId,
+        status: payload.status,
+        checkInTime: payload.checkInTime ?? null,
+        notes: payload.notes ?? null,
+      },
+    );
+    return res.data?.data?.attendance;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminAnnouncementPayload = {
+  title?: string;
+  message: string;
+  target: "all" | "selected";
+  groupNumbers?: number[];
+  sendEmail?: boolean;
+  sendSMS?: boolean;
+  sendNotification?: boolean;
+  senderName?: string;
+};
+
+export type AdminAnnouncementDispatchResult = {
+  target: string;
+  groupsMatched: number;
+  channels: {
+    email: {
+      requested: boolean;
+      attempted: number;
+      sent: number;
+      failed: number;
+      skipped: number;
+    };
+    sms: {
+      requested: boolean;
+      attempted: number;
+      sent: number;
+      failed: number;
+      skipped: number;
+    };
+    notification: {
+      requested: boolean;
+      attempted: number;
+      sent: number;
+      failed: number;
+      skipped: number;
+    };
+  };
+  failures: {
+    channel: "email" | "sms" | "notification";
+    to: string;
+    error: string;
+  }[];
+};
+
+export async function createAdminAnnouncement(
+  payload: AdminAnnouncementPayload,
+) {
+  try {
+    const res = await api.post("/admin/announcements", payload);
+    return res.data?.data?.announcement as
+      | AdminAnnouncementDispatchResult
+      | undefined;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminSmsTemplate = {
+  _id: string;
+  key: string;
+  name: string;
+  body: string;
+  isActive?: boolean;
+};
+
+export async function listAdminSmsTemplates() {
+  try {
+    const res = await api.get("/admin/sms/templates");
+    return (res.data?.data?.templates ?? []) as AdminSmsTemplate[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminSmsStats = {
+  today: { attempted: number; sent: number; failed: number };
+  month: { attempted: number; sent: number; failed: number };
+  deliveryRatePct: number;
+};
+
+export async function getAdminSmsStats() {
+  try {
+    const res = await api.get("/admin/sms/stats");
+    return res.data?.data as AdminSmsStats;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminBulkSmsPayload = {
+  message: string;
+  target: "all" | "coordinators" | "defaulters" | "selected";
+  groupNumbers?: number[];
+  year?: number;
+  month?: number;
+};
+
+export type AdminBulkSmsDispatchResult = {
+  target: string;
+  channels: {
+    sms: {
+      requested: boolean;
+      attempted: number;
+      sent: number;
+      failed: number;
+      skipped: number;
+    };
+  };
+  failures: { channel: "sms"; to: string; error: string }[];
+};
+
+export async function sendAdminBulkSms(payload: AdminBulkSmsPayload) {
+  try {
+    const res = await api.post("/admin/sms/send", payload);
+    return res.data?.data?.dispatch as AdminBulkSmsDispatchResult | undefined;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminContributionTrackingMonth = {
+  month: number;
+  status: "pending" | "completed" | "verified";
+  expectedAmount: number;
+  paidAmount: number;
+  hasVerified: boolean;
+};
+
+export type AdminContributionTrackingGroup = {
+  groupId: string;
+  groupNumber: number;
+  groupName: string;
+  isSpecial: boolean;
+  monthlyContribution: number;
+  activeMembers: number;
+  totalPaid: number;
+  months: AdminContributionTrackingMonth[];
+};
+
+export async function getAdminContributionTracking(params: {
+  year: number;
+  contributionType: "regular" | "festival" | "end_well" | "special_savings";
+}) {
+  try {
+    const res = await api.get("/admin/contributions/tracking", { params });
+    return res.data?.data as {
+      year: number;
+      contributionType: string;
+      groups: AdminContributionTrackingGroup[];
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminSpecialContributionSummary = {
+  type: "festival" | "end_well" | "special_savings";
+  totalCollected: number;
+  contributors: number;
+};
+
+export async function getAdminSpecialContributionSummary(params: {
+  year: number;
+}) {
+  try {
+    const res = await api.get("/admin/contributions/special-summary", {
+      params,
+    });
+    return res.data?.data as {
+      year: number;
+      group: { id: string; groupNumber: number; groupName: string } | null;
+      summary: AdminSpecialContributionSummary[];
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
