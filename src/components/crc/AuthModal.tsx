@@ -6,6 +6,7 @@ import {
   resetPasswordWithPhoneOtp,
   sendPhoneOTP,
   verifyPhoneOTP,
+  verifyTwoFactorLogin,
   signInWithPhone,
   signInWithGoogle,
   checkGoogleOAuthAvailable,
@@ -46,6 +47,16 @@ const AuthModal: React.FC<AuthModalProps> = ({
   const [isCheckingGoogle, setIsCheckingGoogle] = useState(false);
   const [showEmailConfirmation, setShowEmailConfirmation] = useState(false);
   const [confirmationEmail, setConfirmationEmail] = useState("");
+  const [twoFactorToken, setTwoFactorToken] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState([
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+  ]);
+  const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
   const [groupSearch, setGroupSearch] = useState("");
   const [selectedGroup, setSelectedGroup] = useState<{
     id: string;
@@ -68,6 +79,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const twoFactorInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const shouldFetchGroups = isOpen && mode === "signup";
   const groupsQuery = useGroupsQuery(
     {
@@ -109,6 +121,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setPinId(null);
     setGoogleAuthMessage(null);
     setShowEmailConfirmation(false);
+    setTwoFactorToken(null);
+    setTwoFactorCode(["", "", "", "", "", ""]);
+    setTwoFactorError(null);
     setGroupSearch("");
     setSelectedGroup(null);
   }, [initialMode, isOpen]);
@@ -237,10 +252,19 @@ const AuthModal: React.FC<AuthModalProps> = ({
           }
         }
       } else if (mode === "login") {
-        const { user, error } = await signIn({
-          email: formData.email,
-          password: formData.password,
-        });
+        const { user, error, twoFactorRequired, twoFactorToken: tfaToken } =
+          await signIn({
+            email: formData.email,
+            password: formData.password,
+          });
+
+        if (twoFactorRequired && tfaToken) {
+          setTwoFactorToken(tfaToken);
+          setTwoFactorCode(["", "", "", "", "", ""]);
+          setTwoFactorError(null);
+          showToast("Enter your authenticator code to continue.", "info");
+          return;
+        }
 
         if (error) {
           console.log("Error!! 💥: ", error);
@@ -439,6 +463,21 @@ const AuthModal: React.FC<AuthModalProps> = ({
       } else {
         const verifyResult = await verifyPhoneOTP(pinId, otpCode);
 
+        if (
+          verifyResult.twoFactorRequired &&
+          verifyResult.twoFactorToken
+        ) {
+          setTwoFactorToken(verifyResult.twoFactorToken);
+          setTwoFactorCode(["", "", "", "", "", ""]);
+          setTwoFactorError(null);
+          setFormData((prev) => ({
+            ...prev,
+            otp: ["", "", "", "", "", ""],
+          }));
+          showToast("Enter your authenticator code to continue.", "info");
+          return;
+        }
+
         if (verifyResult.success && verifyResult.verified) {
           // OTP verified and user authenticated - session is already set by verifyPhoneOTP
           const message = verifyResult.isNewUser
@@ -551,6 +590,81 @@ const AuthModal: React.FC<AuthModalProps> = ({
     otpInputRefs.current[focusIndex]?.focus();
   };
 
+  const handleTwoFactorChange = (index: number, value: string) => {
+    if (!/^\d*$/.test(value)) return;
+    const next = [...twoFactorCode];
+    next[index] = value.slice(-1);
+    setTwoFactorCode(next);
+
+    if (value && index < 5) {
+      twoFactorInputRefs.current[index + 1]?.focus();
+    }
+
+    if (twoFactorError) setTwoFactorError(null);
+  };
+
+  const handleTwoFactorKeyDown = (
+    index: number,
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) => {
+    if (e.key === "Backspace" && !twoFactorCode[index] && index > 0) {
+      twoFactorInputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleTwoFactorPaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const pasted = e.clipboardData
+      .getData("text")
+      .replace(/\D/g, "")
+      .slice(0, 6);
+    const next = [...twoFactorCode];
+    for (let i = 0; i < pasted.length; i++) {
+      next[i] = pasted[i];
+    }
+    setTwoFactorCode(next);
+    const focusIndex = Math.min(pasted.length, 5);
+    twoFactorInputRefs.current[focusIndex]?.focus();
+  };
+
+  const handleVerifyTwoFactor = async () => {
+    if (!twoFactorToken) return;
+    const code = twoFactorCode.join("");
+    if (code.length !== 6) {
+      setTwoFactorError("Please enter the 6-digit code");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setTwoFactorError(null);
+
+    try {
+      const { user, error } = await verifyTwoFactorLogin(twoFactorToken, code);
+      if (error) {
+        setTwoFactorError(error.message);
+        showToast(error.message, "error");
+        return;
+      }
+
+      if (user) {
+        showToast(
+          "Welcome back! You have successfully signed in.",
+          "success",
+        );
+        onClose();
+        onAuthSuccess?.();
+        resetForm();
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Verification failed";
+      setTwoFactorError(message);
+      showToast(message, "error");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       fullName: "",
@@ -566,6 +680,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setGoogleAuthMessage(null);
     setShowEmailConfirmation(false);
     setConfirmationEmail("");
+    setTwoFactorToken(null);
+    setTwoFactorCode(["", "", "", "", "", ""]);
+    setTwoFactorError(null);
     setGroupSearch("");
     setSelectedGroup(null);
   };
@@ -578,6 +695,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setPinId(null);
     setGoogleAuthMessage(null);
     setShowEmailConfirmation(false);
+    setTwoFactorToken(null);
+    setTwoFactorCode(["", "", "", "", "", ""]);
+    setTwoFactorError(null);
     setGroupSearch("");
     setSelectedGroup(null);
   };
@@ -798,8 +918,105 @@ const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
 
-          {/* OTP Verification View */}
-          {authMethod === "phone" && otpStep === "verify" ? (
+          {/* Two-Factor Verification View */}
+          {twoFactorToken ? (
+            <div className="space-y-6">
+              <div className="text-center">
+                <div className="flex justify-center items-center bg-emerald-100 mx-auto mb-4 rounded-full w-16 h-16">
+                  <svg
+                    className="w-8 h-8 text-emerald-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    />
+                  </svg>
+                </div>
+                <h3 className="mb-2 font-semibold text-gray-900 text-lg">
+                  Two-Factor Authentication
+                </h3>
+                <p className="text-gray-600 text-sm">
+                  Enter the 6-digit code from your authenticator app.
+                </p>
+              </div>
+
+              <div
+                className="flex justify-center gap-2"
+                onPaste={handleTwoFactorPaste}
+              >
+                {twoFactorCode.map((digit, index) => (
+                  <input
+                    key={index}
+                    ref={(el) => (twoFactorInputRefs.current[index] = el)}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleTwoFactorChange(index, e.target.value)}
+                    onKeyDown={(e) => handleTwoFactorKeyDown(index, e)}
+                    className={`w-12 h-14 text-center text-xl font-bold rounded-xl border-2 ${
+                      twoFactorError ? "border-red-500" : "border-gray-200"
+                    } focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
+                  />
+                ))}
+              </div>
+
+              {twoFactorError && (
+                <p className="text-red-500 text-sm text-center">
+                  {twoFactorError}
+                </p>
+              )}
+
+              <button
+                onClick={handleVerifyTwoFactor}
+                disabled={isSubmitting || twoFactorCode.join("").length !== 6}
+                className="flex justify-center items-center gap-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 shadow-emerald-500/30 shadow-lg py-4 rounded-xl w-full font-semibold text-white transition-all duration-300 disabled:cursor-not-allowed"
+              >
+                {isSubmitting ? (
+                  <>
+                    <svg
+                      className="w-5 h-5 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                    Verifying...
+                  </>
+                ) : (
+                  "Verify & Continue"
+                )}
+              </button>
+
+              <button
+                onClick={() => {
+                  setTwoFactorToken(null);
+                  setTwoFactorCode(["", "", "", "", "", ""]);
+                  setTwoFactorError(null);
+                }}
+                className="flex justify-center items-center gap-2 py-3 w-full font-medium text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                Back to Sign In
+              </button>
+            </div>
+          ) : authMethod === "phone" && otpStep === "verify" ? (
             <div className="space-y-6">
               <div className="text-center">
                 <div className="flex justify-center items-center bg-emerald-100 mx-auto mb-4 rounded-full w-16 h-16">

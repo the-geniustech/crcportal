@@ -20,6 +20,7 @@ import Calendar from "./pages/Calendar";
 import AuthCallback from "./pages/AuthCallback";
 import ResetPassword from "./pages/ResetPassword";
 import VerifyEmail from "./pages/VerifyEmail";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 import RequireAuth from "./components/auth/RequireAuth";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -54,6 +55,7 @@ const App = () => (
                   <Route path="/loans" element={<Loans />} />
                   <Route path="/payments" element={<Payments />} />
                   <Route path="/profile" element={<Profile />} />
+                  <Route path="/settings" element={<Settings />} />
                   <Route path="/withdrawals" element={<Withdrawals />} />
                   <Route path="/guarantor" element={<GuarantorDashboard />} />
                   <Route path="/credit-score" element={<CreditScore />} />

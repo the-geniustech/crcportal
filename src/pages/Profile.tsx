@@ -5,13 +5,9 @@ import { useToast } from "@/hooks/use-toast";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import PersonalInfoForm from "@/components/profile/PersonalInfoForm";
 import ProfilePhotoUpload from "@/components/profile/ProfilePhotoUpload";
-import NotificationSettings from "@/components/profile/NotificationSettings";
 import BankingDetails from "@/components/profile/BankingDetails";
 import FinancialReportExport from "@/components/reports/FinancialReportExport";
-import { ChangePasswordDialog } from "@/components/auth/ChangePasswordDialog";
 import { useUpdateProfileMutation } from "@/hooks/profile/useUpdateProfileMutation";
-import { useNotificationPreferencesQuery } from "@/hooks/profile/useNotificationPreferencesQuery";
-import { useUpdateNotificationPreferencesMutation } from "@/hooks/profile/useUpdateNotificationPreferencesMutation";
 import { useSavingsSummaryQuery } from "@/hooks/finance/useSavingsSummaryQuery";
 import { useMyTransactionsQuery } from "@/hooks/finance/useMyTransactionsQuery";
 import { useMyGroupMembershipsQuery } from "@/hooks/groups/useMyGroupMembershipsQuery";
@@ -23,13 +19,10 @@ import {
 } from "@/hooks/finance/useBankAccountMutations";
 import {
   User,
-  Bell,
   CreditCard,
   FileText,
   Download,
   Edit2,
-  Shield,
-  Calendar,
   TrendingUp,
   Wallet,
   ArrowUpRight,
@@ -86,10 +79,7 @@ const ProfileContent: React.FC = () => {
   const { user, profile, loading, refreshProfile } = useAuth();
   const { toast } = useToast();
   const updateProfileMutation = useUpdateProfileMutation(user?.id);
-  const notificationPreferencesQuery = useNotificationPreferencesQuery();
-  const updateNotificationPreferencesMutation = useUpdateNotificationPreferencesMutation();
   const [activeTab, setActiveTab] = useState("personal");
-  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [transactionFilter, setTransactionFilter] = useState<
     TransactionType | "all"
@@ -169,18 +159,6 @@ const ProfileContent: React.FC = () => {
     nextOfKinRelationship: profile?.next_of_kin_relationship || "",
   };
 
-  const notificationPreferences =
-    notificationPreferencesQuery.data ?? {
-      emailNotifications: true,
-      smsNotifications: true,
-      pushNotifications: true,
-      paymentReminders: true,
-      groupUpdates: true,
-      loanUpdates: true,
-      meetingReminders: true,
-      marketingEmails: false,
-    };
-
   const handleSavePersonalInfo = async (data: typeof personalInfo) => {
     const emptyToNull = (v: string) => (v.trim() ? v.trim() : null);
     try {
@@ -210,25 +188,6 @@ const ProfileContent: React.FC = () => {
         description: "Failed to update profile. Please try again.",
         variant: "destructive",
       });
-    }
-  };
-
-  const handleSaveNotifications = async (
-    prefs: typeof notificationPreferences,
-  ) => {
-    try {
-      await updateNotificationPreferencesMutation.mutateAsync(prefs);
-      toast({
-        title: "Preferences Saved",
-        description: "Your notification preferences have been updated.",
-      });
-    } catch (error) {
-      toast({
-        title: "Update Failed",
-        description: "Failed to update notification preferences.",
-        variant: "destructive",
-      });
-      throw error;
     }
   };
 
@@ -403,11 +362,9 @@ Total Loan Repayments: ₦${filteredTransactions
 
   const tabs = [
     { id: "personal", label: "Personal Info", icon: User },
-    { id: "notifications", label: "Notifications", icon: Bell },
     { id: "banking", label: "Banking", icon: CreditCard },
     { id: "transactions", label: "Transactions", icon: FileText },
     { id: "reports", label: "Reports", icon: Download },
-    { id: "security", label: "Security", icon: Shield },
   ];
 
   const getTransactionIcon = (type: TransactionType) => {
@@ -514,13 +471,6 @@ Total Loan Repayments: ₦${filteredTransactions
               onSave={handleSavePersonalInfo}
               isEditing={isEditing}
               onEditToggle={() => setIsEditing(!isEditing)}
-            />
-          )}
-
-          {activeTab === "notifications" && (
-            <NotificationSettings
-              preferences={notificationPreferences}
-              onSave={handleSaveNotifications}
             />
           )}
 
@@ -679,79 +629,7 @@ Total Loan Repayments: ₦${filteredTransactions
             </div>
           )}
 
-          {activeTab === "security" && (
-            <div className="space-y-6">
-              <div className="bg-white p-6 border border-gray-200 rounded-xl">
-                <h3 className="flex items-center gap-2 mb-4 font-semibold text-gray-900 text-lg">
-                  <Shield className="w-5 h-5 text-emerald-600" />
-                  Security Settings
-                </h3>
-
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center py-4 border-gray-100 border-b">
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        Change Password
-                      </p>
-                      <p className="text-gray-500 text-sm">
-                        Update your account password
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => setIsChangePasswordOpen(true)}
-                      className="hover:bg-emerald-50 px-4 py-2 rounded-lg font-medium text-emerald-600 transition-colors"
-                    >
-                      Update
-                    </button>
-                  </div>
-
-                  <div className="flex justify-between items-center py-4 border-gray-100 border-b">
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        Two-Factor Authentication
-                      </p>
-                      <p className="text-gray-500 text-sm">
-                        Add an extra layer of security
-                      </p>
-                    </div>
-                    <button className="hover:bg-emerald-50 px-4 py-2 rounded-lg font-medium text-emerald-600 transition-colors">
-                      Enable
-                    </button>
-                  </div>
-
-                  <div className="flex justify-between items-center py-4 border-gray-100 border-b">
-                    <div>
-                      <p className="font-medium text-gray-900">Login History</p>
-                      <p className="text-gray-500 text-sm">
-                        View recent login activity
-                      </p>
-                    </div>
-                    <button className="hover:bg-emerald-50 px-4 py-2 rounded-lg font-medium text-emerald-600 transition-colors">
-                      View
-                    </button>
-                  </div>
-
-                  <div className="flex justify-between items-center py-4">
-                    <div>
-                      <p className="font-medium text-red-600">Delete Account</p>
-                      <p className="text-gray-500 text-sm">
-                        Permanently delete your account and data
-                      </p>
-                    </div>
-                    <button className="hover:bg-red-50 px-4 py-2 rounded-lg font-medium text-red-600 transition-colors">
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
-
-        <ChangePasswordDialog
-          open={isChangePasswordOpen}
-          onOpenChange={setIsChangePasswordOpen}
-        />
       </main>
     </div>
   );

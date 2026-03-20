@@ -265,7 +265,10 @@ const Header: React.FC<HeaderProps> = ({ onLoginClick, onGetStartedClick }) => {
                           Admin Panel
                         </a>
                       ) : null}
-                      <button className="flex items-center gap-3 hover:bg-gray-50 px-4 py-2 w-full text-gray-700 text-left">
+                      <a
+                        href="/settings"
+                        className="flex items-center gap-3 hover:bg-gray-50 px-4 py-2 w-full text-gray-700 text-left"
+                      >
                         <svg
                           className="w-5 h-5 text-gray-400"
                           fill="none"
@@ -286,7 +289,7 @@ const Header: React.FC<HeaderProps> = ({ onLoginClick, onGetStartedClick }) => {
                           />
                         </svg>
                         Settings
-                      </button>
+                      </a>
                     </div>
 
                     <div className="pt-2 border-gray-100 border-t">

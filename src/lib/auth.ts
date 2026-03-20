@@ -184,9 +184,24 @@ export async function signIn({ email, password }: SignInData): Promise<{
   user: AuthUser | null;
   session: AuthSession | null;
   error: Error | null;
+  twoFactorRequired?: boolean;
+  twoFactorToken?: string;
 }> {
   try {
     const res = await api.post("/auth/login", { email, password });
+    const twoFactorRequired = Boolean(res.data?.twoFactorRequired);
+    const twoFactorToken = res.data?.twoFactorToken;
+
+    if (twoFactorRequired && twoFactorToken) {
+      return {
+        user: null,
+        session: null,
+        error: null,
+        twoFactorRequired: true,
+        twoFactorToken,
+      };
+    }
+
     const { accessToken, refreshToken } = res.data || {};
 
     if (!accessToken || !refreshToken) {
@@ -508,9 +523,20 @@ export async function verifyPhoneOTP(
   verified?: boolean;
   isNewUser?: boolean;
   error?: string;
+  twoFactorRequired?: boolean;
+  twoFactorToken?: string;
 }> {
   try {
     const res = await api.post("/auth/phone-otp/verify", { pinId, otp });
+    if (res.data?.twoFactorRequired && res.data?.twoFactorToken) {
+      return {
+        success: true,
+        verified: false,
+        isNewUser: Boolean(res.data?.data?.isNewUser),
+        twoFactorRequired: true,
+        twoFactorToken: res.data?.twoFactorToken,
+      };
+    }
     const { accessToken, refreshToken } = res.data || {};
 
     if (accessToken && refreshToken) {
@@ -525,6 +551,37 @@ export async function verifyPhoneOTP(
     };
   } catch (err) {
     return { success: false, verified: false, error: getApiErrorMessage(err) };
+  }
+}
+
+export async function verifyTwoFactorLogin(
+  token: string,
+  code: string,
+): Promise<{
+  user: AuthUser | null;
+  session: AuthSession | null;
+  error: Error | null;
+}> {
+  try {
+    const res = await api.post("/auth/2fa/login", { token, code });
+    const { accessToken, refreshToken } = res.data || {};
+
+    if (!accessToken || !refreshToken) {
+      throw new Error("Missing tokens");
+    }
+
+    setTokens({ accessToken, refreshToken });
+    emitAuthEvent({ type: "SIGNED_IN" });
+
+    const user = mapBackendUser(res.data?.data?.user);
+
+    return {
+      user: user.id ? user : null,
+      session: { accessToken, refreshToken, user },
+      error: null,
+    };
+  } catch (err) {
+    return { user: null, session: null, error: new Error(getApiErrorMessage(err)) };
   }
 }
 

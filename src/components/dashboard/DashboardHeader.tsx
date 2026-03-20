@@ -97,6 +97,7 @@ const DashboardHeader: React.FC = () => {
     { name: "Calendar", path: "/calendar" },
     { name: "Credit Score", path: "/credit-score" },
     { name: "Guarantor", path: "/guarantor" },
+    { name: "Settings", path: "/settings" },
     // { name: 'Profile', path: '/profile' },
     // (user?.role === "admin" || user?.role === "group_coordinator") && {
     //   name: "Admin",
@@ -426,7 +427,10 @@ const DashboardHeader: React.FC = () => {
                         Admin Panel
                       </button>
                     ) : null}
-                    <button className="flex items-center gap-3 hover:bg-gray-50 px-4 py-2 w-full text-gray-700 text-left">
+                    <button
+                      onClick={() => navigate("/settings")}
+                      className="flex items-center gap-3 hover:bg-gray-50 px-4 py-2 w-full text-gray-700 text-left"
+                    >
                       <svg
                         className="w-5 h-5 text-gray-400"
                         fill="none"
