@@ -28,6 +28,8 @@ interface Document {
   size: number;
   status: "uploading" | "uploaded" | "error";
   url?: string;
+  progress?: number;
+  file?: File;
 }
 
 interface Guarantor {

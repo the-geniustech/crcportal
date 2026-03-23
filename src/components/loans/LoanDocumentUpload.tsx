@@ -1,5 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Upload, FileText, Image, X, CheckCircle, AlertCircle, Eye } from 'lucide-react';
+import { Upload, FileText, Image, X, CheckCircle, AlertCircle, Eye, RotateCw } from 'lucide-react';
+import { useToast } from "@/hooks/use-toast";
+import { useUploadLoanDocumentsMutation } from "@/hooks/loans/useUploadLoanDocumentsMutation";
 
 interface Document {
   id: string;
@@ -8,6 +10,8 @@ interface Document {
   size: number;
   status: 'uploading' | 'uploaded' | 'error';
   url?: string;
+  progress?: number;
+  file?: File;
 }
 
 interface RequiredDocument {
@@ -21,7 +25,7 @@ interface RequiredDocument {
 
 interface LoanDocumentUploadProps {
   documents: Document[];
-  onDocumentsChange: (documents: Document[]) => void;
+  onDocumentsChange: React.Dispatch<React.SetStateAction<Document[]>>;
   onContinue: () => void;
   onBack: () => void;
   loanAmount: number;
@@ -85,6 +89,8 @@ export default function LoanDocumentUpload({
   onBack,
   loanAmount
 }: LoanDocumentUploadProps) {
+  const { toast } = useToast();
+  const uploadMutation = useUploadLoanDocumentsMutation();
   const [dragActive, setDragActive] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
@@ -115,7 +121,46 @@ export default function LoanDocumentUpload({
     }
   };
 
-  const handleFile = (file: File, docType: RequiredDocument) => {
+  const updateDocument = (docId: string, updater: (doc: Document) => Document) => {
+    onDocumentsChange(prev => prev.map(d => d.id === docId ? updater(d) : d));
+  };
+
+  const uploadDocument = async (docId: string, file: File) => {
+    updateDocument(docId, (doc) => ({ ...doc, status: 'uploading', progress: 0 }));
+
+    try {
+      const uploadedDocs = await uploadMutation.mutateAsync({
+        file,
+        onProgress: (percent) => {
+          updateDocument(docId, (doc) => ({ ...doc, progress: percent }));
+        },
+      });
+      const uploaded = uploadedDocs[0];
+
+      updateDocument(docId, (doc) => {
+        if (doc.url && doc.url.startsWith('blob:') && uploaded?.url && uploaded.url !== doc.url) {
+          URL.revokeObjectURL(doc.url);
+        }
+        return {
+          ...doc,
+          status: 'uploaded',
+          progress: 100,
+          url: uploaded?.url ?? doc.url,
+          type: uploaded?.type ?? doc.type,
+          size: uploaded?.size ?? doc.size,
+        };
+      });
+    } catch (err) {
+      updateDocument(docId, (doc) => ({ ...doc, status: 'error' as const }));
+      toast({
+        title: "Upload failed",
+        description: "Could not upload the document. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleFile = async (file: File, docType: RequiredDocument) => {
     // Validate file type
     if (!docType.acceptedTypes.includes(file.type)) {
       alert(`Invalid file type. Please upload: ${docType.acceptedTypes.join(', ')}`);
@@ -129,13 +174,16 @@ export default function LoanDocumentUpload({
     }
 
     // Create document object
+    const previewUrl = URL.createObjectURL(file);
     const newDoc: Document = {
       id: `${docType.id}_${Date.now()}`,
       name: file.name,
       type: file.type,
       size: file.size,
       status: 'uploading',
-      url: URL.createObjectURL(file)
+      url: previewUrl,
+      progress: 0,
+      file
     };
 
     // Remove existing document of same type
@@ -144,16 +192,28 @@ export default function LoanDocumentUpload({
     // Add new document
     onDocumentsChange([...filteredDocs, newDoc]);
 
-    // Simulate upload
-    setTimeout(() => {
-      onDocumentsChange(prev => 
-        prev.map(d => d.id === newDoc.id ? { ...d, status: 'uploaded' as const } : d)
-      );
-    }, 1500);
+    await uploadDocument(newDoc.id, file);
   };
 
   const removeDocument = (docId: string) => {
+    const doc = documents.find(d => d.id === docId);
+    if (doc?.url && doc.url.startsWith('blob:')) {
+      URL.revokeObjectURL(doc.url);
+    }
     onDocumentsChange(documents.filter(d => d.id !== docId));
+  };
+
+  const retryDocument = (docId: string) => {
+    const doc = documents.find(d => d.id === docId);
+    if (!doc?.file) {
+      toast({
+        title: "Cannot retry",
+        description: "Original file is missing. Please re-upload the document.",
+        variant: "destructive",
+      });
+      return;
+    }
+    uploadDocument(docId, doc.file);
   };
 
   const formatFileSize = (bytes: number) => {
@@ -253,10 +313,33 @@ export default function LoanDocumentUpload({
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">{uploadedDoc.name}</p>
                         <p className="text-xs text-gray-500">{formatFileSize(uploadedDoc.size)}</p>
+                        {uploadedDoc.status === 'uploading' && (
+                          <div className="mt-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className="h-1 bg-emerald-500 transition-all"
+                              style={{ width: `${Math.min(100, Math.max(0, uploadedDoc.progress ?? 0))}%` }}
+                            />
+                          </div>
+                        )}
+                        {uploadedDoc.status === 'error' && (
+                          <p className="mt-1 text-xs text-red-500">Upload failed. Tap retry.</p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         {uploadedDoc.status === 'uploading' && (
-                          <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                          <div className="flex items-center gap-2">
+                            <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-xs text-emerald-600">{Math.min(100, Math.max(0, uploadedDoc.progress ?? 0))}%</span>
+                          </div>
+                        )}
+                        {uploadedDoc.status === 'error' && (
+                          <button
+                            onClick={() => retryDocument(uploadedDoc.id)}
+                            className="p-1.5 hover:bg-amber-100 rounded-lg transition-colors"
+                            title="Retry upload"
+                          >
+                            <RotateCw className="w-4 h-4 text-amber-600" />
+                          </button>
                         )}
                         {uploadedDoc.type.startsWith('image/') && (
                           <button

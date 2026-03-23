@@ -55,3 +55,17 @@ export async function reviewAdminLoanApplication(
   }
 }
 
+export async function disburseAdminLoanApplication(
+  applicationId: string,
+  payload?: { repaymentStartDate?: string | null },
+) {
+  try {
+    const res = await api.post(
+      `/admin/loans/applications/${applicationId}/disburse`,
+      payload ?? {},
+    );
+    return res.data?.data?.application as AdminLoanApplication;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}

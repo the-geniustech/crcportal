@@ -60,6 +60,7 @@ import { useMarkContributionPaidMutation } from "@/hooks/admin/useMarkContributi
 import { useAdminGroupsQuery } from "@/hooks/admin/useAdminGroupsQuery";
 import { useAdminLoanApplicationsQuery } from "@/hooks/admin/useAdminLoanApplicationsQuery";
 import { useReviewAdminLoanApplicationMutation } from "@/hooks/admin/useReviewAdminLoanApplicationMutation";
+import { useDisburseAdminLoanApplicationMutation } from "@/hooks/admin/useDisburseAdminLoanApplicationMutation";
 import { useCreateAdminAnnouncementMutation } from "@/hooks/admin/useCreateAdminAnnouncementMutation";
 import { useAdminAttendanceMeetingsQuery } from "@/hooks/admin/useAdminAttendanceMeetingsQuery";
 import { useAdminSmsStatsQuery } from "@/hooks/admin/useAdminSmsStatsQuery";
@@ -776,6 +777,7 @@ export default function Admin() {
   const contributions = trackerQuery.data ?? [];
   const adminLoanAppsQuery = useAdminLoanApplicationsQuery({ status: "all" });
   const reviewAdminLoanMutation = useReviewAdminLoanApplicationMutation();
+  const disburseAdminLoanMutation = useDisburseAdminLoanApplicationMutation();
   const loanApplications = adminLoanAppsQuery.data ?? [];
   const createAnnouncementMutation = useCreateAdminAnnouncementMutation();
   const smsStatsQuery = useAdminSmsStatsQuery();
@@ -882,34 +884,37 @@ export default function Admin() {
     return `₦${Math.round(n).toLocaleString()}`;
   };
 
-  const menuItems = [
-    { id: "overview", label: "Overview", icon: LayoutDashboard },
-    {
-      id: "approvals",
-      label: "Member Approvals",
-      icon: UserCheck,
-      badge: stats.pendingApprovals,
-    },
-    {
-      id: "contributions",
-      label: "Contributions",
-      icon: TrendingUp,
-      badge: stats.defaulters > 0 ? stats.defaulters : undefined,
-    },
-    { id: "groups", label: "Group Management", icon: Users },
-    {
-      id: "loans",
-      label: "Loan Applications",
-      icon: CreditCard,
-      badge: stats.pendingLoans,
-    },
-    { id: "withdrawals", label: "Withdrawals", icon: ArrowDownRight },
-    { id: "reports", label: "Financial Reports", icon: BarChart3 },
-    { id: "attendance", label: "Attendance", icon: Calendar },
-    { id: "coordinators", label: "Group Coordinators", icon: Users },
-    { id: "announcements", label: "Announcements", icon: Bell },
-    { id: "sms", label: "SMS Center", icon: MessageSquare },
-  ];
+  const menuItems = useMemo(
+    () => [
+      { id: "overview", label: "Overview", icon: LayoutDashboard },
+      {
+        id: "approvals",
+        label: "Member Approvals",
+        icon: UserCheck,
+        badge: stats.pendingApprovals,
+      },
+      {
+        id: "contributions",
+        label: "Contributions",
+        icon: TrendingUp,
+        badge: stats.defaulters > 0 ? stats.defaulters : undefined,
+      },
+      { id: "groups", label: "Group Management", icon: Users },
+      {
+        id: "loans",
+        label: "Loan Applications",
+        icon: CreditCard,
+        badge: stats.pendingLoans,
+      },
+      { id: "withdrawals", label: "Withdrawals", icon: ArrowDownRight },
+      { id: "reports", label: "Financial Reports", icon: BarChart3 },
+      { id: "attendance", label: "Attendance", icon: Calendar },
+      { id: "coordinators", label: "Group Coordinators", icon: Users },
+      { id: "announcements", label: "Announcements", icon: Bell },
+      { id: "sms", label: "SMS Center", icon: MessageSquare },
+    ],
+    [stats.pendingApprovals, stats.defaulters, stats.pendingLoans],
+  );
 
   const activeTab = menuItems.some((item) => item.id === tab)
     ? (tab as string)
@@ -1082,6 +1087,31 @@ export default function Admin() {
     }
   };
 
+  const handleLoanDisburse = async (
+    id: string,
+    repaymentStartDate?: string | null,
+  ) => {
+    try {
+      await disburseAdminLoanMutation.mutateAsync({
+        applicationId: id,
+        repaymentStartDate: repaymentStartDate || null,
+      });
+      toast({
+        title: "Loan Disbursed",
+        description: "Loan funds have been disbursed and schedule created.",
+      });
+    } catch (error: unknown) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String(
+              (error as { message?: string }).message ||
+                "Failed to disburse loan.",
+            )
+          : "Failed to disburse loan.";
+      toast({ title: "Error", description: message, variant: "destructive" });
+    }
+  };
+
   const handleSendAnnouncement = async () => {
     if (!announcementTitle.trim() || !announcementMessage.trim()) {
       toast({
@@ -1227,9 +1257,7 @@ export default function Admin() {
         updates: payload,
       });
 
-      setGroupActionTarget((prev) =>
-        prev ? { ...prev, ...updated } : prev,
-      );
+      setGroupActionTarget((prev) => (prev ? { ...prev, ...updated } : prev));
       toast({
         title: "Group Updated",
         description: `Changes saved for "${data.name}".`,
@@ -1515,6 +1543,7 @@ export default function Admin() {
               onApprove={handleLoanApprove}
               onReject={handleLoanReject}
               onStartReview={handleStartReview}
+              onDisburse={handleLoanDisburse}
             />
           )}
 

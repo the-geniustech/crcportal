@@ -181,6 +181,29 @@ export async function createLoanApplication(
   }
 }
 
+export async function uploadLoanDocuments(
+  files: File[],
+  opts?: { onProgress?: (percent: number) => void },
+): Promise<BackendLoanDocument[]> {
+  try {
+    const formData = new FormData();
+    files.forEach((file) => formData.append("documents", file));
+    const res = await api.post("/loans/documents", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress: (event) => {
+        if (!opts?.onProgress) return;
+        const total = event.total ?? 0;
+        if (!total) return;
+        const pct = Math.min(100, Math.round((event.loaded / total) * 100));
+        opts.onProgress(pct);
+      },
+    });
+    return (res.data?.data?.documents ?? []) as BackendLoanDocument[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
 export async function listMyLoanApplications(): Promise<
   BackendLoanApplication[]
 > {

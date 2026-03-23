@@ -39,15 +39,18 @@ interface LoanReviewPanelProps {
   onApprove: (id: string, notes: string) => void;
   onReject: (id: string, notes: string) => void;
   onStartReview: (id: string) => void;
+  onDisburse: (id: string, repaymentStartDate?: string | null) => void;
 }
 
-export default function LoanReviewPanel({ applications, onApprove, onReject, onStartReview }: LoanReviewPanelProps) {
+export default function LoanReviewPanel({ applications, onApprove, onReject, onStartReview, onDisburse }: LoanReviewPanelProps) {
   const [selectedLoan, setSelectedLoan] = useState<LoanApplication | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const [showDisburseModal, setShowDisburseModal] = useState(false);
   const [reviewNotes, setReviewNotes] = useState('');
   const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [repaymentStartDate, setRepaymentStartDate] = useState('');
 
   const pendingCount = applications.filter(a => a.status === 'pending').length;
   const underReviewCount = applications.filter(a => a.status === 'under_review').length;
@@ -88,6 +91,12 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
     setShowReviewModal(true);
   };
 
+  const handleDisburse = (loan: LoanApplication) => {
+    setSelectedLoan(loan);
+    setRepaymentStartDate('');
+    setShowDisburseModal(true);
+  };
+
   const confirmReview = () => {
     if (selectedLoan && reviewAction) {
       if (reviewAction === 'approve') {
@@ -96,6 +105,14 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
         onReject(selectedLoan.id, reviewNotes);
       }
       setShowReviewModal(false);
+      setSelectedLoan(null);
+    }
+  };
+
+  const confirmDisburse = () => {
+    if (selectedLoan) {
+      onDisburse(selectedLoan.id, repaymentStartDate || null);
+      setShowDisburseModal(false);
       setSelectedLoan(null);
     }
   };
@@ -234,6 +251,15 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
                       </Button>
                     </>
                   )}
+                  {loan.status === 'approved' && (
+                    <Button
+                      size="sm"
+                      className="bg-purple-600 hover:bg-purple-700"
+                      onClick={() => handleDisburse(loan)}
+                    >
+                      Disburse
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -344,6 +370,46 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
                 onClick={confirmReview}
               >
                 {reviewAction === 'approve' ? 'Confirm Approval' : 'Confirm Rejection'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Disburse Modal */}
+      <Dialog open={showDisburseModal} onOpenChange={setShowDisburseModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Disburse Loan</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {selectedLoan && (
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <p className="font-medium">{selectedLoan.applicantName}</p>
+                <p className="text-lg font-bold text-purple-600">â‚¦{selectedLoan.loanAmount.toLocaleString()}</p>
+                <p className="text-sm text-gray-600">{selectedLoan.loanPurpose}</p>
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Repayment Start Date (optional)
+              </label>
+              <input
+                type="date"
+                value={repaymentStartDate}
+                onChange={(e) => setRepaymentStartDate(e.target.value)}
+                className="w-full border rounded-md px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-gray-500">
+                Leave empty to start next month. Guarantors must have accepted 100% liability before disbursement.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setShowDisburseModal(false)}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-purple-600 hover:bg-purple-700" onClick={confirmDisburse}>
+                Confirm Disbursement
               </Button>
             </div>
           </div>
