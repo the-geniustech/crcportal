@@ -87,6 +87,33 @@ export default function LoanRepaymentTerms({
     return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   };
 
+  if (repaymentOptions.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-6">
+          <p className="text-amber-800 font-medium">No repayment terms available</p>
+          <p className="text-amber-700 text-sm mt-1">
+            The selected loan facility is not available for the current repayment window.
+          </p>
+        </div>
+        <div className="flex justify-between">
+          <button
+            onClick={onBack}
+            className="px-6 py-3 rounded-xl font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 transition-colors"
+          >
+            Back
+          </button>
+          <button
+            disabled
+            className="px-8 py-3 rounded-xl font-semibold bg-gray-200 text-gray-500 cursor-not-allowed"
+          >
+            Continue to Documentation
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Repayment Term Selection */}

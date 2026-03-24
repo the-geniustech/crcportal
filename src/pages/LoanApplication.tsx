@@ -20,7 +20,6 @@ import {
   formatInterestLabel,
   getLoanFacility,
   getLoanTermOptions,
-  isLoanFacilityAvailable,
 } from "@/lib/loanPolicy";
 import {
   CheckCircle,
@@ -152,12 +151,15 @@ const LoanApplicationContent: React.FC = () => {
   const prefilledData = location.state as {
     amount?: number;
     term?: number;
+    loanType?: LoanFacilityKey;
   } | null;
 
   // Form state
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
-  const [loanType, setLoanType] = useState<LoanFacilityKey>("revolving");
+  const [loanType, setLoanType] = useState<LoanFacilityKey>(
+    prefilledData?.loanType || "revolving",
+  );
   const [loanAmount, setLoanAmount] = useState(prefilledData?.amount || 100000);
   const [purpose, setPurpose] = useState("");
   const [purposeDescription, setPurposeDescription] = useState("");
@@ -527,6 +529,9 @@ const LoanApplicationContent: React.FC = () => {
                   contributionStreak: 0,
                   previousLoans: 0,
                   defaultedLoans: 0,
+                  overdueContributions: 0,
+                  overdueRepayments: 0,
+                  contributionWindow: { startDay: 27, endDay: 4, isOpen: false },
                   creditScore: 0,
                 }
               }

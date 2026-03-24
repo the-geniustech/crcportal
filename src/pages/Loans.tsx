@@ -10,6 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useMyLoanApplicationsQuery } from "@/hooks/loans/useMyLoanApplicationsQuery";
 import { useLoanScheduleQuery } from "@/hooks/loans/useLoanScheduleQuery";
 import type { BackendLoanApplication, BackendLoanScheduleItem } from "@/lib/loans";
+import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
 import {
   ArrowLeft,
   CreditCard,
@@ -28,6 +29,8 @@ type LoanScheduleVM = {
   id: string;
   loanAmount: number;
   interestRate: number;
+  interestRateType?: "annual" | "monthly" | "total";
+  loanType?: string;
   termMonths: number;
   monthlyPayment: number;
   totalInterest: number;
@@ -72,6 +75,10 @@ function mapLoanVm(app: BackendLoanApplication, schedule: BackendLoanScheduleIte
   const totalPayment = Number(app.totalRepayable ?? principal);
   const remainingBalance = Number(app.remainingBalance ?? 0);
   const interestRate = Number(app.approvedInterestRate ?? app.interestRate ?? 0);
+  const interestRateType = (app.interestRateType ?? "annual") as
+    | "annual"
+    | "monthly"
+    | "total";
   const termMonths = Number(app.repaymentPeriod ?? 0);
   const monthlyPayment = Number(app.monthlyPayment ?? 0);
 
@@ -98,6 +105,8 @@ function mapLoanVm(app: BackendLoanApplication, schedule: BackendLoanScheduleIte
     id: app._id,
     loanAmount: principal,
     interestRate,
+    interestRateType,
+    loanType: app.loanType ?? undefined,
     termMonths,
     monthlyPayment,
     totalInterest,
@@ -355,6 +364,15 @@ function LoansContent() {
                   const totalRepayable = Number(app.totalRepayable ?? principal);
                   const totalPaid = totalRepayable;
                   const rate = Number(app.approvedInterestRate ?? app.interestRate ?? 0);
+                  const facility = getLoanFacility(app.loanType ?? "");
+                  const rateType = (app.interestRateType ??
+                    facility?.interestRateType ??
+                    "annual") as "annual" | "monthly" | "total";
+                  const interestLabel = formatInterestLabel(
+                    rate,
+                    rateType,
+                    facility?.interestRateRange,
+                  );
                   const completedDate = toYmd(app.updatedAt || app.disbursedAt || app.createdAt || "");
 
                   return (
@@ -385,7 +403,7 @@ function LoansContent() {
                       </div>
                       <div className="p-3 bg-gray-50 rounded-lg">
                         <p className="text-xs text-gray-500">Interest Rate</p>
-                        <p className="font-semibold text-gray-900">{rate}%</p>
+                        <p className="font-semibold text-gray-900">{interestLabel}</p>
                       </div>
                       <div className="p-3 bg-gray-50 rounded-lg">
                         <p className="text-xs text-gray-500">Completed</p>
@@ -421,7 +439,19 @@ function LoansContent() {
               </div>
             ) : (
               <div className="space-y-4">
-                {pendingApps.map((app) => (
+                {pendingApps.map((app) => {
+                  const facility = getLoanFacility(app.loanType ?? "");
+                  const rate = Number(app.approvedInterestRate ?? app.interestRate ?? 0);
+                  const rateType = (app.interestRateType ??
+                    facility?.interestRateType ??
+                    "annual") as "annual" | "monthly" | "total";
+                  const interestLabel = formatInterestLabel(
+                    rate,
+                    rateType,
+                    facility?.interestRateRange,
+                  );
+
+                  return (
                   <div key={app._id} className="bg-white rounded-xl border p-6">
                     <div className="flex items-start justify-between">
                       <div className="flex items-center gap-4">
@@ -449,7 +479,7 @@ function LoansContent() {
                       </div>
                       <div className="p-3 bg-gray-50 rounded-lg">
                         <p className="text-xs text-gray-500">Interest Rate</p>
-                        <p className="font-semibold text-gray-900">{Number(app.interestRate ?? 0)}%</p>
+                        <p className="font-semibold text-gray-900">{interestLabel}</p>
                       </div>
                       <div className="p-3 bg-gray-50 rounded-lg">
                         <p className="text-xs text-gray-500">Submitted</p>
@@ -457,7 +487,8 @@ function LoansContent() {
                       </div>
                     </div>
                   </div>
-                ))}
+                );
+                })}
               </div>
             )}
           </TabsContent>

@@ -100,7 +100,8 @@ export default function LoanAmountSelector({
   };
 
   const isValidAmount = selectedAmount >= minAmount && selectedAmount <= maxAmount;
-  const canContinue = isValidAmount && purpose && purposeDescription.length >= 20;
+  const facilityAvailable = isLoanFacilityAvailable(loanType);
+  const canContinue = isValidAmount && purpose && purposeDescription.length >= 20 && facilityAvailable;
 
   return (
     <div className="space-y-6">
@@ -141,8 +142,13 @@ export default function LoanAmountSelector({
                     <span className="text-xs text-red-600 font-medium">Not available</span>
                   )}
                 </div>
-                <p className="text-sm text-gray-500 mb-2">{facility.description}</p>
-                <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                <p className="text-sm text-gray-500">{facility.description}</p>
+                {facility.qualificationNote && (
+                  <p className="text-xs text-amber-600 font-medium mt-1">
+                    {facility.qualificationNote}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-3 text-xs text-gray-500 mt-2">
                   <span className="font-medium text-gray-900">{rateLabel}</span>
                   {facility.availabilityLabel && (
                     <span>Availability: {facility.availabilityLabel}</span>
@@ -152,6 +158,11 @@ export default function LoanAmountSelector({
             );
           })}
         </div>
+        {!facilityAvailable && (
+          <p className="mt-3 text-sm text-red-600">
+            The selected loan facility is not available right now. Please choose another option.
+          </p>
+        )}
       </div>
 
       {/* Amount Selection */}

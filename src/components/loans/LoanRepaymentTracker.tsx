@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import supabase from "@/lib/supabase";
+import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
 import {
   Calendar,
   CheckCircle,
@@ -22,6 +23,8 @@ interface LoanSchedule {
   id: string;
   loanAmount: number;
   interestRate: number;
+  interestRateType?: "annual" | "monthly" | "total";
+  loanType?: string;
   termMonths: number;
   monthlyPayment: number;
   totalInterest: number;
@@ -74,6 +77,12 @@ export default function LoanRepaymentTracker({
 
   const totalPaid = paidPayments.reduce((sum, p) => sum + p.totalAmount, 0);
   const progressPercentage = Math.round((totalPaid / loan.totalPayment) * 100);
+  const facility = getLoanFacility(loan.loanType || "");
+  const interestLabel = formatInterestLabel(
+    loan.interestRate,
+    loan.interestRateType || facility?.interestRateType || "annual",
+    facility?.interestRateRange,
+  );
 
   // Calculate early repayment savings
   const calculateEarlyRepaymentSavings = (amount: number) => {
@@ -240,7 +249,7 @@ export default function LoanRepaymentTracker({
             </div>
             <div>
               <p className="font-bold text-gray-900 text-xl">
-                {loan.interestRate}%
+                {interestLabel}
               </p>
               <p className="text-gray-500 text-xs">Interest Rate</p>
             </div>

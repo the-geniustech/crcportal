@@ -79,58 +79,58 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
     return Math.min(Math.round(maxLoan / 10000) * 10000, 5000000);
   }, [member]);
 
-  // Calculate interest rate based on credit score and term
-  const getInterestRate = (score: number, months: number): number => {
-    let baseRate = 5; // 5% base annual rate
-    
-    // Adjust based on credit score
-    if (score >= 750) baseRate -= 1;
-    else if (score >= 650) baseRate -= 0.5;
-    else if (score < 550) baseRate += 1.5;
-    
-    // Adjust based on term (longer terms = slightly higher rates)
-    if (months > 24) baseRate += 0.5;
-    else if (months > 12) baseRate += 0.25;
-    
-    return Math.max(3, Math.min(8, baseRate));
-  };
+  const facility = getLoanFacility(loanType);
+  const interestRateType = facility?.interestRateType || "annual";
+  const interestRate =
+    facility?.interestRate ??
+    facility?.interestRateRange?.min ??
+    0;
+  const interestLabel = formatInterestLabel(
+    interestRate,
+    interestRateType,
+    facility?.interestRateRange,
+  );
+  const termOptions = getLoanTermOptions(loanType, addMonths(new Date(), 1));
+  const termMin = termOptions.length > 0 ? termOptions[0] : 3;
+  const termMax =
+    termOptions.length > 0 ? termOptions[termOptions.length - 1] : 36;
 
-  const interestRate = getInterestRate(member.creditScore, termMonths);
+  useEffect(() => {
+    if (termOptions.length === 0) return;
+    if (!termOptions.includes(termMonths)) {
+      setTermMonths(termOptions[0]);
+    }
+  }, [loanType, termOptions.join(","), termMonths]);
 
   // Calculate loan details
   const loanDetails = useMemo(() => {
-    const monthlyRate = interestRate / 100 / 12;
-    const monthlyPayment = loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, termMonths)) / 
-                          (Math.pow(1 + monthlyRate, termMonths) - 1);
-    const totalPayment = monthlyPayment * termMonths;
-    const totalInterest = totalPayment - loanAmount;
-    
-    return {
-      monthlyPayment: Math.round(monthlyPayment),
-      totalPayment: Math.round(totalPayment),
-      totalInterest: Math.round(totalInterest),
-    };
-  }, [loanAmount, termMonths, interestRate]);
+    return calculateLoanSummary({
+      principal: loanAmount,
+      rate: interestRate,
+      rateType: interestRateType,
+      months: termMonths,
+    });
+  }, [loanAmount, termMonths, interestRate, interestRateType]);
 
   // Compare different terms
   const termComparisons = useMemo(() => {
-    const terms = [6, 12, 18, 24, 36];
+    const terms = termOptions.length > 0 ? termOptions : [6, 12, 18, 24, 36];
     return terms.map(months => {
-      const rate = getInterestRate(member.creditScore, months);
-      const monthlyRate = rate / 100 / 12;
-      const monthlyPayment = loanAmount * (monthlyRate * Math.pow(1 + monthlyRate, months)) / 
-                            (Math.pow(1 + monthlyRate, months) - 1);
-      const totalPayment = monthlyPayment * months;
-      const totalInterest = totalPayment - loanAmount;
+      const summary = calculateLoanSummary({
+        principal: loanAmount,
+        rate: interestRate,
+        rateType: interestRateType,
+        months,
+      });
       
       return {
         months,
-        rate,
-        monthlyPayment: Math.round(monthlyPayment),
-        totalInterest: Math.round(totalInterest),
+        rate: interestRate,
+        monthlyPayment: summary.monthlyPayment,
+        totalInterest: summary.totalInterest,
       };
     });
-  }, [loanAmount, member.creditScore]);
+  }, [loanAmount, termOptions.join(","), interestRate, interestRateType]);
 
   // Eligibility requirements
   const eligibilityRequirements = [
@@ -192,7 +192,7 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
           </div>
           <div className="bg-white/10 rounded-xl p-4">
             <p className="text-emerald-100 text-sm">Your Rate</p>
-            <p className="text-2xl font-bold">{interestRate}%</p>
+            <p className="text-2xl font-bold">{interestLabel}</p>
           </div>
           <div className="bg-white/10 rounded-xl p-4">
             <p className="text-emerald-100 text-sm">Credit Score</p>
@@ -202,6 +202,36 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
             <p className="text-emerald-100 text-sm">Savings</p>
             <p className="text-2xl font-bold">₦{(member.totalSavings / 1000).toFixed(0)}K</p>
           </div>
+        </div>
+      </div>
+
+      {/* Facility Selection */}
+      <div className="bg-white rounded-xl border p-6">
+        <h3 className="font-semibold text-gray-900 mb-4">Loan Facility</h3>
+        <div className="flex flex-wrap gap-2">
+          {LOAN_FACILITIES.map((facilityOption) => {
+            const available = isLoanFacilityAvailable(facilityOption.key);
+            const label = formatInterestLabel(
+              facilityOption.interestRate ?? facilityOption.interestRateRange?.min ?? 0,
+              facilityOption.interestRateType,
+              facilityOption.interestRateRange,
+            );
+
+            return (
+              <button
+                key={facilityOption.key}
+                onClick={() => available && setLoanType(facilityOption.key)}
+                disabled={!available}
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors border ${
+                  loanType === facilityOption.key
+                    ? 'bg-emerald-600 text-white border-emerald-600'
+                    : 'bg-gray-100 text-gray-700 border-transparent hover:bg-gray-200'
+                } ${!available ? 'opacity-60 cursor-not-allowed' : ''}`}
+              >
+                {facilityOption.name} ({label})
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -256,20 +286,20 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
               <Slider
                 value={[termMonths]}
                 onValueChange={(value) => setTermMonths(value[0])}
-                min={3}
-                max={36}
+                min={termMin}
+                max={termMax}
                 step={1}
                 className="w-full"
               />
               <div className="flex justify-between text-sm text-gray-500 mt-2">
-                <span>3 months</span>
-                <span>36 months</span>
+                <span>{termMin} months</span>
+                <span>{termMax} months</span>
               </div>
             </div>
 
             {/* Quick Term Selection */}
             <div className="flex flex-wrap gap-2">
-              {[6, 12, 18, 24, 36].map((months) => (
+              {(termOptions.length > 0 ? termOptions : [6, 12, 18, 24, 36]).map((months) => (
                 <button
                   key={months}
                   onClick={() => setTermMonths(months)}
@@ -313,10 +343,10 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
             <div className="flex items-center gap-2 p-4 bg-gray-50 rounded-xl mb-4">
               <Percent className="h-5 w-5 text-gray-500" />
               <span className="text-gray-600">Interest Rate:</span>
-              <span className="font-semibold text-gray-900">{interestRate}% per annum</span>
+              <span className="font-semibold text-gray-900">{interestLabel}</span>
               {member.creditScore >= 700 && (
                 <span className="ml-auto px-2 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full">
-                  Preferred Rate
+                  Preferred Member
                 </span>
               )}
             </div>
@@ -351,7 +381,7 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
                         onClick={() => setTermMonths(term.months)}
                       >
                         <td className="py-3 px-2 font-medium">{term.months} months</td>
-                        <td className="py-3 px-2">{term.rate}%</td>
+                        <td className="py-3 px-2">{interestLabel}</td>
                         <td className="py-3 px-2">₦{term.monthlyPayment.toLocaleString()}</td>
                         <td className="py-3 px-2">₦{term.totalInterest.toLocaleString()}</td>
                       </tr>
@@ -407,7 +437,7 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
 
             {isEligible && loanAmount <= maxEligibleLoan && (
               <Button
-                onClick={() => navigate('/loan-application', { state: { amount: loanAmount, term: termMonths } })}
+                onClick={() => navigate('/loan-application', { state: { amount: loanAmount, term: termMonths, loanType } })}
                 className="w-full mt-4 bg-emerald-600 hover:bg-emerald-700"
               >
                 Apply for This Loan
@@ -478,16 +508,16 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
               <div className="text-sm text-gray-600 space-y-2">
                 <p className="flex items-center gap-2">
                   <Info className="h-4 w-4" />
-                  Higher scores = lower interest rates
+                  Higher scores = better approval odds and higher limits
                 </p>
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   <div className="p-2 bg-green-50 rounded text-center">
                     <p className="text-xs text-gray-500">750+</p>
-                    <p className="font-medium text-green-700">-1% rate</p>
+                    <p className="font-medium text-green-700">Top tier limits</p>
                   </div>
                   <div className="p-2 bg-emerald-50 rounded text-center">
                     <p className="text-xs text-gray-500">650-749</p>
-                    <p className="font-medium text-emerald-700">-0.5% rate</p>
+                    <p className="font-medium text-emerald-700">Higher limits</p>
                   </div>
                 </div>
               </div>

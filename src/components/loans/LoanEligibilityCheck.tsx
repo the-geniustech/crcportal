@@ -232,7 +232,7 @@ export default function LoanEligibilityCheck({
                     Max: <span className="font-medium text-gray-900">₦{group.maxLoanAmount.toLocaleString()}</span>
                   </span>
                   <span className="text-gray-500">
-                    Rate: <span className="font-medium text-gray-900">{group.interestRate}%</span>
+                    Rates: <span className="font-medium text-gray-900">Facility based</span>
                   </span>
                 </div>
               </button>
