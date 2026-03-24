@@ -1,18 +1,31 @@
 import React, { useState } from 'react';
 import { DollarSign, Target, Briefcase, Home, GraduationCap, Heart, Car, ShoppingBag, Wrench, Sparkles } from 'lucide-react';
+import { calculateLoanSummary } from "@/lib/loanMath";
+import {
+  formatInterestLabel,
+  isLoanFacilityAvailable,
+  type LoanFacility,
+  type LoanFacilityKey,
+  type LoanInterestRateType,
+} from "@/lib/loanPolicy";
 
 interface LoanAmountSelectorProps {
   maxAmount: number;
   minAmount: number;
   selectedAmount: number;
+  loanType: LoanFacilityKey;
+  facilities: LoanFacility[];
   purpose: string;
   purposeDescription: string;
   onAmountChange: (amount: number) => void;
+  onLoanTypeChange: (type: LoanFacilityKey) => void;
   onPurposeChange: (purpose: string) => void;
   onPurposeDescriptionChange: (description: string) => void;
   onContinue: () => void;
   onBack: () => void;
   interestRate: number;
+  interestRateType: LoanInterestRateType;
+  interestLabel: string;
 }
 
 const loanPurposes = [
@@ -30,16 +43,23 @@ export default function LoanAmountSelector({
   maxAmount,
   minAmount,
   selectedAmount,
+  loanType,
+  facilities,
   purpose,
   purposeDescription,
   onAmountChange,
+  onLoanTypeChange,
   onPurposeChange,
   onPurposeDescriptionChange,
   onContinue,
   onBack,
-  interestRate
+  interestRate,
+  interestRateType,
+  interestLabel
 }: LoanAmountSelectorProps) {
   const [customAmount, setCustomAmount] = useState(selectedAmount.toString());
+  const selectedFacility = facilities.find((f) => f.key === loanType) || null;
+  const previewTerm = selectedFacility?.termMonths ?? 12;
 
   const quickAmounts = [
     minAmount,
@@ -69,10 +89,14 @@ export default function LoanAmountSelector({
     setCustomAmount(amount.toString());
   };
 
-  const estimatedMonthlyPayment = (amount: number, rate: number, months: number = 12) => {
-    const monthlyRate = rate / 100 / 12;
-    const payment = (amount * monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
-    return Math.round(payment);
+  const estimatedMonthlyPayment = (amount: number, rate: number, months: number) => {
+    const effectiveMonths = selectedFacility?.termMonths ?? months;
+    return calculateLoanSummary({
+      principal: amount,
+      rate,
+      rateType: interestRateType,
+      months: effectiveMonths,
+    }).monthlyPayment;
   };
 
   const isValidAmount = selectedAmount >= minAmount && selectedAmount <= maxAmount;
@@ -80,6 +104,56 @@ export default function LoanAmountSelector({
 
   return (
     <div className="space-y-6">
+      {/* Loan Facility Selection */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-3 bg-indigo-100 rounded-xl">
+            <Sparkles className="w-6 h-6 text-indigo-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Choose Loan Facility</h3>
+            <p className="text-sm text-gray-500">Select the facility that matches your needs</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {facilities.map((facility) => {
+            const available = isLoanFacilityAvailable(facility.key);
+            const rateLabel = formatInterestLabel(
+              facility.interestRate ?? facility.interestRateRange?.min ?? 0,
+              facility.interestRateType,
+              facility.interestRateRange,
+            );
+
+            return (
+              <button
+                key={facility.key}
+                onClick={() => available && onLoanTypeChange(facility.key)}
+                disabled={!available}
+                className={`p-4 rounded-xl border-2 text-left transition-all ${
+                  loanType === facility.key
+                    ? 'border-emerald-500 bg-emerald-50'
+                    : 'border-gray-200 hover:border-emerald-300 hover:bg-gray-50'
+                } ${!available ? 'opacity-60 cursor-not-allowed' : ''}`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-gray-900">{facility.name}</h4>
+                  {!available && (
+                    <span className="text-xs text-red-600 font-medium">Not available</span>
+                  )}
+                </div>
+                <p className="text-sm text-gray-500 mb-2">{facility.description}</p>
+                <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                  <span className="font-medium text-gray-900">{rateLabel}</span>
+                  {facility.availabilityLabel && (
+                    <span>Availability: {facility.availabilityLabel}</span>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* Amount Selection */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <div className="flex items-center gap-3 mb-6">
@@ -149,14 +223,14 @@ export default function LoanAmountSelector({
         <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-blue-700">Estimated Monthly Payment (12 months)</p>
+              <p className="text-sm text-blue-700">Estimated Monthly Payment ({previewTerm} months)</p>
               <p className="text-2xl font-bold text-blue-900">
                 ₦{estimatedMonthlyPayment(selectedAmount, interestRate, 12).toLocaleString()}
               </p>
             </div>
             <div className="text-right">
               <p className="text-sm text-blue-700">Interest Rate</p>
-              <p className="text-xl font-bold text-blue-900">{interestRate}%</p>
+              <p className="text-xl font-bold text-blue-900">{interestLabel}</p>
             </div>
           </div>
         </div>

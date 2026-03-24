@@ -12,6 +12,7 @@ import {
   ChevronUp,
   Loader2
 } from 'lucide-react';
+import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
 
 interface Guarantor {
   id: string;
@@ -34,10 +35,12 @@ interface Document {
 
 interface LoanReviewSubmitProps {
   loanAmount: number;
+  loanType: string;
   purpose: string;
   purposeDescription: string;
   repaymentTerm: number;
   interestRate: number;
+  interestRateType: "annual" | "monthly" | "total";
   monthlyPayment: number;
   totalInterest: number;
   totalPayment: number;
@@ -63,10 +66,12 @@ const purposeLabels: { [key: string]: string } = {
 
 export default function LoanReviewSubmit({
   loanAmount,
+  loanType,
   purpose,
   purposeDescription,
   repaymentTerm,
   interestRate,
+  interestRateType,
   monthlyPayment,
   totalInterest,
   totalPayment,
@@ -93,6 +98,12 @@ export default function LoanReviewSubmit({
   const isSectionExpanded = (section: string) => expandedSections.includes(section);
 
   const canSubmit = agreedToTerms && agreedToDeductions && !isSubmitting;
+  const facility = getLoanFacility(loanType);
+  const interestLabel = formatInterestLabel(
+    interestRate,
+    interestRateType,
+    facility?.interestRateRange,
+  );
 
   const getMonthName = (monthOffset: number) => {
     const date = new Date();
@@ -129,7 +140,7 @@ export default function LoanReviewSubmit({
           </div>
           <div className="bg-white/10 rounded-xl p-4">
             <p className="text-emerald-100 text-sm">Interest Rate</p>
-            <p className="text-2xl font-bold">{interestRate}%</p>
+            <p className="text-2xl font-bold">{interestLabel}</p>
           </div>
         </div>
       </div>
@@ -177,6 +188,10 @@ export default function LoanReviewSubmit({
                   <Users className="w-5 h-5 text-emerald-600" />
                   <p className="font-semibold text-gray-900">{groupName}</p>
                 </div>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-xl">
+                <p className="text-sm text-gray-500 mb-1">Loan Type</p>
+                <p className="font-semibold text-gray-900">{facility?.name || loanType}</p>
               </div>
             </div>
 
@@ -352,9 +367,10 @@ export default function LoanReviewSubmit({
               className="mt-1 w-5 h-5 rounded border-gray-300 text-emerald-500 focus:ring-emerald-500"
             />
             <span className="text-sm text-gray-600">
-              I agree to the <a href="#" className="text-emerald-600 hover:underline">Loan Terms and Conditions</a>. 
-              I understand that failure to repay the loan will result in penalties and may affect my credit score 
-              and standing in the cooperative group.
+              I agree to the <a href="#" className="text-emerald-600 hover:underline">Loan Terms and Conditions</a>,
+              including paying contributions between the 27th and 4th, keeping repayments current, and meeting repayment
+              deadlines (October for general loans, January for bridging loans). I understand that failure to repay the loan
+              will result in penalties and may affect my credit score and standing in the cooperative group.
             </span>
           </label>
 
@@ -368,7 +384,7 @@ export default function LoanReviewSubmit({
             <span className="text-sm text-gray-600">
               I authorize the cooperative to deduct monthly repayments of ₦{monthlyPayment.toLocaleString()} 
               from my savings account or any other payment method I have registered. I also authorize my 
-              guarantors to be contacted for verification.
+              guarantors to be contacted for verification. I acknowledge that all transactions and forms must go through Group Leaders.
             </span>
           </label>
         </div>
@@ -381,6 +397,7 @@ export default function LoanReviewSubmit({
           <div>
             <h4 className="font-medium text-amber-900 mb-1">Before You Submit</h4>
             <ul className="text-sm text-amber-700 space-y-1">
+              <li>â€¢ Loan approval is subject to availability of funds and management discretion</li>
               <li>• Your application will be reviewed within 2-3 business days</li>
               <li>• You will receive an email notification once a decision is made</li>
               <li>• Your guarantors will be contacted for verification</li>

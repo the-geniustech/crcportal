@@ -1,7 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Slider } from '@/components/ui/slider';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
+import { calculateLoanSummary } from "@/lib/loanMath";
+import {
+  LOAN_FACILITIES,
+  type LoanFacilityKey,
+  formatInterestLabel,
+  getLoanFacility,
+  getLoanTermOptions,
+  isLoanFacilityAvailable,
+} from "@/lib/loanPolicy";
 import {
   Calculator,
   TrendingUp,
@@ -25,6 +34,14 @@ interface LoanCalculatorProps {
   };
 }
 
+const addMonths = (date: Date, months: number) => {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() < day) d.setDate(0);
+  return d;
+};
+
 const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
   const navigate = useNavigate();
   
@@ -37,6 +54,7 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
     repaymentHistory: 'good' as const,
   };
 
+  const [loanType, setLoanType] = useState<LoanFacilityKey>("revolving");
   const [loanAmount, setLoanAmount] = useState(200000);
   const [termMonths, setTermMonths] = useState(12);
   const [showComparison, setShowComparison] = useState(false);

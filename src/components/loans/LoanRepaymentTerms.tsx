@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar, Calculator, TrendingDown, Info, ChevronDown, ChevronUp } from 'lucide-react';
+import { buildAmortizationSchedule, calculateLoanSummary } from "@/lib/loanMath";
+import type { LoanInterestRateType } from "@/lib/loanPolicy";
 
 interface RepaymentOption {
   months: number;
@@ -19,8 +21,10 @@ interface AmortizationEntry {
 interface LoanRepaymentTermsProps {
   loanAmount: number;
   interestRate: number;
+  interestRateType: LoanInterestRateType;
   selectedTerm: number;
   onTermChange: (months: number) => void;
+  termOptions?: number[];
   onContinue: () => void;
   onBack: () => void;
 }
@@ -28,53 +32,51 @@ interface LoanRepaymentTermsProps {
 export default function LoanRepaymentTerms({
   loanAmount,
   interestRate,
+  interestRateType,
   selectedTerm,
   onTermChange,
+  termOptions,
   onContinue,
   onBack
 }: LoanRepaymentTermsProps) {
   const [showFullSchedule, setShowFullSchedule] = useState(false);
 
   const calculateRepayment = (principal: number, rate: number, months: number): RepaymentOption => {
-    const monthlyRate = rate / 100 / 12;
-    const monthlyPayment = (principal * monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
-    const totalPayment = monthlyPayment * months;
-    const totalInterest = totalPayment - principal;
-    
+    const summary = calculateLoanSummary({
+      principal,
+      rate,
+      rateType: interestRateType,
+      months,
+    });
+
     return {
       months,
-      monthlyPayment: Math.round(monthlyPayment),
-      totalInterest: Math.round(totalInterest),
-      totalPayment: Math.round(totalPayment)
+      monthlyPayment: summary.monthlyPayment,
+      totalInterest: summary.totalInterest,
+      totalPayment: summary.totalPayment,
     };
   };
 
   const generateAmortizationSchedule = (principal: number, rate: number, months: number): AmortizationEntry[] => {
-    const monthlyRate = rate / 100 / 12;
-    const monthlyPayment = (principal * monthlyRate * Math.pow(1 + monthlyRate, months)) / (Math.pow(1 + monthlyRate, months) - 1);
-    
-    const schedule: AmortizationEntry[] = [];
-    let balance = principal;
-    
-    for (let i = 1; i <= months; i++) {
-      const interestPayment = balance * monthlyRate;
-      const principalPayment = monthlyPayment - interestPayment;
-      balance = balance - principalPayment;
-      
-      schedule.push({
-        month: i,
-        payment: Math.round(monthlyPayment),
-        principal: Math.round(principalPayment),
-        interest: Math.round(interestPayment),
-        balance: Math.max(0, Math.round(balance))
-      });
-    }
-    
-    return schedule;
+    return buildAmortizationSchedule({
+      principal,
+      rate,
+      rateType: interestRateType,
+      months,
+    }).map((entry) => ({
+      month: entry.month,
+      payment: entry.payment,
+      principal: entry.principal,
+      interest: entry.interest,
+      balance: entry.balance,
+    }));
   };
 
-  const repaymentOptions = [3, 6, 9, 12, 18, 24].map(months => calculateRepayment(loanAmount, interestRate, months));
-  const selectedOption = repaymentOptions.find(o => o.months === selectedTerm) || repaymentOptions[3];
+  const availableTerms = termOptions && termOptions.length > 0 ? termOptions : [3, 6, 9, 12, 18, 24];
+  const repaymentOptions = availableTerms.map(months => calculateRepayment(loanAmount, interestRate, months));
+  const selectedOption =
+    repaymentOptions.find(o => o.months === selectedTerm) ||
+    repaymentOptions[0];
   const amortizationSchedule = generateAmortizationSchedule(loanAmount, interestRate, selectedTerm);
   
   const displayedSchedule = showFullSchedule ? amortizationSchedule : amortizationSchedule.slice(0, 6);

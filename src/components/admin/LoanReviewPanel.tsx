@@ -17,15 +17,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { calculateLoanSummary } from "@/lib/loanMath";
+import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
 
 interface LoanApplication {
   id: string;
   applicantName: string;
   applicantEmail: string;
   groupName: string;
+  loanType?: string | null;
   loanAmount: number;
   loanPurpose: string;
   repaymentPeriod: number;
+  interestRate?: number | null;
+  interestRateType?: "annual" | "monthly" | "total" | null;
+  approvedInterestRate?: number | null;
   monthlyIncome: number;
   guarantorName: string;
   guarantorPhone: string;
@@ -36,7 +42,11 @@ interface LoanApplication {
 
 interface LoanReviewPanelProps {
   applications: LoanApplication[];
-  onApprove: (id: string, notes: string) => void;
+  onApprove: (
+    id: string,
+    notes: string,
+    approvedInterestRate?: number | null,
+  ) => void;
   onReject: (id: string, notes: string) => void;
   onStartReview: (id: string) => void;
   onDisburse: (id: string, repaymentStartDate?: string | null) => void;
@@ -51,6 +61,7 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
   const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [repaymentStartDate, setRepaymentStartDate] = useState('');
+  const [approvedRateInput, setApprovedRateInput] = useState('');
 
   const pendingCount = applications.filter(a => a.status === 'pending').length;
   const underReviewCount = applications.filter(a => a.status === 'under_review').length;
@@ -79,6 +90,54 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
     }
   };
 
+  const resolveRateInfo = (loan: LoanApplication | null) => {
+    const facility = getLoanFacility(loan?.loanType || "");
+    const rateType = (loan?.interestRateType ||
+      facility?.interestRateType ||
+      "annual") as "annual" | "monthly" | "total";
+    const rate = Number(
+      loan?.approvedInterestRate ??
+        loan?.interestRate ??
+        facility?.interestRate ??
+        facility?.interestRateRange?.min ??
+        0,
+    );
+
+    return { facility, rateType, rate };
+  };
+
+  const selectedRateInfo = selectedLoan ? resolveRateInfo(selectedLoan) : null;
+  const selectedMonthlyPayment =
+    selectedLoan && selectedRateInfo
+      ? calculateLoanSummary({
+          principal: selectedLoan.loanAmount,
+          rate: selectedRateInfo.rate,
+          rateType: selectedRateInfo.rateType,
+          months: selectedLoan.repaymentPeriod,
+        }).monthlyPayment
+      : 0;
+  const selectedInterestLabel = selectedRateInfo
+    ? formatInterestLabel(
+        selectedRateInfo.rate,
+        selectedRateInfo.rateType,
+        selectedRateInfo.facility?.interestRateRange,
+      )
+    : "";
+
+  const calculateMonthlyPayment = (
+    amount: number,
+    months: number,
+    rate: number,
+    rateType: "annual" | "monthly" | "total",
+  ) => {
+    return calculateLoanSummary({
+      principal: amount,
+      rate,
+      rateType,
+      months,
+    }).monthlyPayment;
+  };
+
   const handleViewDetails = (loan: LoanApplication) => {
     setSelectedLoan(loan);
     setShowDetailModal(true);
@@ -88,6 +147,14 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
     setSelectedLoan(loan);
     setReviewAction(action);
     setReviewNotes('');
+    const facility = getLoanFacility(loan.loanType || "");
+    const defaultRate =
+      loan.approvedInterestRate ??
+      loan.interestRate ??
+      facility?.interestRate ??
+      facility?.interestRateRange?.min ??
+      0;
+    setApprovedRateInput(defaultRate ? String(defaultRate) : '');
     setShowReviewModal(true);
   };
 
@@ -100,7 +167,14 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
   const confirmReview = () => {
     if (selectedLoan && reviewAction) {
       if (reviewAction === 'approve') {
-        onApprove(selectedLoan.id, reviewNotes);
+        const parsedRate = approvedRateInput.trim()
+          ? Number(approvedRateInput)
+          : undefined;
+        onApprove(
+          selectedLoan.id,
+          reviewNotes,
+          Number.isFinite(parsedRate) ? parsedRate : undefined,
+        );
       } else {
         onReject(selectedLoan.id, reviewNotes);
       }
@@ -115,12 +189,6 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
       setShowDisburseModal(false);
       setSelectedLoan(null);
     }
-  };
-
-  const calculateMonthlyPayment = (amount: number, months: number) => {
-    const interestRate = 0.05; // 5% interest
-    const totalWithInterest = amount * (1 + interestRate);
-    return totalWithInterest / months;
   };
 
   return (
@@ -166,7 +234,7 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
               <CreditCard className="w-5 h-5 text-purple-600" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-gray-900">₦{(totalRequested / 1000000).toFixed(1)}M</p>
+              <p className="text-2xl font-bold text-gray-900">â‚¦{(totalRequested / 1000000).toFixed(1)}M</p>
               <p className="text-sm text-gray-500">Total Requested</p>
             </div>
           </div>
@@ -193,7 +261,16 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
         </div>
 
         <div className="divide-y divide-gray-100 max-h-[500px] overflow-y-auto">
-          {filteredApplications.map((loan) => (
+          {filteredApplications.map((loan) => {
+            const rateInfo = resolveRateInfo(loan);
+            const interestLabel = formatInterestLabel(
+              rateInfo.rate,
+              rateInfo.rateType,
+              rateInfo.facility?.interestRateRange,
+            );
+            const facilityLabel = rateInfo.facility?.name || "General Loan";
+
+            return (
             <div key={loan.id} className="p-4 hover:bg-gray-50 transition-colors">
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3">
@@ -204,9 +281,13 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
                     <h4 className="font-medium text-gray-900">{loan.applicantName}</h4>
                     <p className="text-sm text-emerald-600">{loan.groupName}</p>
                     <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
-                      <span className="font-medium text-gray-900">₦{loan.loanAmount.toLocaleString()}</span>
+                      <span className="font-medium text-gray-900">â‚¦{loan.loanAmount.toLocaleString()}</span>
                       <span>{loan.repaymentPeriod} months</span>
                       <span>{loan.loanPurpose}</span>
+                    </div>
+                    <div className="flex items-center gap-4 mt-1 text-xs text-gray-400">
+                      <span>{facilityLabel}</span>
+                      <span>{interestLabel}</span>
                     </div>
                     <p className="text-xs text-gray-400 mt-1">
                       Applied: {new Date(loan.createdAt).toLocaleDateString()}
@@ -263,7 +344,8 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
                 </div>
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       </div>
 
@@ -287,14 +369,18 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
                 </div>
                 <div className="p-4 bg-emerald-50 rounded-lg">
                   <p className="text-sm text-gray-500">Loan Amount</p>
-                  <p className="text-2xl font-bold text-emerald-600">₦{selectedLoan.loanAmount.toLocaleString()}</p>
+                  <p className="text-2xl font-bold text-emerald-600">â‚¦{selectedLoan.loanAmount.toLocaleString()}</p>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <p className="text-sm text-gray-500">Repayment Period</p>
                   <p className="font-medium">{selectedLoan.repaymentPeriod} months</p>
                   <p className="text-sm text-emerald-600">
-                    ₦{calculateMonthlyPayment(selectedLoan.loanAmount, selectedLoan.repaymentPeriod).toLocaleString()}/month
+                    â‚¦{selectedMonthlyPayment.toLocaleString()}/month
                   </p>
+                </div>
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="text-sm text-gray-500">Interest</p>
+                  <p className="font-medium">{selectedInterestLabel}</p>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg col-span-2">
                   <p className="text-sm text-gray-500">Purpose</p>
@@ -302,12 +388,12 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <p className="text-sm text-gray-500">Monthly Income</p>
-                  <p className="font-medium">₦{selectedLoan.monthlyIncome.toLocaleString()}</p>
+                  <p className="font-medium">â‚¦{selectedLoan.monthlyIncome.toLocaleString()}</p>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg">
                   <p className="text-sm text-gray-500">Debt-to-Income Ratio</p>
                   <p className="font-medium">
-                    {((calculateMonthlyPayment(selectedLoan.loanAmount, selectedLoan.repaymentPeriod) / selectedLoan.monthlyIncome) * 100).toFixed(1)}%
+                    {((selectedMonthlyPayment / selectedLoan.monthlyIncome) * 100).toFixed(1)}%
                   </p>
                 </div>
                 <div className="p-4 bg-gray-50 rounded-lg col-span-2">
@@ -338,7 +424,7 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
             {selectedLoan && (
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="font-medium">{selectedLoan.applicantName}</p>
-                <p className="text-lg font-bold text-emerald-600">₦{selectedLoan.loanAmount.toLocaleString()}</p>
+                <p className="text-lg font-bold text-emerald-600">â‚¦{selectedLoan.loanAmount.toLocaleString()}</p>
                 <p className="text-sm text-gray-600">{selectedLoan.loanPurpose}</p>
               </div>
             )}
@@ -353,6 +439,33 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
                 rows={3}
               />
             </div>
+            {reviewAction === 'approve' && selectedLoan && (
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  Approved Interest Rate
+                </label>
+                {selectedRateInfo?.facility?.interestRateRange ? (
+                  <>
+                    <input
+                      type="number"
+                      min={selectedRateInfo.facility.interestRateRange.min}
+                      max={selectedRateInfo.facility.interestRateRange.max}
+                      step="0.1"
+                      value={approvedRateInput}
+                      onChange={(e) => setApprovedRateInput(e.target.value)}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Allowed range: {selectedRateInfo.facility.interestRateRange.min}-{selectedRateInfo.facility.interestRateRange.max}% monthly
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-gray-600">
+                    {selectedInterestLabel} (fixed)
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex gap-3">
               <Button
                 variant="outline"
@@ -386,7 +499,7 @@ export default function LoanReviewPanel({ applications, onApprove, onReject, onS
             {selectedLoan && (
               <div className="p-4 bg-gray-50 rounded-lg">
                 <p className="font-medium">{selectedLoan.applicantName}</p>
-                <p className="text-lg font-bold text-purple-600">â‚¦{selectedLoan.loanAmount.toLocaleString()}</p>
+                <p className="text-lg font-bold text-purple-600">Ã¢â€šÂ¦{selectedLoan.loanAmount.toLocaleString()}</p>
                 <p className="text-sm text-gray-600">{selectedLoan.loanPurpose}</p>
               </div>
             )}

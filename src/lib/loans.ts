@@ -30,11 +30,13 @@ export type BackendLoanApplication = {
   groupName?: string | null;
   loanNumber?: number | null;
   loanCode?: string | null;
+  loanType?: string | null;
   loanAmount: number;
   loanPurpose: string;
   purposeDescription?: string;
   repaymentPeriod: number;
   interestRate?: number | null;
+  interestRateType?: "annual" | "monthly" | "total" | null;
   monthlyIncome?: number | null;
   documents?: BackendLoanDocument[];
   guarantors?: BackendLoanGuarantorInfo[];
@@ -141,6 +143,9 @@ export type BackendLoanEligibility = {
   contributionStreak: number;
   previousLoans: number;
   defaultedLoans: number;
+  overdueContributions?: number;
+  overdueRepayments?: number;
+  contributionWindow?: { startDay: number; endDay: number; isOpen: boolean };
   creditScore: number;
 };
 
@@ -158,11 +163,13 @@ export async function getLoanEligibility(): Promise<BackendLoanEligibility> {
 export type CreateLoanApplicationInput = {
   groupId?: string | null;
   groupName?: string | null;
+  loanType: string;
   loanAmount: number;
   loanPurpose: string;
   purposeDescription?: string;
   repaymentPeriod: number;
   interestRate?: number | null;
+  interestRateType?: "annual" | "monthly" | "total" | null;
   monthlyIncome?: number | null;
   documents?: BackendLoanDocument[];
   guarantors?: BackendLoanGuarantorInfo[];

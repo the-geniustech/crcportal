@@ -11,6 +11,9 @@ interface EligibilityData {
   previousLoans: number;
   defaultedLoans: number;
   creditScore: number;
+  overdueContributions?: number;
+  overdueRepayments?: number;
+  contributionWindow?: { startDay: number; endDay: number; isOpen: boolean };
 }
 
 interface EligibilityCriteria {
@@ -78,6 +81,20 @@ export default function LoanEligibilityCheck({
       met: eligibilityData.defaultedLoans === 0,
       value: eligibilityData.defaultedLoans === 0 ? 'No defaults' : `${eligibilityData.defaultedLoans} default(s)`,
       required: 'No defaults'
+    },
+    {
+      name: 'No Overdue Contributions',
+      description: 'Contributions must be paid within the stipulated window',
+      met: (eligibilityData.overdueContributions ?? 0) === 0,
+      value: (eligibilityData.overdueContributions ?? 0) === 0 ? 'Up to date' : `${eligibilityData.overdueContributions} overdue`,
+      required: 'Up to date'
+    },
+    {
+      name: 'No Overdue Repayments',
+      description: 'Active loan repayments must stay current',
+      met: (eligibilityData.overdueRepayments ?? 0) === 0,
+      value: (eligibilityData.overdueRepayments ?? 0) === 0 ? 'Up to date' : `${eligibilityData.overdueRepayments} overdue`,
+      required: 'Up to date'
     }
   ];
 
@@ -242,6 +259,30 @@ export default function LoanEligibilityCheck({
           </div>
         </div>
       )}
+
+      {/* Rules & Regulations */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-2">Rules & Regulations</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Please note these cooperative requirements before proceeding.
+        </p>
+        <div className="space-y-2 text-sm text-gray-600">
+          <p>Contributions must be paid between the 27th and 4th of each month.</p>
+          <p>No delay or default is allowed in payments, especially when on loan.</p>
+          <p>All transactions and forms must go through Group Leaders.</p>
+          <p>General loans are expected to be repaid by October, bridging loans by January.</p>
+        </div>
+        {eligibilityData.contributionWindow && (
+          <div className="mt-4 p-3 rounded-lg border bg-gray-50">
+            <p className="text-sm text-gray-700">
+              Contribution window: {eligibilityData.contributionWindow.startDay}th to {eligibilityData.contributionWindow.endDay}th.
+              <span className="ml-2 font-medium">
+                {eligibilityData.contributionWindow.isOpen ? 'Window open' : 'Window closed'}
+              </span>
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Continue Button */}
       <div className="flex justify-end">

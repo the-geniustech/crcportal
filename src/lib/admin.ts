@@ -127,6 +127,9 @@ export async function listAdminGroups(
   params: {
     search?: string;
     status?: string;
+    category?: string;
+    location?: string;
+    sort?: string;
     page?: number;
     limit?: number;
     includeMetrics?: boolean;
@@ -136,20 +139,32 @@ export async function listAdminGroups(
 ) {
   try {
     const res = await api.get("/admin/groups", { params });
-    return res.data?.data as {
-      groups: AdminGroupRow[];
-      summary?: {
-        totalGroups: number;
-        withCoordinators: number;
-        contributionPeriod: { year: number; month: number };
-        totalCollected: number;
-        contributionTypeTotalsYtd?: {
-          regular: number;
-          festival: number;
-          end_well: number;
-          special_savings: number;
-        };
-      };
+    const payload = res.data ?? {};
+    return {
+      groups: (payload?.data?.groups ?? []) as AdminGroupRow[],
+      summary: payload?.data?.summary as
+        | {
+            totalGroups: number;
+            totalMembers?: number;
+            withCoordinators: number;
+            contributionPeriod: { year: number; month: number };
+            totalCollected: number;
+            categories?: string[];
+            locations?: string[];
+            contributionTypeTotalsYtd?: {
+              regular: number;
+              festival: number;
+              end_well: number;
+              special_savings: number;
+            };
+          }
+        | undefined,
+      meta: {
+        total: Number(payload?.total ?? 0),
+        page: Number(payload?.page ?? params.page ?? 1),
+        limit: Number(payload?.limit ?? params.limit ?? 0),
+        results: Number(payload?.results ?? 0),
+      },
     };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));

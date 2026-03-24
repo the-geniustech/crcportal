@@ -9,10 +9,17 @@ export function useReviewAdminLoanApplicationMutation() {
       applicationId: string;
       status: "under_review" | "approved" | "rejected";
       reviewNotes?: string;
-    }) => reviewAdminLoanApplication(vars.applicationId, { status: vars.status, reviewNotes: vars.reviewNotes }),
+      approvedAmount?: number | null;
+      approvedInterestRate?: number | null;
+    }) =>
+      reviewAdminLoanApplication(vars.applicationId, {
+        status: vars.status,
+        reviewNotes: vars.reviewNotes,
+        approvedAmount: vars.approvedAmount,
+        approvedInterestRate: vars.approvedInterestRate,
+      }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["admin", "loans", "applications"] });
     },
   });
 }
-

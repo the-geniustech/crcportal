@@ -4,28 +4,38 @@ import { listAdminGroups } from "@/lib/admin";
 export function useAdminGroupsQuery(params: {
   search?: string;
   status?: string;
+  category?: string;
+  location?: string;
+  sort?: string;
   includeMetrics?: boolean;
   year?: number;
   month?: number;
   limit?: number;
+  page?: number;
 } = {}) {
+  const effectiveLimit = params.limit ?? 100;
+  const effectivePage = params.page ?? 1;
   return useQuery({
     queryKey: [
       "admin",
       "groups",
       params.search ?? "",
       params.status ?? "",
+      params.category ?? "",
+      params.location ?? "",
+      params.sort ?? "",
       params.includeMetrics ?? true,
       params.year ?? "",
       params.month ?? "",
-      params.limit ?? 100,
+      effectiveLimit,
+      effectivePage,
     ],
     queryFn: async () =>
       listAdminGroups({
         ...params,
         includeMetrics: params.includeMetrics ?? true,
-        limit: params.limit ?? 200,
+        limit: effectiveLimit,
+        page: effectivePage,
       }),
   });
 }
-

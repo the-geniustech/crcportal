@@ -342,6 +342,8 @@ export default function Admin() {
   const [groupCategory, setGroupCategory] = useState("All Categories");
   const [groupLocation, setGroupLocation] = useState("All Locations");
   const [groupSortBy, setGroupSortBy] = useState("popular");
+  const [groupPage, setGroupPage] = useState(1);
+  const groupPageSize = 10;
   const [groupActionTarget, setGroupActionTarget] =
     useState<AdminGroupRow | null>(null);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
@@ -369,10 +371,16 @@ export default function Admin() {
     includeMetrics: true,
     year: now.getFullYear(),
     month: now.getMonth() + 1,
-    limit: 200,
+    limit: groupPageSize,
+    page: groupPage,
+    search: groupSearchQuery.trim() || undefined,
+    category: groupCategory !== "All Categories" ? groupCategory : undefined,
+    location: groupLocation !== "All Locations" ? groupLocation : undefined,
+    sort: groupSortBy,
   });
   const manageableGroups = adminGroupsQuery.data?.groups ?? [];
   const groupSummary = adminGroupsQuery.data?.summary;
+  const groupMeta = adminGroupsQuery.data?.meta;
   const contributionTypeTotalsYtd = groupSummary?.contributionTypeTotalsYtd;
   const isAdminAuthorized =
     user?.role === "admin" ||
@@ -404,26 +412,24 @@ export default function Admin() {
   const updateGroupMutation = useUpdateGroupMutation();
 
   const groupCategoryOptions = useMemo(() => {
-    const unique = Array.from(
-      new Set(
-        manageableGroups
+    const base = groupSummary?.categories?.length
+      ? groupSummary.categories
+      : manageableGroups
           .map((g) => g.category || "General")
-          .filter((cat) => Boolean(cat)),
-      ),
-    ) as string[];
+          .filter((cat) => Boolean(cat));
+    const unique = Array.from(new Set(base)) as string[];
     return ["All Categories", ...unique.sort()];
-  }, [manageableGroups]);
+  }, [groupSummary?.categories, manageableGroups]);
 
   const groupLocationOptions = useMemo(() => {
-    const unique = Array.from(
-      new Set(
-        manageableGroups
+    const base = groupSummary?.locations?.length
+      ? groupSummary.locations
+      : manageableGroups
           .map((g) => g.location || "Nigeria")
-          .filter((loc) => Boolean(loc)),
-      ),
-    ) as string[];
+          .filter((loc) => Boolean(loc));
+    const unique = Array.from(new Set(base)) as string[];
     return ["All Locations", ...unique.sort()];
-  }, [manageableGroups]);
+  }, [groupSummary?.locations, manageableGroups]);
 
   useEffect(() => {
     if (!groupCategoryOptions.includes(groupCategory)) {
@@ -440,22 +446,6 @@ export default function Admin() {
   const filteredAdminGroups = useMemo(() => {
     let result = [...manageableGroups];
 
-    if (groupSearchQuery) {
-      const query = groupSearchQuery.toLowerCase();
-      result = result.filter((g) => {
-        const name = String(g.groupName || "").toLowerCase();
-        const coordinator = String(g.coordinatorName || "").toLowerCase();
-        const category = String(g.category || "").toLowerCase();
-        const location = String(g.location || "").toLowerCase();
-        return (
-          name.includes(query) ||
-          coordinator.includes(query) ||
-          category.includes(query) ||
-          location.includes(query)
-        );
-      });
-    }
-
     if (groupCategory !== "All Categories") {
       result = result.filter(
         (g) => (g.category || "General") === groupCategory,
@@ -468,43 +458,22 @@ export default function Admin() {
       );
     }
 
-    switch (groupSortBy) {
-      case "newest":
-        result.sort(
-          (a, b) =>
-            new Date(b.createdAt || 0).getTime() -
-            new Date(a.createdAt || 0).getTime(),
-        );
-        break;
-      case "savings":
-        result.sort(
-          (a, b) => Number(b.totalSavings || 0) - Number(a.totalSavings || 0),
-        );
-        break;
-      case "contribution":
-        result.sort(
-          (a, b) =>
-            Number(a.monthlyContribution || 0) -
-            Number(b.monthlyContribution || 0),
-        );
-        break;
-      case "popular":
-      default:
-        result.sort(
-          (a, b) =>
-            Number(b.memberCount || b.activeMemberCount || 0) -
-            Number(a.memberCount || a.activeMemberCount || 0),
-        );
-    }
-
     return result;
-  }, [
-    manageableGroups,
-    groupSearchQuery,
-    groupCategory,
-    groupLocation,
-    groupSortBy,
-  ]);
+  }, [manageableGroups, groupCategory, groupLocation]);
+
+  useEffect(() => {
+    setGroupPage(1);
+  }, [groupSearchQuery, groupCategory, groupLocation, groupSortBy]);
+
+  useEffect(() => {
+    const totalPages = Math.max(
+      1,
+      Math.ceil((groupMeta?.total ?? 0) / groupPageSize),
+    );
+    if (groupPage > totalPages) {
+      setGroupPage(totalPages);
+    }
+  }, [groupMeta?.total, groupPage, groupPageSize]);
 
   const selectedGroupDetails = useMemo(() => {
     if (!groupActionTarget) return null;
@@ -816,7 +785,11 @@ export default function Admin() {
         groupName: a.groupName || "—",
         loanAmount: Number(a.loanAmount || 0),
         loanPurpose: String(a.loanPurpose || ""),
+        loanType: a.loanType ?? null,
         repaymentPeriod: Number(a.repaymentPeriod || 0),
+        interestRate: a.interestRate ?? null,
+        interestRateType: a.interestRateType ?? null,
+        approvedInterestRate: a.approvedInterestRate ?? null,
         monthlyIncome: Number(a.monthlyIncome || 0),
         guarantorName: guarantor?.name || "—",
         guarantorPhone: guarantor?.phone || "—",
@@ -826,10 +799,12 @@ export default function Admin() {
       };
     });
 
-  const totalMembers = manageableGroups.reduce(
-    (sum, g) => sum + Number(g.activeMemberCount ?? g.memberCount ?? 0),
-    0,
-  );
+  const totalMembers =
+    groupSummary?.totalMembers ??
+    manageableGroups.reduce(
+      (sum, g) => sum + Number(g.activeMemberCount ?? g.memberCount ?? 0),
+      0,
+    );
   const pendingApprovals = applicants.filter(
     (a) => a.status === "pending",
   ).length;
@@ -1019,12 +994,17 @@ export default function Admin() {
     }
   };
 
-  const handleLoanApprove = async (id: string, notes: string) => {
+  const handleLoanApprove = async (
+    id: string,
+    notes: string,
+    approvedInterestRate?: number | null,
+  ) => {
     try {
       await reviewAdminLoanMutation.mutateAsync({
         applicationId: id,
         status: "approved",
         reviewNotes: notes,
+        approvedInterestRate: approvedInterestRate ?? null,
       });
       toast({
         title: "Loan Approved",
@@ -1701,7 +1681,7 @@ export default function Admin() {
                           </td>
                         </tr>
                       ) : (
-                        filteredAdminGroups.slice(0, 10).map((group) => (
+                        filteredAdminGroups.map((group) => (
                           <tr
                             key={group._id}
                             className={
@@ -1819,15 +1799,69 @@ export default function Admin() {
                     </tbody>
                   </table>
                 </div>
-                <div className="p-4 border-gray-100 border-t text-center">
-                  <Button
-                    variant="outline"
-                    onClick={() => navigate("/contribution-groups")}
-                  >
-                    View All{" "}
-                    {groupSummary?.totalGroups ?? manageableGroups.length}{" "}
-                    Groups
-                  </Button>
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-gray-100 border-t">
+                  <p className="text-sm text-gray-500">
+                    Showing{" "}
+                    <span className="font-medium text-gray-900">
+                      {Math.min(
+                        (groupMeta?.page ?? groupPage) * groupPageSize,
+                        groupMeta?.total ?? filteredAdminGroups.length,
+                      )}
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-medium text-gray-900">
+                      {groupMeta?.total ?? filteredAdminGroups.length}
+                    </span>{" "}
+                    groups
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => setGroupPage((p) => Math.max(1, p - 1))}
+                      disabled={(groupMeta?.page ?? groupPage) <= 1}
+                    >
+                      Previous
+                    </Button>
+                    <span className="text-sm text-gray-600">
+                      Page{" "}
+                      <span className="font-medium text-gray-900">
+                        {groupMeta?.page ?? groupPage}
+                      </span>{" "}
+                      of{" "}
+                      <span className="font-medium text-gray-900">
+                        {Math.max(
+                          1,
+                          Math.ceil(
+                            (groupMeta?.total ?? filteredAdminGroups.length) /
+                              groupPageSize,
+                          ),
+                        )}
+                      </span>
+                    </span>
+                    <Button
+                      variant="outline"
+                      onClick={() =>
+                        setGroupPage((p) =>
+                          Math.min(
+                            Math.ceil(
+                              (groupMeta?.total ??
+                                filteredAdminGroups.length) / groupPageSize,
+                            ),
+                            p + 1,
+                          ),
+                        )
+                      }
+                      disabled={
+                        (groupMeta?.page ?? groupPage) >=
+                        Math.ceil(
+                          (groupMeta?.total ??
+                            filteredAdminGroups.length) / groupPageSize,
+                        )
+                      }
+                    >
+                      Next
+                    </Button>
+                  </div>
                 </div>
               </div>
 

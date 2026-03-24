@@ -5,9 +5,13 @@ export type AdminLoanApplication = {
   userId: string;
   groupId?: string | null;
   groupName?: string | null;
+  loanType?: string | null;
   loanAmount: number;
   loanPurpose: string;
   repaymentPeriod: number;
+  interestRate?: number | null;
+  interestRateType?: "annual" | "monthly" | "total" | null;
+  approvedInterestRate?: number | null;
   monthlyIncome?: number | null;
   guarantors?: Array<{ name: string; phone?: string }>;
   status:
@@ -42,7 +46,12 @@ export async function listAdminLoanApplications(params: { status?: string; searc
 
 export async function reviewAdminLoanApplication(
   applicationId: string,
-  payload: { status: "under_review" | "approved" | "rejected"; reviewNotes?: string },
+  payload: {
+    status: "under_review" | "approved" | "rejected";
+    reviewNotes?: string;
+    approvedAmount?: number | null;
+    approvedInterestRate?: number | null;
+  },
 ) {
   try {
     const res = await api.patch(

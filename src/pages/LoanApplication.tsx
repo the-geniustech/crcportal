@@ -13,6 +13,15 @@ import { useLoanEligibilityQuery } from "@/hooks/loans/useLoanEligibilityQuery";
 import { useMyGroupMembershipsQuery } from "@/hooks/groups/useMyGroupMembershipsQuery";
 import { useGroupMembersQuery } from "@/hooks/groups/useGroupMembersQuery";
 import { useCreateLoanApplicationMutation } from "@/hooks/loans/useCreateLoanApplicationMutation";
+import { calculateLoanSummary } from "@/lib/loanMath";
+import {
+  LOAN_FACILITIES,
+  LoanFacilityKey,
+  formatInterestLabel,
+  getLoanFacility,
+  getLoanTermOptions,
+  isLoanFacilityAvailable,
+} from "@/lib/loanPolicy";
 import {
   CheckCircle,
   ArrowLeft,
@@ -122,6 +131,14 @@ const steps = [
   },
 ];
 
+const addMonths = (date: Date, months: number) => {
+  const d = new Date(date);
+  const day = d.getDate();
+  d.setMonth(d.getMonth() + months);
+  if (d.getDate() < day) d.setDate(0);
+  return d;
+};
+
 const LoanApplicationContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -140,6 +157,7 @@ const LoanApplicationContent: React.FC = () => {
   // Form state
   const [currentStep, setCurrentStep] = useState(0);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [loanType, setLoanType] = useState<LoanFacilityKey>("revolving");
   const [loanAmount, setLoanAmount] = useState(prefilledData?.amount || 100000);
   const [purpose, setPurpose] = useState("");
   const [purposeDescription, setPurposeDescription] = useState("");
@@ -178,9 +196,27 @@ const LoanApplicationContent: React.FC = () => {
 
   // Derived values
   const selectedGroupData = groupOptions.find((g) => g.id === selectedGroup);
-  const maxLoanAmount = selectedGroupData?.maxLoanAmount || 500000;
+  const totalContributions = Number(eligibilityQuery.data?.totalContributions ?? 0);
+  const baseMaxLoanAmount = selectedGroupData?.maxLoanAmount || 500000;
+  const maxLoanAmount =
+    loanType === "revolving" && totalContributions > 0
+      ? totalContributions
+      : baseMaxLoanAmount;
   const minLoanAmount = 50000;
-  const interestRate = selectedGroupData?.interestRate || 5;
+  const loanFacility = getLoanFacility(loanType);
+  const interestRateType =
+    loanFacility?.interestRateType || "annual";
+  const interestRate =
+    loanFacility?.interestRate ??
+    loanFacility?.interestRateRange?.min ??
+    selectedGroupData?.interestRate ??
+    5;
+  const interestLabel = formatInterestLabel(
+    interestRate,
+    interestRateType,
+    loanFacility?.interestRateRange,
+  );
+  const termOptions = getLoanTermOptions(loanType, addMonths(new Date(), 1));
 
   const groupMembersQuery = useGroupMembersQuery(selectedGroup || undefined);
   const groupMembers = React.useMemo(() => {
@@ -220,28 +256,32 @@ const LoanApplicationContent: React.FC = () => {
     }
   }, []);
 
+  useEffect(() => {
+    if (termOptions.length === 0) return;
+    if (!termOptions.includes(repaymentTerm)) {
+      setRepaymentTerm(termOptions[0]);
+    }
+  }, [loanType, termOptions.join(","), repaymentTerm]);
+
   const calculateRepayment = (
     principal: number,
     rate: number,
     months: number,
+    rateType: "annual" | "monthly" | "total",
   ) => {
-    const monthlyRate = rate / 100 / 12;
-    const monthlyPayment =
-      (principal * monthlyRate * Math.pow(1 + monthlyRate, months)) /
-      (Math.pow(1 + monthlyRate, months) - 1);
-    const totalPayment = monthlyPayment * months;
-    const totalInterest = totalPayment - principal;
-    return {
-      monthlyPayment: Math.round(monthlyPayment),
-      totalInterest: Math.round(totalInterest),
-      totalPayment: Math.round(totalPayment),
-    };
+    return calculateLoanSummary({
+      principal,
+      rate,
+      rateType,
+      months,
+    });
   };
 
   const repaymentDetails = calculateRepayment(
     loanAmount,
     interestRate,
     repaymentTerm,
+    interestRateType,
   );
 
   const goToStep = (step: number) => {
@@ -281,11 +321,13 @@ const LoanApplicationContent: React.FC = () => {
       await createLoanApplicationMutation.mutateAsync({
         groupId: selectedGroup || null,
         groupName: selectedGroupData?.name || null,
+        loanType,
         loanAmount,
         loanPurpose: purpose,
         purposeDescription,
         repaymentPeriod: repaymentTerm,
         interestRate,
+        interestRateType,
         documents: documents.map((d) => ({
           name: d.name,
           type: d.type,
@@ -500,14 +542,19 @@ const LoanApplicationContent: React.FC = () => {
               maxAmount={maxLoanAmount}
               minAmount={minLoanAmount}
               selectedAmount={loanAmount}
+              loanType={loanType}
+              facilities={LOAN_FACILITIES}
               purpose={purpose}
               purposeDescription={purposeDescription}
               onAmountChange={setLoanAmount}
+              onLoanTypeChange={setLoanType}
               onPurposeChange={setPurpose}
               onPurposeDescriptionChange={setPurposeDescription}
               onContinue={() => goToStep(2)}
               onBack={() => goToStep(0)}
               interestRate={interestRate}
+              interestRateType={interestRateType}
+              interestLabel={interestLabel}
             />
           )}
 
@@ -515,8 +562,10 @@ const LoanApplicationContent: React.FC = () => {
             <LoanRepaymentTerms
               loanAmount={loanAmount}
               interestRate={interestRate}
+              interestRateType={interestRateType}
               selectedTerm={repaymentTerm}
               onTermChange={setRepaymentTerm}
+              termOptions={termOptions}
               onContinue={() => goToStep(3)}
               onBack={() => goToStep(1)}
             />
@@ -546,10 +595,12 @@ const LoanApplicationContent: React.FC = () => {
           {currentStep === 5 && (
             <LoanReviewSubmit
               loanAmount={loanAmount}
+              loanType={loanType}
               purpose={purpose}
               purposeDescription={purposeDescription}
               repaymentTerm={repaymentTerm}
               interestRate={interestRate}
+              interestRateType={interestRateType}
               monthlyPayment={repaymentDetails.monthlyPayment}
               totalInterest={repaymentDetails.totalInterest}
               totalPayment={repaymentDetails.totalPayment}
@@ -580,8 +631,14 @@ const LoanApplicationContent: React.FC = () => {
                 <span className="font-medium">{repaymentTerm} months</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-gray-600">Loan Type</span>
+                <span className="font-medium">
+                  {loanFacility?.name || "Loan"}
+                </span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-gray-600">Interest Rate</span>
-                <span className="font-medium">{interestRate}%</span>
+                <span className="font-medium">{interestLabel}</span>
               </div>
               <div className="mt-3 pt-3 border-t">
                 <div className="flex justify-between">
