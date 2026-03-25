@@ -179,27 +179,27 @@ function LoansContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-emerald-50">
+    <div className="bg-gradient-to-br from-gray-50 to-emerald-50 min-h-screen">
       <DashboardHeader />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-7xl">
         {/* Back Button */}
         <button
           onClick={() => navigate('/dashboard')}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-6 transition-colors"
+          className="flex items-center gap-2 mb-6 text-gray-600 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
           Back to Dashboard
         </button>
 
         {/* Page Header */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8">
+        <div className="flex md:flex-row flex-col justify-between md:items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-3">
-              <CreditCard className="h-8 w-8 text-emerald-600" />
+            <h1 className="flex items-center gap-3 font-bold text-gray-900 text-3xl">
+              <CreditCard className="w-8 h-8 text-emerald-600" />
               My Loans
             </h1>
-            <p className="text-gray-600 mt-2">
+            <p className="mt-2 text-gray-600">
               Track your loan repayments and manage your borrowing
             </p>
           </div>
@@ -209,66 +209,66 @@ function LoansContent() {
               onClick={() => navigate('/credit-score')}
               className="gap-2"
             >
-              <Award className="h-4 w-4" />
+              <Award className="w-4 h-4" />
               Credit Score
             </Button>
             <Button
               onClick={() => navigate('/loan-application')}
-              className="bg-emerald-600 hover:bg-emerald-700 gap-2"
+              className="gap-2 bg-emerald-600 hover:bg-emerald-700"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="w-4 h-4" />
               Apply for New Loan
             </Button>
           </div>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="bg-white rounded-xl p-5 border shadow-sm">
+        <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mb-8">
+          <div className="bg-white shadow-sm p-5 border rounded-xl">
             <div className="flex items-center gap-3">
-              <div className="h-12 w-12 bg-emerald-100 rounded-xl flex items-center justify-center">
-                <CreditCard className="h-6 w-6 text-emerald-600" />
+              <div className="flex justify-center items-center bg-emerald-100 rounded-xl w-12 h-12">
+                <CreditCard className="w-6 h-6 text-emerald-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">{activeLoanApps.length}</p>
-                <p className="text-sm text-gray-500">Active Loans</p>
+                <p className="font-bold text-gray-900 text-2xl">{activeLoanApps.length}</p>
+                <p className="text-gray-500 text-sm">Active Loans</p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-5 border shadow-sm">
+          <div className="bg-white shadow-sm p-5 border rounded-xl">
             <div className="flex items-center gap-3">
-              <div className="h-12 w-12 bg-blue-100 rounded-xl flex items-center justify-center">
-                <TrendingUp className="h-6 w-6 text-blue-600" />
+              <div className="flex justify-center items-center bg-blue-100 rounded-xl w-12 h-12">
+                <TrendingUp className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="font-bold text-gray-900 text-2xl">
                   ₦{(activeLoanApps.reduce((sum, l) => sum + Number(l.remainingBalance || 0), 0) / 1000).toFixed(0)}K
                 </p>
-                <p className="text-sm text-gray-500">Total Outstanding</p>
+                <p className="text-gray-500 text-sm">Total Outstanding</p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-5 border shadow-sm">
+          <div className="bg-white shadow-sm p-5 border rounded-xl">
             <div className="flex items-center gap-3">
-              <div className="h-12 w-12 bg-purple-100 rounded-xl flex items-center justify-center">
-                <Calendar className="h-6 w-6 text-purple-600" />
+              <div className="flex justify-center items-center bg-purple-100 rounded-xl w-12 h-12">
+                <Calendar className="w-6 h-6 text-purple-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">
+                <p className="font-bold text-gray-900 text-2xl">
                   {paymentSchedule.find((p) => p.status === "pending" || p.status === "overdue" || p.status === "upcoming")?.dueDate || "—"}
                 </p>
-                <p className="text-sm text-gray-500">Next Payment</p>
+                <p className="text-gray-500 text-sm">Next Payment</p>
               </div>
             </div>
           </div>
-          <div className="bg-white rounded-xl p-5 border shadow-sm">
+          <div className="bg-white shadow-sm p-5 border rounded-xl">
             <div className="flex items-center gap-3">
-              <div className="h-12 w-12 bg-amber-100 rounded-xl flex items-center justify-center">
-                <CheckCircle className="h-6 w-6 text-amber-600" />
+              <div className="flex justify-center items-center bg-amber-100 rounded-xl w-12 h-12">
+                <CheckCircle className="w-6 h-6 text-amber-600" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-gray-900">{completedLoanApps.length}</p>
-                <p className="text-sm text-gray-500">Completed Loans</p>
+                <p className="font-bold text-gray-900 text-2xl">{completedLoanApps.length}</p>
+                <p className="text-gray-500 text-sm">Completed Loans</p>
               </div>
             </div>
           </div>
@@ -276,31 +276,31 @@ function LoansContent() {
 
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="bg-white border mb-6">
+          <TabsList className="bg-white mb-6 border">
             <TabsTrigger value="active" className="gap-2">
-              <Clock className="h-4 w-4" />
+              <Clock className="w-4 h-4" />
               Active Loans ({activeLoanApps.length})
             </TabsTrigger>
             <TabsTrigger value="calculator" className="gap-2">
-              <Calculator className="h-4 w-4" />
+              <Calculator className="w-4 h-4" />
               Loan Calculator
             </TabsTrigger>
             <TabsTrigger value="completed" className="gap-2">
-              <CheckCircle className="h-4 w-4" />
+              <CheckCircle className="w-4 h-4" />
               Completed ({completedLoanApps.length})
             </TabsTrigger>
             <TabsTrigger value="applications" className="gap-2">
-              <FileText className="h-4 w-4" />
+              <FileText className="w-4 h-4" />
               Applications
             </TabsTrigger>
           </TabsList>
 
           <TabsContent value="active">
             {activeLoanApps.length === 0 ? (
-              <div className="bg-white rounded-xl border p-12 text-center">
-                <CreditCard className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No Active Loans</h3>
-                <p className="text-gray-500 mb-6">You don't have any active loans at the moment</p>
+              <div className="bg-white p-12 border rounded-xl text-center">
+                <CreditCard className="mx-auto mb-4 w-16 h-16 text-gray-300" />
+                <h3 className="mb-2 font-semibold text-gray-900 text-xl">No Active Loans</h3>
+                <p className="mb-6 text-gray-500">You don't have any active loans at the moment</p>
                 <Button
                   onClick={() => navigate('/loan-application')}
                   className="bg-emerald-600 hover:bg-emerald-700"
@@ -312,7 +312,7 @@ function LoansContent() {
               <div className="space-y-6">
                 {/* Loan Selector if multiple loans */}
                 {activeLoanApps.length > 1 && (
-                  <div className="flex gap-3 overflow-x-auto pb-2">
+                  <div className="flex gap-3 pb-2 overflow-x-auto">
                     {activeLoanApps.map((app) => {
                       const vm = mapLoanVm(app, null);
                       return (
@@ -326,7 +326,7 @@ function LoansContent() {
                         }`}
                       >
                         <p className="font-medium text-gray-900">{vm.purpose}</p>
-                        <p className="text-sm text-gray-500">₦{vm.loanAmount.toLocaleString()}</p>
+                        <p className="text-gray-500 text-sm">₦{vm.loanAmount.toLocaleString()}</p>
                       </button>
                       );
                     })}
@@ -352,9 +352,9 @@ function LoansContent() {
 
           <TabsContent value="completed">
             {completedLoanApps.length === 0 ? (
-              <div className="bg-white rounded-xl border p-12 text-center">
-                <CheckCircle className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No Completed Loans</h3>
+              <div className="bg-white p-12 border rounded-xl text-center">
+                <CheckCircle className="mx-auto mb-4 w-16 h-16 text-gray-300" />
+                <h3 className="mb-2 font-semibold text-gray-900 text-xl">No Completed Loans</h3>
                 <p className="text-gray-500">Your completed loans will appear here</p>
               </div>
             ) : (
@@ -376,44 +376,44 @@ function LoansContent() {
                   const completedDate = toYmd(app.updatedAt || app.disbursedAt || app.createdAt || "");
 
                   return (
-                  <div key={app._id} className="bg-white rounded-xl border p-6">
-                    <div className="flex items-start justify-between">
+                  <div key={app._id} className="bg-white p-6 border rounded-xl">
+                    <div className="flex justify-between items-start">
                       <div className="flex items-center gap-4">
-                        <div className="h-14 w-14 bg-emerald-100 rounded-full flex items-center justify-center">
-                          <CheckCircle className="h-7 w-7 text-emerald-600" />
+                        <div className="flex justify-center items-center bg-emerald-100 rounded-full w-14 h-14">
+                          <CheckCircle className="w-7 h-7 text-emerald-600" />
                         </div>
                         <div>
                           <h3 className="font-semibold text-gray-900">{app.loanPurpose}</h3>
-                          <p className="text-sm text-gray-500">{app.groupName || "CRC Connect"}</p>
+                          <p className="text-gray-500 text-sm">{app.groupName || "CRC Connect"}</p>
                         </div>
                       </div>
-                      <span className="px-3 py-1 bg-emerald-100 text-emerald-700 text-sm font-medium rounded-full">
+                      <span className="bg-emerald-100 px-3 py-1 rounded-full font-medium text-emerald-700 text-sm">
                         Completed
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-500">Loan Amount</p>
+                    <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-gray-500 text-xs">Loan Amount</p>
                         <p className="font-semibold text-gray-900">₦{principal.toLocaleString()}</p>
                       </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-500">Total Paid</p>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-gray-500 text-xs">Total Paid</p>
                         <p className="font-semibold text-emerald-600">₦{totalPaid.toLocaleString()}</p>
                       </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-500">Interest Rate</p>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-gray-500 text-xs">Interest Rate</p>
                         <p className="font-semibold text-gray-900">{interestLabel}</p>
                       </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-500">Completed</p>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-gray-500 text-xs">Completed</p>
                         <p className="font-semibold text-gray-900">{completedDate}</p>
                       </div>
                     </div>
 
-                    <div className="mt-4 flex gap-3">
+                    <div className="flex gap-3 mt-4">
                       <Button variant="outline" className="gap-2">
-                        <FileText className="h-4 w-4" />
+                        <FileText className="w-4 h-4" />
                         Download Statement
                       </Button>
                     </div>
@@ -426,10 +426,10 @@ function LoansContent() {
 
           <TabsContent value="applications">
             {pendingApps.length === 0 ? (
-              <div className="bg-white rounded-xl border p-12 text-center">
-                <FileText className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No Pending Applications</h3>
-                <p className="text-gray-500 mb-6">You don't have any pending loan applications</p>
+              <div className="bg-white p-12 border rounded-xl text-center">
+                <FileText className="mx-auto mb-4 w-16 h-16 text-gray-300" />
+                <h3 className="mb-2 font-semibold text-gray-900 text-xl">No Pending Applications</h3>
+                <p className="mb-6 text-gray-500">You don't have any pending loan applications</p>
                 <Button
                   onClick={() => navigate('/loan-application')}
                   className="bg-emerald-600 hover:bg-emerald-700"
@@ -452,37 +452,37 @@ function LoansContent() {
                   );
 
                   return (
-                  <div key={app._id} className="bg-white rounded-xl border p-6">
-                    <div className="flex items-start justify-between">
+                  <div key={app._id} className="bg-white p-6 border rounded-xl">
+                    <div className="flex justify-between items-start">
                       <div className="flex items-center gap-4">
-                        <div className="h-14 w-14 bg-blue-100 rounded-full flex items-center justify-center">
-                          <FileText className="h-7 w-7 text-blue-600" />
+                        <div className="flex justify-center items-center bg-blue-100 rounded-full w-14 h-14">
+                          <FileText className="w-7 h-7 text-blue-600" />
                         </div>
                         <div>
                           <h3 className="font-semibold text-gray-900">{app.loanPurpose}</h3>
-                          <p className="text-sm text-gray-500">{app.groupName || "CRC Connect"}</p>
+                          <p className="text-gray-500 text-sm">{app.groupName || "CRC Connect"}</p>
                         </div>
                       </div>
-                      <span className="px-3 py-1 bg-gray-100 text-gray-700 text-sm font-medium rounded-full">
+                      <span className="bg-gray-100 px-3 py-1 rounded-full font-medium text-gray-700 text-sm">
                         {String(app.status).replace(/_/g, " ")}
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-500">Requested Amount</p>
-                        <p className="font-semibold text-gray-900">â‚¦{Number(app.loanAmount || 0).toLocaleString()}</p>
+                    <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-gray-500 text-xs">Requested Amount</p>
+                        <p className="font-semibold text-gray-900">₦{Number(app.loanAmount || 0).toLocaleString()}</p>
                       </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-500">Term</p>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-gray-500 text-xs">Term</p>
                         <p className="font-semibold text-gray-900">{app.repaymentPeriod} months</p>
                       </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-500">Interest Rate</p>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-gray-500 text-xs">Interest Rate</p>
                         <p className="font-semibold text-gray-900">{interestLabel}</p>
                       </div>
-                      <div className="p-3 bg-gray-50 rounded-lg">
-                        <p className="text-xs text-gray-500">Submitted</p>
+                      <div className="bg-gray-50 p-3 rounded-lg">
+                        <p className="text-gray-500 text-xs">Submitted</p>
                         <p className="font-semibold text-gray-900">{toYmd(app.createdAt || "")}</p>
                       </div>
                     </div>
@@ -495,21 +495,21 @@ function LoansContent() {
         </Tabs>
 
         {/* Help Section */}
-        <div className="mt-8 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl p-6 text-white">
+        <div className="bg-gradient-to-r from-blue-500 to-indigo-600 mt-8 p-6 rounded-2xl text-white">
           <div className="flex items-start gap-4">
-            <div className="p-3 bg-white/20 rounded-xl">
-              <AlertTriangle className="h-6 w-6" />
+            <div className="bg-white/20 p-3 rounded-xl">
+              <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="font-semibold text-lg mb-1">Having Trouble with Repayments?</h3>
-              <p className="text-blue-100 text-sm mb-4">
+              <h3 className="mb-1 font-semibold text-lg">Having Trouble with Repayments?</h3>
+              <p className="mb-4 text-blue-100 text-sm">
                 If you're facing financial difficulties, contact us early. We can help you restructure your loan or find alternative solutions.
               </p>
               <div className="flex flex-wrap gap-3">
-                <button className="px-4 py-2 bg-white text-blue-600 font-medium rounded-lg hover:bg-blue-50 transition-colors text-sm">
+                <button className="bg-white hover:bg-blue-50 px-4 py-2 rounded-lg font-medium text-blue-600 text-sm transition-colors">
                   Contact Support
                 </button>
-                <button className="px-4 py-2 bg-white/20 text-white font-medium rounded-lg hover:bg-white/30 transition-colors text-sm">
+                <button className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-medium text-white text-sm transition-colors">
                   View Loan FAQ
                 </button>
               </div>
