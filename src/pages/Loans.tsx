@@ -398,7 +398,7 @@ function LoansContent() {
                         <p className="font-semibold text-gray-900">₦{principal.toLocaleString()}</p>
                       </div>
                       <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-500 text-xs">Total Paid</p>
+                        <p className="text-gray-500 text-xs">Repaid So Far</p>
                         <p className="font-semibold text-emerald-600">₦{totalPaid.toLocaleString()}</p>
                       </div>
                       <div className="bg-gray-50 p-3 rounded-lg">

@@ -28,6 +28,8 @@ interface GroupCardProps {
   onJoinRequest: (id: string) => void;
   onOpenContributionDashboard: (id: string) => void;
   onOpenLoanDashboard: (id: string) => void;
+  joinDisabled?: boolean;
+  joinDisabledReason?: string;
 }
 
 const GroupCard: React.FC<GroupCardProps> = ({
@@ -37,7 +39,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
   onJoinRequest,
   onOpenContributionDashboard,
   onOpenLoanDashboard,
+  joinDisabled = false,
+  joinDisabledReason,
 }) => {
+  const isJoinDisabled = Boolean(joinDisabled);
   return (
     <div className="group bg-white shadow-sm hover:shadow-lg border border-gray-100 rounded-2xl overflow-hidden transition-all duration-300">
       {/* Group Image */}
@@ -140,10 +145,18 @@ const GroupCard: React.FC<GroupCardProps> = ({
           </button>
           {!isMember && group.isOpen && (
             <button
-              onClick={() => onJoinRequest(group.id)}
-              className="flex-1 bg-emerald-500 hover:bg-emerald-600 py-2.5 rounded-xl font-medium text-white text-sm transition-colors"
+              onClick={() => {
+                if (!isJoinDisabled) onJoinRequest(group.id);
+              }}
+              disabled={isJoinDisabled}
+              title={isJoinDisabled ? joinDisabledReason : undefined}
+              className={`flex-1 py-2.5 rounded-xl font-medium text-sm transition-colors ${
+                isJoinDisabled
+                  ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                  : "bg-emerald-500 hover:bg-emerald-600 text-white"
+              }`}
             >
-              Join Group
+              {isJoinDisabled ? "Join Unavailable" : "Join Group"}
             </button>
           )}
 

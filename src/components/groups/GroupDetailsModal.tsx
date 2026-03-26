@@ -42,6 +42,10 @@ export interface Loan {
   loanCode?: string | null;
   loanType?: string | null;
   loanAmount: number;
+  groupName?: string | null;
+  borrowerName?: string | null;
+  borrowerEmail?: string | null;
+  borrowerPhone?: string | null;
   approvedAmount?: number | null;
   approvedInterestRate?: number | null;
   interestRate?: number | null;
@@ -93,6 +97,8 @@ interface GroupDetailsModalProps {
   isMember: boolean;
   onJoinRequest: () => void;
   onOpenChat: () => void;
+  joinDisabled?: boolean;
+  joinDisabledReason?: string;
 }
 
 const roleIcons = {
@@ -124,6 +130,8 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
   isMember,
   onJoinRequest,
   onOpenChat,
+  joinDisabled = false,
+  joinDisabledReason,
 }) => {
   const [activeTab, setActiveTab] = useState<
     "overview" | "members" | "meetings" | "contributions"
@@ -879,12 +887,19 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
               </button>
             </>
           ) : group.isOpen ? (
-            <button
-              onClick={onJoinRequest}
-              className="flex-1 bg-emerald-500 hover:bg-emerald-600 py-3 rounded-xl font-medium text-white transition-colors"
-            >
-              Request to Join
-            </button>
+            joinDisabled ? (
+              <p className="flex-1 py-3 text-gray-500 text-center">
+                {joinDisabledReason ||
+                  "You can only join one group. Group 0 is the only additional group allowed."}
+              </p>
+            ) : (
+              <button
+                onClick={onJoinRequest}
+                className="flex-1 bg-emerald-500 hover:bg-emerald-600 py-3 rounded-xl font-medium text-white transition-colors"
+              >
+                Request to Join
+              </button>
+            )
           ) : (
             <p className="flex-1 py-3 text-gray-500 text-center">
               This group is currently not accepting new members

@@ -72,7 +72,7 @@ export default function LoanRepaymentTerms({
     }));
   };
 
-  const availableTerms = termOptions && termOptions.length > 0 ? termOptions : [3, 6, 9, 12, 18, 24];
+  const availableTerms = termOptions && termOptions.length > 0 ? termOptions : [3, 6, 9, 10, 18, 24];
   const repaymentOptions = availableTerms.map(months => calculateRepayment(loanAmount, interestRate, months));
   const selectedOption =
     repaymentOptions.find(o => o.months === selectedTerm) ||

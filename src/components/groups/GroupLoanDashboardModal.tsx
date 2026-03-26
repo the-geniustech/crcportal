@@ -3,12 +3,15 @@ import {
   AlertTriangle,
   CheckCircle2,
   CreditCard,
+  Download,
   Search,
   TrendingUp,
   Wallet,
   X,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import {
   LOAN_FACILITIES,
   formatInterestLabel,
@@ -20,6 +23,10 @@ interface GroupLoan {
   loanCode?: string | null;
   loanType?: string | null;
   loanAmount: number;
+  groupName?: string | null;
+  borrowerName?: string | null;
+  borrowerEmail?: string | null;
+  borrowerPhone?: string | null;
   approvedAmount?: number | null;
   approvedInterestRate?: number | null;
   interestRate?: number | null;
@@ -177,14 +184,28 @@ const buildSummary = (loans: Array<GroupLoan & { typeKey: LoanFacilityKey }>) =>
     (acc, loan) => {
       const statusKey = getLoanStatusKey(loan.status);
       const principal = Number(loan.approvedAmount ?? loan.loanAmount ?? 0);
-      const remaining = Number(loan.remainingBalance ?? 0);
+      const remaining =
+        loan.remainingBalance === null || loan.remainingBalance === undefined
+          ? null
+          : Number(loan.remainingBalance);
+      const totalRepayable = Number(loan.totalRepayable ?? 0);
+      const repaymentToDate =
+        loan.repaymentToDate != null
+          ? Number(loan.repaymentToDate)
+          : totalRepayable > 0 && remaining !== null
+            ? Math.max(0, totalRepayable - remaining)
+            : null;
+
       acc.total += 1;
       acc.totalApproved += principal;
       if (statusKey === "overdue") acc.overdue += 1;
       if (statusKey === "active") acc.active += 1;
       if (statusKey === "repaid") acc.repaid += 1;
+      if (repaymentToDate != null && Number.isFinite(repaymentToDate)) {
+        acc.repaidToDate += repaymentToDate;
+      }
       if (statusKey !== "repaid" && statusKey !== "rejected") {
-        acc.outstanding += Math.max(remaining, 0);
+        acc.outstanding += Math.max(remaining ?? 0, 0);
       }
       return acc;
     },
@@ -195,6 +216,7 @@ const buildSummary = (loans: Array<GroupLoan & { typeKey: LoanFacilityKey }>) =>
       repaid: 0,
       totalApproved: 0,
       outstanding: 0,
+      repaidToDate: 0,
     },
   );
 };
@@ -206,10 +228,12 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
   loans,
   loansLoading = false,
 }) => {
+  const { toast } = useToast();
   const [selectedType, setSelectedType] =
     useState<LoanFacilityKey>("revolving");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
 
   useEffect(() => {
     if (!isOpen) {
@@ -274,6 +298,177 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
     });
   }, [normalizedLoans]);
 
+  const resolveLoanDisplay = (loan: GroupLoan & { typeKey: LoanFacilityKey }) => {
+    const principal = Number(loan.approvedAmount ?? loan.loanAmount ?? 0);
+    const remaining =
+      loan.remainingBalance === null || loan.remainingBalance === undefined
+        ? null
+        : Number(loan.remainingBalance);
+    const facility =
+      LOAN_FACILITIES.find((item) => item.key === loan.typeKey) || null;
+    const rateValue = loan.approvedInterestRate ?? loan.interestRate ?? null;
+    const resolvedRate =
+      rateValue != null && Number.isFinite(Number(rateValue))
+        ? Number(rateValue)
+        : null;
+    const rateType = (loan.interestRateType ||
+      facility?.interestRateType ||
+      "annual") as "annual" | "monthly" | "total";
+    const interestLabel =
+      resolvedRate != null
+        ? formatInterestLabel(resolvedRate, rateType)
+        : facility?.interestRateRange
+          ? formatInterestLabel(
+              facility.interestRateRange.min,
+              rateType,
+              facility.interestRateRange,
+            )
+          : "-";
+    const totalRepayable = Number(loan.totalRepayable ?? 0);
+    const repaymentToDate =
+      loan.repaymentToDate != null
+        ? Number(loan.repaymentToDate)
+        : totalRepayable > 0 && remaining !== null
+          ? Math.max(0, totalRepayable - remaining)
+          : null;
+    const progressRaw =
+      remaining === null || principal <= 0
+        ? null
+        : ((principal - remaining) / principal) * 100;
+    const progressValue =
+      progressRaw === null
+        ? null
+        : Math.min(100, Math.max(0, progressRaw));
+
+    return {
+      principal,
+      remaining,
+      facility,
+      interestLabel,
+      repaymentToDate,
+      progressValue,
+    };
+  };
+
+  const csvEscape = (value: unknown) => {
+    const raw = String(value ?? "");
+    if (/[",\n]/.test(raw)) {
+      return `"${raw.replace(/"/g, '""')}"`;
+    }
+    return raw;
+  };
+
+  const handleExportCsv = () => {
+    if (!group) return;
+    setIsExportingCsv(true);
+
+    try {
+      const headers = [
+        "Loan Code",
+        "Loan Type",
+        "Borrower Name",
+        "Borrower Email",
+        "Borrower Phone",
+        "Group Name",
+        "Principal",
+        "Approved Amount",
+        "Interest Rate",
+        "Remaining Balance",
+        "Repaid So Far",
+        "Status",
+        "Progress",
+        "Disbursed At",
+        "Updated At",
+      ];
+
+      const totals = sortedLoans.reduce(
+        (acc, loan) => {
+          const { remaining, repaymentToDate } = resolveLoanDisplay(loan);
+          acc.principal += Number(loan.loanAmount ?? 0);
+          acc.approved += Number(loan.approvedAmount ?? 0);
+          acc.remaining += Number(remaining ?? 0);
+          acc.repaid += Number(repaymentToDate ?? 0);
+          return acc;
+        },
+        { principal: 0, approved: 0, remaining: 0, repaid: 0 },
+      );
+
+      const rows = sortedLoans.map((loan) => {
+        const loanLabel =
+          loan.loanCode || `LN-${String(loan.id).slice(-6).toUpperCase()}`;
+        const { facility, remaining, interestLabel, repaymentToDate, progressValue } =
+          resolveLoanDisplay(loan);
+        return [
+          loanLabel,
+          facility?.name || "Loan",
+          loan.borrowerName || "-",
+          loan.borrowerEmail || "-",
+          loan.borrowerPhone || "-",
+          loan.groupName || group.name,
+          formatCurrency(loan.loanAmount),
+          loan.approvedAmount != null
+            ? formatCurrency(loan.approvedAmount)
+            : "-",
+          interestLabel,
+          remaining !== null ? formatCurrency(remaining) : "-",
+          repaymentToDate != null ? formatCurrency(repaymentToDate) : "-",
+          loan.status || "-",
+          progressValue === null ? "-" : `${Math.round(progressValue)}%`,
+          formatDate(loan.disbursedAt),
+          formatDate(loan.updatedAt || loan.createdAt),
+        ];
+      });
+
+      const totalsRow = [
+        "Totals",
+        `${sortedLoans.length} loans`,
+        "-",
+        "-",
+        "-",
+        "-",
+        formatCurrency(totals.principal),
+        formatCurrency(totals.approved),
+        "-",
+        formatCurrency(totals.remaining),
+        formatCurrency(totals.repaid),
+        "-",
+        "-",
+        "-",
+        "-",
+      ];
+
+      const csvBody = [headers, ...rows, totalsRow]
+        .map((row) => row.map((value) => csvEscape(value)).join(","))
+        .join("\n");
+      const csv = `\uFEFF${csvBody}`;
+
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const safeName = group.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      link.href = url;
+      link.download = `loan-ledger-${safeName}-${selectedType}-${new Date()
+        .toISOString()
+        .slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      toast({
+        title: "Export Complete",
+        description: "Loan ledger exported as CSV.",
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description:
+          error instanceof Error ? error.message : "Unable to export CSV",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingCsv(false);
+    }
+  };
+
   if (!isOpen || !group) return null;
 
   const selectedFacility =
@@ -291,6 +486,9 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
   const summaryOutstandingLabel = loansLoading
     ? "-"
     : formatCurrency(selectedSummary.outstanding);
+  const summaryRepaidToDateLabel = loansLoading
+    ? "-"
+    : formatCurrency(selectedSummary.repaidToDate);
   const summaryActiveLabel = loansLoading ? "-" : selectedSummary.active;
   const summaryOverdueLabel = loansLoading ? "-" : selectedSummary.overdue;
   const summaryRepaidLabel = loansLoading ? "-" : selectedSummary.repaid;
@@ -357,7 +555,7 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                   </button>
                 ))}
               </div>
-              <div className="flex w-full max-w-lg items-center gap-3">
+              <div className="flex w-full max-w-2xl items-center gap-3">
                 <div className="relative w-full max-w-xs">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                   <Input
@@ -378,10 +576,19 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                     </option>
                   ))}
                 </select>
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={handleExportCsv}
+                  disabled={isExportingCsv || loansLoading}
+                >
+                  <Download className="h-4 w-4" />
+                  {isExportingCsv ? "Exporting..." : "Export CSV"}
+                </Button>
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between">
                   <p className="text-xs uppercase tracking-wide text-gray-500">
@@ -408,6 +615,20 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                 </p>
                 <p className="text-xs text-gray-500">
                   Principal approved for {selectedFacility?.name || "loans"}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs uppercase tracking-wide text-gray-500">
+                    Repaid So Far
+                  </p>
+                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                </div>
+                <p className="mt-2 text-2xl font-semibold text-emerald-600">
+                  {summaryRepaidToDateLabel}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Total repayments recorded
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

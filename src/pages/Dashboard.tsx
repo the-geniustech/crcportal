@@ -6,6 +6,7 @@ import { useSavingsSummaryQuery } from "@/hooks/finance/useSavingsSummaryQuery";
 import { useMyTransactionsQuery } from "@/hooks/finance/useMyTransactionsQuery";
 import { useMyLoanApplicationsQuery } from "@/hooks/loans/useMyLoanApplicationsQuery";
 import { useMyGroupMembershipsQuery } from "@/hooks/groups/useMyGroupMembershipsQuery";
+import { useDashboardSummaryQuery } from "@/hooks/dashboard/useDashboardSummaryQuery";
 import { useNotifications } from "@/hooks/notifications/useNotifications";
 import { useMarkNotificationReadMutation } from "@/hooks/notifications/useMarkNotificationReadMutation";
 import { useMarkAllNotificationsReadMutation } from "@/hooks/notifications/useMarkAllNotificationsReadMutation";
@@ -149,12 +150,35 @@ const DashboardContent: React.FC = () => {
   const myTransactionsQuery = useMyTransactionsQuery({ limit: 200 });
   const myLoanApplicationsQuery = useMyLoanApplicationsQuery();
   const myGroupsQuery = useMyGroupMembershipsQuery();
+  const dashboardSummaryQuery = useDashboardSummaryQuery();
   const notificationsQuery = useNotifications();
   const markReadMutation = useMarkNotificationReadMutation();
   const markAllMutation = useMarkAllNotificationsReadMutation();
 
   const savingsBalance = Number(savingsSummaryQuery.data?.ledgerBalance ?? 0);
-  const interestEarned = Number(savingsSummaryQuery.data?.interestEarned ?? 0);
+  const totalContribution = Number(
+    dashboardSummaryQuery.data?.totalContributions ?? 0,
+  );
+  const activeLoanOutstanding = Number(
+    dashboardSummaryQuery.data?.activeLoanOutstanding ?? 0,
+  );
+  const nextPayment = useMemo(() => {
+    const next = dashboardSummaryQuery.data?.nextPayment;
+    if (!next) return null;
+    const date = next.dueDate ? new Date(next.dueDate) : null;
+    const dueDateLabel =
+      date && !Number.isNaN(date.getTime())
+        ? date.toLocaleDateString("en-NG", {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          })
+        : "-";
+    return {
+      amount: Number(next.amount ?? 0),
+      dueDate: dueDateLabel,
+    };
+  }, [dashboardSummaryQuery.data?.nextPayment]);
 
   const savingsChartData = useMemo(() => {
     const now = new Date();
@@ -389,6 +413,14 @@ const DashboardContent: React.FC = () => {
     setShowWithdrawModal(true);
   };
 
+  const handleContributeOverview = () => {
+    navigate("/payments");
+  };
+
+  const handleMakeRepaymentOverview = () => {
+    navigate("/payments");
+  };
+
   const handleApplyLoan = () => {
     navigate("/loan-application");
   };
@@ -506,13 +538,11 @@ const DashboardContent: React.FC = () => {
           <div className="space-y-6 lg:col-span-2">
             {/* Savings Overview */}
             <SavingsOverview
-              balance={savingsBalance}
-              totalSaved={savingsBalance}
-              interestEarned={interestEarned}
-              accountNumber="CRC1234567"
-              onDeposit={handleDeposit}
-              onWithdraw={handleWithdraw}
-              depositDisabled
+              totalContribution={totalContribution}
+              activeLoanOutstanding={activeLoanOutstanding}
+              nextPayment={nextPayment}
+              onContribute={handleContributeOverview}
+              onMakeRepayment={handleMakeRepaymentOverview}
             />
 
             {/* Quick Actions */}

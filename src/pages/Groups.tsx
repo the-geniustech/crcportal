@@ -24,6 +24,7 @@ import { Users, TrendingUp, Award } from "lucide-react";
 
 type GroupUI = {
   id: string;
+  groupNumber: number;
   name: string;
   description: string;
   location: string;
@@ -268,6 +269,10 @@ const GroupsContent: React.FC = () => {
       loanCode: loan.loanCode ?? null,
       loanType: loan.loanType ?? null,
       loanAmount: Number(loan.loanAmount ?? 0),
+      groupName: loan.groupName ?? null,
+      borrowerName: loan.borrowerName ?? null,
+      borrowerEmail: loan.borrowerEmail ?? null,
+      borrowerPhone: loan.borrowerPhone ?? null,
       approvedAmount:
         loan.approvedAmount === null || loan.approvedAmount === undefined
           ? null
@@ -315,6 +320,20 @@ const GroupsContent: React.FC = () => {
     return ids;
   }, [myGroupsQuery.data]);
 
+  const hasNonZeroMembership = useMemo(() => {
+    const memberships = myGroupsQuery.data ?? [];
+    if (!Array.isArray(memberships) || memberships.length === 0) return false;
+
+    return memberships.some((m) => {
+      const group =
+        typeof m.groupId === "object" && m.groupId
+          ? (m.groupId as BackendGroup)
+          : null;
+      if (!group) return false;
+      return Number(group.groupNumber) !== 0;
+    });
+  }, [myGroupsQuery.data]);
+
   const groupsData: GroupUI[] = useMemo(() => {
     const memberships = myGroupsQuery.data ?? [];
     if (!Array.isArray(memberships) || memberships.length === 0) return [];
@@ -329,6 +348,7 @@ const GroupsContent: React.FC = () => {
 
         return {
           id: group._id,
+          groupNumber: group.groupNumber,
           name: group.groupName,
           description: group.description || "",
           location: group.location || "Nigeria",
@@ -474,17 +494,47 @@ const GroupsContent: React.FC = () => {
     }
   };
 
+  const joinLimitReason =
+    "You can only join one group. Group 0 is the only additional group allowed.";
+
+  const getJoinBlockReason = (group?: GroupUI | null) => {
+    if (!group) return null;
+    if (group.groupNumber === 0) return null;
+    if (myGroupIdSet.has(group.id)) return null;
+    if (!hasNonZeroMembership) return null;
+    return joinLimitReason;
+  };
+
   const handleJoinRequest = async (groupId: string) => {
+    const target =
+      groupsData.find((g) => g.id === groupId) ??
+      (selectedGroup?.id === groupId ? selectedGroup : null);
+    const blockReason = getJoinBlockReason(target);
+    if (blockReason) {
+      toast({
+        title: "Join Restricted",
+        description: blockReason,
+        variant: "destructive",
+      });
+      return;
+    }
     try {
       await joinGroupMutation.mutateAsync(groupId);
       toast({
         title: "Joined Group",
         description: "You have joined this group successfully.",
       });
-    } catch {
+    } catch (error: unknown) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String(
+              (error as { message?: string }).message ||
+                "Failed to join group. Please try again.",
+            )
+          : "Failed to join group. Please try again.";
       toast({
         title: "Join Failed",
-        description: "Failed to join group. Please try again.",
+        description: message,
         variant: "destructive",
       });
     }
@@ -534,6 +584,7 @@ const GroupsContent: React.FC = () => {
   const totalMembers = groupsData.reduce((acc, g) => acc + g.memberCount, 0);
   const totalSavings = groupsData.reduce((acc, g) => acc + g.totalSavings, 0);
   const myGroups = myGroupIdSet.size;
+  const selectedJoinBlockReason = getJoinBlockReason(selectedGroup);
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -637,18 +688,25 @@ const GroupsContent: React.FC = () => {
           </div>
         ) : (
           <div className="gap-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {filteredGroups.map((group) => (
-              <div key={group.id} className="relative">
-                <GroupCard
-                  group={group}
-                  isMember={myGroupIdSet.has(group.id)}
-                  onViewDetails={handleViewDetails}
-                  onJoinRequest={handleJoinRequest}
-                  onOpenContributionDashboard={handleOpenContributionDashboard}
-                  onOpenLoanDashboard={handleOpenLoanDashboard}
-                />
-              </div>
-            ))}
+            {filteredGroups.map((group) => {
+              const joinBlockedReason = getJoinBlockReason(group);
+              return (
+                <div key={group.id} className="relative">
+                  <GroupCard
+                    group={group}
+                    isMember={myGroupIdSet.has(group.id)}
+                    onViewDetails={handleViewDetails}
+                    onJoinRequest={handleJoinRequest}
+                    onOpenContributionDashboard={
+                      handleOpenContributionDashboard
+                    }
+                    onOpenLoanDashboard={handleOpenLoanDashboard}
+                    joinDisabled={Boolean(joinBlockedReason)}
+                    joinDisabledReason={joinBlockedReason || undefined}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -674,6 +732,8 @@ const GroupsContent: React.FC = () => {
         contributionsLoading={groupContributionsQuery.isLoading}
         loansLoading={groupLoansQuery.isLoading}
         isMember={selectedGroup ? myGroupIdSet.has(selectedGroup.id) : false}
+        joinDisabled={Boolean(selectedJoinBlockReason)}
+        joinDisabledReason={selectedJoinBlockReason || undefined}
         onJoinRequest={() => {
           if (selectedGroup) {
             handleJoinRequest(selectedGroup.id);

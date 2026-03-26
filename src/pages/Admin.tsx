@@ -1489,9 +1489,14 @@ export default function Admin() {
       const result = await addGroupMembersMutation.mutateAsync({
         userIds: selectedMemberIds,
       });
+      const conflicts = result.conflicts ?? 0;
+      const conflictNote =
+        conflicts > 0
+          ? ` (${conflicts} already in another group)`
+          : "";
       toast({
         title: "Members Added",
-        description: `${result.added} added, ${result.skipped} skipped, ${result.missing} missing.`,
+        description: `${result.added} added, ${result.skipped} skipped${conflictNote}, ${result.missing} missing.`,
       });
       setShowAddMembersModal(false);
       setSelectedMemberIds([]);

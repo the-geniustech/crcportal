@@ -163,7 +163,7 @@ const LoanApplicationContent: React.FC = () => {
   const [loanAmount, setLoanAmount] = useState(prefilledData?.amount || 100000);
   const [purpose, setPurpose] = useState("");
   const [purposeDescription, setPurposeDescription] = useState("");
-  const [repaymentTerm, setRepaymentTerm] = useState(prefilledData?.term || 12);
+  const [repaymentTerm, setRepaymentTerm] = useState(prefilledData?.term || 10);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [guarantors, setGuarantors] = useState<Guarantor[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -221,7 +221,7 @@ const LoanApplicationContent: React.FC = () => {
   const termOptions = (() => {
     const baseOptions = getLoanTermOptions(loanType, addMonths(new Date(), 1));
     const unique = new Set(baseOptions);
-    unique.add(12);
+    unique.add(10);
     return Array.from(unique).sort((a, b) => a - b);
   })();
 
@@ -258,7 +258,7 @@ const LoanApplicationContent: React.FC = () => {
     if (prefilledData?.amount || prefilledData?.term) {
       toast({
         title: "Calculator Data Applied",
-        description: `Loan amount: ₦${(prefilledData.amount || 100000).toLocaleString()}, Term: ${prefilledData.term || 12} months`,
+        description: `Loan amount: ₦${(prefilledData.amount || 100000).toLocaleString()}, Term: ${prefilledData.term || 10} months`,
       });
     }
   }, []);
@@ -414,7 +414,7 @@ const LoanApplicationContent: React.FC = () => {
                 for
                 <span className="font-semibold">
                   {" "}
-                  {prefilledData.term || 12} months
+                  {prefilledData.term || 10} months
                 </span>
               </p>
             </div>

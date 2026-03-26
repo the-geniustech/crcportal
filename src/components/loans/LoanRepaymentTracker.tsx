@@ -196,7 +196,7 @@ export default function LoanRepaymentTracker({
 
         <div className="gap-4 grid grid-cols-3">
           <div>
-            <p className="text-emerald-100 text-xs">Total Paid</p>
+            <p className="text-emerald-100 text-xs">Repaid So Far</p>
             <p className="font-semibold">₦{totalPaid.toLocaleString()}</p>
           </div>
           <div>

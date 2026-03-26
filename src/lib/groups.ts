@@ -215,7 +215,12 @@ export async function addGroupMembers(
 ) {
   try {
     const res = await api.post(`/groups/${groupId}/members`, payload);
-    return res.data?.data as { added: number; skipped: number; missing: number };
+    return res.data?.data as {
+      added: number;
+      skipped: number;
+      missing: number;
+      conflicts?: number;
+    };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
@@ -579,6 +584,9 @@ export type BackendGroupLoan = {
   loanCode?: string | null;
   loanType?: string | null;
   loanAmount: number;
+  borrowerName?: string | null;
+  borrowerEmail?: string | null;
+  borrowerPhone?: string | null;
   approvedAmount?: number | null;
   approvedInterestRate?: number | null;
   interestRate?: number | null;

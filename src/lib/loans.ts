@@ -50,6 +50,7 @@ export type BackendLoanApplication = {
   monthlyPayment?: number | null;
   totalRepayable?: number | null;
   remainingBalance?: number | null;
+  repaymentToDate?: number | null;
   createdAt?: string;
   updatedAt?: string;
 };

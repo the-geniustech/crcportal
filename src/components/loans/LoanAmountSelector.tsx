@@ -59,7 +59,7 @@ export default function LoanAmountSelector({
 }: LoanAmountSelectorProps) {
   const [customAmount, setCustomAmount] = useState(selectedAmount.toString());
   const selectedFacility = facilities.find((f) => f.key === loanType) || null;
-  const previewTerm = selectedFacility?.termMonths ?? 12;
+  const previewTerm = selectedFacility?.termMonths ?? 10;
 
   const quickAmounts = [
     minAmount,
@@ -236,7 +236,7 @@ export default function LoanAmountSelector({
             <div>
               <p className="text-sm text-blue-700">Estimated Monthly Payment ({previewTerm} months)</p>
               <p className="text-2xl font-bold text-blue-900">
-                ₦{estimatedMonthlyPayment(selectedAmount, interestRate, 12).toLocaleString()}
+                ₦{estimatedMonthlyPayment(selectedAmount, interestRate, 10).toLocaleString()}
               </p>
             </div>
             <div className="text-right">

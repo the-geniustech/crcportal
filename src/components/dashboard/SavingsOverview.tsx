@@ -1,23 +1,23 @@
 import React from 'react';
 
 interface SavingsOverviewProps {
-  balance: number;
-  totalSaved: number;
-  interestEarned: number;
-  accountNumber: string;
-  onDeposit: () => void;
-  onWithdraw: () => void;
-  depositDisabled?: boolean;
+  totalContribution: number;
+  activeLoanOutstanding: number;
+  nextPayment: { amount: number; dueDate: string } | null;
+  onContribute: () => void;
+  onMakeRepayment: () => void;
+  contributeDisabled?: boolean;
+  repaymentDisabled?: boolean;
 }
 
 const SavingsOverview: React.FC<SavingsOverviewProps> = ({
-  balance,
-  totalSaved,
-  interestEarned,
-  accountNumber,
-  onDeposit,
-  onWithdraw,
-  depositDisabled = false,
+  totalContribution,
+  activeLoanOutstanding,
+  nextPayment,
+  onContribute,
+  onMakeRepayment,
+  contributeDisabled = false,
+  repaymentDisabled = false,
 }) => {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-NG', {
@@ -37,9 +37,9 @@ const SavingsOverview: React.FC<SavingsOverviewProps> = ({
       <div className="relative">
         <div className="flex items-start justify-between mb-6">
           <div>
-            <p className="text-emerald-100 text-sm font-medium">Total Savings Balance</p>
-            <h2 className="text-4xl font-bold mt-1">{formatCurrency(balance)}</h2>
-            <p className="text-emerald-200 text-sm mt-1">Account: {accountNumber}</p>
+            <p className="text-emerald-100 text-sm font-medium">Contribution & Loan Overview</p>
+            <h2 className="text-4xl font-bold mt-1">{formatCurrency(totalContribution)}</h2>
+            <p className="text-emerald-200 text-sm mt-1">Total Contribution Balance</p>
           </div>
           <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -50,38 +50,48 @@ const SavingsOverview: React.FC<SavingsOverviewProps> = ({
 
         <div className="grid grid-cols-2 gap-4 mb-6">
           <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
-            <p className="text-emerald-100 text-xs font-medium">Total Saved</p>
-            <p className="text-xl font-bold mt-1">{formatCurrency(totalSaved)}</p>
+            <p className="text-emerald-100 text-xs font-medium">Active Loan Outstanding</p>
+            <p className="text-xl font-bold mt-1">{formatCurrency(activeLoanOutstanding)}</p>
           </div>
           <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
-            <p className="text-emerald-100 text-xs font-medium">Interest Earned</p>
-            <p className="text-xl font-bold mt-1">{formatCurrency(interestEarned)}</p>
+            <p className="text-emerald-100 text-xs font-medium">Next Payment</p>
+            <p className="text-xl font-bold mt-1">
+              {nextPayment ? formatCurrency(nextPayment.amount) : "-"}
+            </p>
+            <p className="text-emerald-200 text-xs mt-1">
+              {nextPayment?.dueDate || "No upcoming payment"}
+            </p>
           </div>
         </div>
 
         <div className="flex gap-3">
           <button
-            onClick={onDeposit}
+            onClick={onContribute}
             className={`flex-1 font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 ${
-              depositDisabled
+              contributeDisabled
                 ? "bg-white/60 text-emerald-100 cursor-not-allowed"
                 : "bg-white text-emerald-600 hover:bg-emerald-50"
             }`}
-            disabled={depositDisabled}
+            disabled={contributeDisabled}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
             </svg>
-            {depositDisabled ? "Deposits Suspended" : "Deposit"}
+            {contributeDisabled ? "Contributions Paused" : "Contribute"}
           </button>
           <button
-            onClick={onWithdraw}
-            className="flex-1 bg-white/20 text-white font-semibold py-3 px-4 rounded-xl hover:bg-white/30 transition-colors backdrop-blur-sm flex items-center justify-center gap-2"
+            onClick={onMakeRepayment}
+            className={`flex-1 font-semibold py-3 px-4 rounded-xl transition-colors backdrop-blur-sm flex items-center justify-center gap-2 ${
+              repaymentDisabled
+                ? "bg-white/10 text-emerald-100 cursor-not-allowed"
+                : "bg-white/20 text-white hover:bg-white/30"
+            }`}
+            disabled={repaymentDisabled}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
             </svg>
-            Withdraw
+            Make Repayment
           </button>
         </div>
       </div>

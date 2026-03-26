@@ -56,7 +56,7 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
 
   const [loanType, setLoanType] = useState<LoanFacilityKey>("revolving");
   const [loanAmount, setLoanAmount] = useState(200000);
-  const [termMonths, setTermMonths] = useState(12);
+  const [termMonths, setTermMonths] = useState(10);
   const [showComparison, setShowComparison] = useState(false);
 
   // Calculate maximum eligible loan based on member data
@@ -114,7 +114,7 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
 
   // Compare different terms
   const termComparisons = useMemo(() => {
-    const terms = termOptions.length > 0 ? termOptions : [6, 12, 18, 24, 36];
+    const terms = termOptions.length > 0 ? termOptions : [6, 10, 18, 24, 36];
     return terms.map(months => {
       const summary = calculateLoanSummary({
         principal: loanAmount,
@@ -299,7 +299,7 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
 
             {/* Quick Term Selection */}
             <div className="flex flex-wrap gap-2">
-              {(termOptions.length > 0 ? termOptions : [6, 12, 18, 24, 36]).map((months) => (
+              {(termOptions.length > 0 ? termOptions : [6, 10, 18, 24, 36]).map((months) => (
                 <button
                   key={months}
                   onClick={() => setTermMonths(months)}
