@@ -145,6 +145,9 @@ const DashboardContent: React.FC = () => {
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState("");
   const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [contributionView, setContributionView] = useState<
+    "monthly" | "cumulative"
+  >("monthly");
 
   const savingsSummaryQuery = useSavingsSummaryQuery();
   const myTransactionsQuery = useMyTransactionsQuery({ limit: 200 });
@@ -154,6 +157,34 @@ const DashboardContent: React.FC = () => {
   const notificationsQuery = useNotifications();
   const markReadMutation = useMarkNotificationReadMutation();
   const markAllMutation = useMarkAllNotificationsReadMutation();
+
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) return;
+    try {
+      const stored = window.localStorage.getItem(
+        `dashboard:contributionView:${userId}`,
+      );
+      if (stored === "monthly" || stored === "cumulative") {
+        setContributionView(stored);
+      }
+    } catch (error) {
+      console.warn("Unable to read contribution view preference", error);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    const userId = user?.id;
+    if (!userId) return;
+    try {
+      window.localStorage.setItem(
+        `dashboard:contributionView:${userId}`,
+        contributionView,
+      );
+    } catch (error) {
+      console.warn("Unable to persist contribution view preference", error);
+    }
+  }, [contributionView, user?.id]);
 
   const savingsBalance = Number(savingsSummaryQuery.data?.ledgerBalance ?? 0);
   const totalContribution = Number(
@@ -180,7 +211,7 @@ const DashboardContent: React.FC = () => {
     };
   }, [dashboardSummaryQuery.data?.nextPayment]);
 
-  const savingsChartData = useMemo(() => {
+  const contributionChartMonthly = useMemo(() => {
     const now = new Date();
     const months = Array.from({ length: 6 }, (_, i) => {
       const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
@@ -192,7 +223,7 @@ const DashboardContent: React.FC = () => {
     });
 
     const txs: RawTransaction[] = myTransactionsQuery.data?.transactions ?? [];
-    const netByMonth = new Map<string, number>();
+    const totalsByMonth = new Map<string, number>();
 
     for (const t of txs) {
       const d = new Date(t.date);
@@ -201,25 +232,32 @@ const DashboardContent: React.FC = () => {
       const amount = Number(t.amount ?? 0);
       if (t.status !== "success") continue;
 
-      if (t.type === "deposit" || t.type === "interest") {
-        netByMonth.set(key, (netByMonth.get(key) ?? 0) + amount);
-      } else if (t.type === "withdrawal") {
-        netByMonth.set(key, (netByMonth.get(key) ?? 0) - amount);
+      if (t.type === "group_contribution") {
+        totalsByMonth.set(key, (totalsByMonth.get(key) ?? 0) + amount);
       }
     }
 
-    const netChanges = months.map(
-      (m) => netByMonth.get(`${m.year}-${m.month}`) ?? 0,
-    );
-    const totalNet = netChanges.reduce((sum, n) => sum + n, 0);
-    const startingBalance = Math.max(0, savingsBalance - totalNet);
+    return months.map((m) => ({
+      month: m.label,
+      amount: Math.round(totalsByMonth.get(`${m.year}-${m.month}`) ?? 0),
+    }));
+  }, [myTransactionsQuery.data?.transactions]);
 
-    let running = startingBalance;
-    return months.map((m, i) => {
-      running += netChanges[i];
-      return { month: m.label, amount: Math.round(running) };
+  const contributionChartCumulative = useMemo(() => {
+    let running = 0;
+    return contributionChartMonthly.map((point) => {
+      running += point.amount;
+      return {
+        month: point.month,
+        amount: running,
+      };
     });
-  }, [myTransactionsQuery.data?.transactions, savingsBalance]);
+  }, [contributionChartMonthly]);
+
+  const contributionChartData =
+    contributionView === "cumulative"
+      ? contributionChartCumulative
+      : contributionChartMonthly;
 
   const loans: Loan[] = useMemo(() => {
     const apps: BackendLoanApplication[] = myLoanApplicationsQuery.data ?? [];
@@ -247,26 +285,21 @@ const DashboardContent: React.FC = () => {
                   ? "rejected"
                   : "pending";
 
-      const nextPaymentSource =
-        a.repaymentStartDate ||
-        a.disbursedAt ||
-        a.approvedAt ||
-        a.createdAt ||
-        null;
-      const nextPaymentDate = nextPaymentSource
-        ? new Date(nextPaymentSource).toLocaleDateString("en-NG", {
+      const nextPaymentDate = a.nextPaymentDueDate
+        ? new Date(a.nextPaymentDueDate).toLocaleDateString("en-NG", {
             month: "short",
             day: "numeric",
             year: "numeric",
           })
-        : "";
+        : "-";
 
       return {
         id: a._id,
         amount: Number(a.approvedAmount ?? a.loanAmount ?? 0),
         status,
         purpose: a.loanPurpose || a.loanCode || "Loan",
-        monthlyPayment: Number(a.monthlyPayment ?? 0),
+        monthlyPayment: Number(a.monthlyPayment ?? a.nextPaymentAmount ?? 0),
+        nextPaymentAmount: Number(a.nextPaymentAmount ?? a.monthlyPayment ?? 0),
         remainingBalance: remaining,
         nextPaymentDate,
         progress: Math.min(100, Math.max(0, progress)),
@@ -556,7 +589,12 @@ const DashboardContent: React.FC = () => {
             />
 
             {/* Savings Chart */}
-            <SavingsChart data={savingsChartData} />
+            <SavingsChart
+              data={contributionChartData}
+              title="Contribution Trend"
+              view={contributionView}
+              onViewChange={setContributionView}
+            />
 
             {/* Loan History */}
             <LoanHistory

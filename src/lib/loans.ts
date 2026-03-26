@@ -51,6 +51,9 @@ export type BackendLoanApplication = {
   totalRepayable?: number | null;
   remainingBalance?: number | null;
   repaymentToDate?: number | null;
+  nextPaymentDueDate?: string | null;
+  nextPaymentAmount?: number | null;
+  nextPaymentStatus?: "paid" | "pending" | "upcoming" | "overdue" | null;
   createdAt?: string;
   updatedAt?: string;
 };

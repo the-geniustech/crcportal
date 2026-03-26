@@ -759,6 +759,12 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                               Loan
                             </th>
                             <th className="px-4 py-3 text-left font-medium">
+                              Borrower
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Contact
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
                               Principal
                             </th>
                             <th className="px-4 py-3 text-left font-medium">
@@ -809,6 +815,20 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                                   <p className="text-gray-500 text-xs">
                                     Created {formatDate(loan.createdAt)}
                                   </p>
+                                </td>
+                                <td className="px-4 py-3">
+                                  <p className="font-medium text-gray-900">
+                                    {loan.borrowerName || "Member"}
+                                  </p>
+                                  <p className="text-gray-500 text-xs">
+                                    {loan.groupName || group.name}
+                                  </p>
+                                </td>
+                                <td className="px-4 py-3 text-gray-700">
+                                  <div className="space-y-1 text-xs">
+                                    <p>{loan.borrowerEmail || "\u2014"}</p>
+                                    <p>{loan.borrowerPhone || "\u2014"}</p>
+                                  </div>
                                 </td>
                                 <td className="px-4 py-3 font-medium text-gray-900">
                                   {formatCurrency(loan.loanAmount)}

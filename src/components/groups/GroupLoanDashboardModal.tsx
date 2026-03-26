@@ -753,11 +753,17 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-[1400px] w-full text-sm">
+                  <table className="min-w-[1500px] w-full text-sm">
                     <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                       <tr>
                         <th className="px-4 py-3 text-left font-semibold">
                           Loan
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          Borrower
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          Contact
                         </th>
                         <th className="px-4 py-3 text-left font-semibold">
                           Type
@@ -853,6 +859,20 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                               <p className="text-xs text-gray-500">
                                 Created {formatDate(loan.createdAt)}
                               </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <p className="font-medium text-gray-900">
+                                {loan.borrowerName || "Member"}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {loan.groupName || group.name}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3 text-gray-700">
+                              <div className="space-y-1 text-xs">
+                                <p>{loan.borrowerEmail || "-"}</p>
+                                <p>{loan.borrowerPhone || "-"}</p>
+                              </div>
                             </td>
                             <td className="px-4 py-3">
                               <span

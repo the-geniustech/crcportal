@@ -13,6 +13,7 @@ export interface Loan {
     | "rejected";
   purpose: string;
   monthlyPayment: number;
+  nextPaymentAmount?: number;
   remainingBalance: number;
   nextPaymentDate: string;
   progress: number;
@@ -108,24 +109,30 @@ const LoanHistory: React.FC<LoanHistoryProps> = ({
       </div>
 
       <div className="space-y-4">
-        {loans.map((loan) => (
-          <div
-            key={loan.id}
-            className="p-4 border border-gray-100 hover:border-gray-200 rounded-xl transition-colors"
-          >
-            <div className="flex justify-between items-start mb-3">
-              <div>
-                <h4 className="font-semibold text-gray-900">{loan.purpose}</h4>
-                <p className="text-gray-500 text-sm">
-                  Loan Amount: {formatCurrency(loan.amount)}
-                </p>
+        {loans.map((loan) => {
+          const nextPaymentAmount = Number.isFinite(
+            loan.nextPaymentAmount ?? Number.NaN,
+          )
+            ? (loan.nextPaymentAmount as number)
+            : loan.monthlyPayment;
+          return (
+            <div
+              key={loan.id}
+              className="p-4 border border-gray-100 hover:border-gray-200 rounded-xl transition-colors"
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h4 className="font-semibold text-gray-900">{loan.purpose}</h4>
+                  <p className="text-gray-500 text-sm">
+                    Loan Amount: {formatCurrency(loan.amount)}
+                  </p>
+                </div>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(loan.status)}`}
+                >
+                  {getStatusLabel(loan.status)}
+                </span>
               </div>
-              <span
-                className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(loan.status)}`}
-              >
-                {getStatusLabel(loan.status)}
-              </span>
-            </div>
 
             {loan.status === "active" && (
               <>
@@ -159,7 +166,7 @@ const LoanHistory: React.FC<LoanHistoryProps> = ({
                   </div>
                 </div>
 
-                <div className="flex justify-between items-center pt-3 border-gray-100 border-t">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-gray-100 border-t">
                   <div className="flex items-center gap-2 text-gray-500 text-sm">
                     <svg
                       className="w-4 h-4"
@@ -175,6 +182,9 @@ const LoanHistory: React.FC<LoanHistoryProps> = ({
                       />
                     </svg>
                     Next payment: {loan.nextPaymentDate}
+                  </div>
+                  <div className="text-sm font-semibold text-gray-900">
+                    Amount due: {formatCurrency(nextPaymentAmount)}
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -218,8 +228,9 @@ const LoanHistory: React.FC<LoanHistoryProps> = ({
                 Your loan application is under review
               </p>
             )}
-          </div>
-        ))}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
