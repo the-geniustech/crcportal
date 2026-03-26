@@ -1,4 +1,8 @@
 import { api, getApiErrorMessage } from "@/lib/api/client";
+import type {
+  ContributionTypeCanonical,
+  ContributionTypeValue,
+} from "@/lib/contributionPolicy";
 
 export type AdminApplicant = {
   id: string;
@@ -83,6 +87,7 @@ export async function markContributionPaid(payload: {
   month: number;
   year: number;
   amount: number;
+  contributionType?: ContributionTypeValue;
   notes?: string;
 }) {
   try {
@@ -152,10 +157,10 @@ export async function listAdminGroups(
             categories?: string[];
             locations?: string[];
             contributionTypeTotalsYtd?: {
-              regular: number;
-              festival: number;
-              end_well: number;
-              special_savings: number;
+              revolving: number;
+              special: number;
+              endwell: number;
+              festive: number;
             };
           }
         | undefined,
@@ -482,7 +487,7 @@ export type AdminContributionTrackingGroup = {
 
 export async function getAdminContributionTracking(params: {
   year: number;
-  contributionType: "regular" | "festival" | "end_well" | "special_savings";
+  contributionType: ContributionTypeCanonical;
 }) {
   try {
     const res = await api.get("/admin/contributions/tracking", { params });
@@ -497,7 +502,7 @@ export async function getAdminContributionTracking(params: {
 }
 
 export type AdminSpecialContributionSummary = {
-  type: "festival" | "end_well" | "special_savings";
+  type: Exclude<ContributionTypeCanonical, "revolving">;
   totalCollected: number;
   contributors: number;
 };

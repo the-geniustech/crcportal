@@ -3,9 +3,10 @@ import { api, getApiErrorMessage } from "./api/client";
 export type InitializePaystackPaymentInput = {
   amount: number;
   email: string;
-  paymentType: "deposit" | "loan_repayment" | "group_contribution";
+  paymentType: "loan_repayment" | "group_contribution";
   groupId?: string | null;
   loanApplicationId?: string | null;
+  contributionType?: string | null;
   description?: string | null;
   callbackUrl?: string | null;
 };
@@ -15,6 +16,7 @@ export type BulkPaymentItem = {
   amount: number;
   groupId?: string | null;
   loanApplicationId?: string | null;
+  contributionType?: string | null;
   dueDate?: string | null;
   description?: string | null;
 };

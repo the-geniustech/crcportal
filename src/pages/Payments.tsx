@@ -79,13 +79,15 @@ interface PaymentVerificationResponse {
 }
 
 interface PaymentReminder {
-  type: "deposit" | "loan_repayment" | "group_contribution";
+  type: "loan_repayment" | "group_contribution";
+  title: string;
   amount: number;
   dueDate?: string;
   groupId?: string | null;
   groupName?: string | null;
   loanId?: string | null;
   loanName?: string | null;
+  contributionType?: string | null;
 }
 
 export default function Payments() {
@@ -97,7 +99,7 @@ export default function Payments() {
   const [selectedTransaction, setSelectedTransaction] =
     useState<Transaction | null>(null);
   const [preselectedType, setPreselectedType] = useState<
-    "deposit" | "loan_repayment" | "group_contribution" | undefined
+    "loan_repayment" | "group_contribution" | undefined
   >();
   const [preselectedAmount, setPreselectedAmount] = useState<
     number | undefined
@@ -167,7 +169,7 @@ export default function Payments() {
   };
 
   const handleQuickAction = (
-    type: "deposit" | "loan_repayment" | "group_contribution",
+    type: "loan_repayment" | "group_contribution",
     amount?: number,
   ) => {
     setPreselectedType(type);
@@ -235,6 +237,7 @@ export default function Payments() {
       amount: Number(reminder.amount || 0),
       groupId: reminder.groupId ?? null,
       loanApplicationId: reminder.loanId ?? null,
+      contributionType: reminder.contributionType ?? null,
       dueDate: reminder.dueDate ?? null,
       description: reminder.title,
     }));
@@ -443,20 +446,7 @@ export default function Payments() {
             <CardTitle className="text-lg">Quick Actions</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="gap-4 grid grid-cols-1 md:grid-cols-3">
-              <button
-                onClick={() => handleQuickAction("deposit")}
-                className="group flex items-center gap-4 bg-gradient-to-r from-emerald-50 to-teal-50 hover:shadow-md p-4 border border-emerald-200 rounded-lg transition-all"
-              >
-                <div className="flex justify-center items-center bg-emerald-500 rounded-full w-12 h-12 group-hover:scale-110 transition-transform">
-                  <ArrowDownLeft className="w-6 h-6 text-white" />
-                </div>
-                <div className="text-left">
-                  <p className="font-semibold text-gray-900">Make Deposit</p>
-                  <p className="text-gray-500 text-sm">Add to your savings</p>
-                </div>
-              </button>
-
+            <div className="gap-4 grid grid-cols-1 md:grid-cols-2">
               <button
                 onClick={() => handleQuickAction("loan_repayment", 15000)}
                 className="group flex items-center gap-4 bg-gradient-to-r from-blue-50 to-indigo-50 hover:shadow-md p-4 border border-blue-200 rounded-lg transition-all"
@@ -633,7 +623,7 @@ export default function Payments() {
                   Set Up Recurring Payments
                 </h3>
                 <p className="mt-1 text-gray-600">
-                  Automate your savings and contributions with scheduled
+                  Automate your contributions and loan repayments with scheduled
                   payments. Choose weekly, bi-weekly, or monthly frequency and
                   never miss a payment.
                 </p>

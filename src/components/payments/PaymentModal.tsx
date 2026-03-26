@@ -23,8 +23,14 @@ import { useMyLoanApplicationsQuery } from "@/hooks/loans/useMyLoanApplicationsQ
 import { useInitializePaystackPaymentMutation } from "@/hooks/payments/useInitializePaystackPaymentMutation";
 import { useInitializePaystackBulkPaymentMutation } from "@/hooks/payments/useInitializePaystackBulkPaymentMutation";
 import {
+  ContributionTypeOptions,
+  getContributionTypeConfig,
+  getContributionTypeLabel,
+  normalizeContributionType,
+  validateContributionAmount,
+} from "@/lib/contributionPolicy";
+import {
   CreditCard,
-  Wallet,
   Users,
   Loader2,
   CheckCircle,
@@ -36,7 +42,7 @@ interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: (transaction: unknown) => void;
-  preselectedType?: "deposit" | "loan_repayment" | "group_contribution";
+  preselectedType?: "loan_repayment" | "group_contribution";
   preselectedAmount?: number;
   preselectedGroup?: { id: string; name: string };
   preselectedLoan?: { id: string; name: string };
@@ -44,12 +50,6 @@ interface PaymentModalProps {
 }
 
 const paymentTypes = [
-  {
-    value: "deposit",
-    label: "Savings Deposit",
-    icon: Wallet,
-    description: "Add funds to your savings account",
-  },
   {
     value: "loan_repayment",
     label: "Loan Repayment",
@@ -79,13 +79,14 @@ export default function PaymentModal({
     "form",
   );
   const [paymentType, setPaymentType] = useState<
-    "deposit" | "loan_repayment" | "group_contribution" | ""
+    "loan_repayment" | "group_contribution" | ""
   >(preselectedType || "");
   const [amount, setAmount] = useState(preselectedAmount?.toString() || "");
   const [selectedGroup, setSelectedGroup] = useState(
     preselectedGroup?.id || "",
   );
   const [selectedLoan, setSelectedLoan] = useState(preselectedLoan?.id || "");
+  const [contributionType, setContributionType] = useState("revolving");
   const [description, setDescription] = useState("");
   const [email, setEmail] = useState("member@crc.org");
   const [isLoading, setIsLoading] = useState(false);
@@ -115,6 +116,11 @@ export default function PaymentModal({
     }
     if (bulkTotal > 0) {
       setAmount(bulkTotal.toString());
+    }
+
+    if (bulkType === "group_contribution") {
+      const firstType = normalizeContributionType(bulkItems?.[0]?.contributionType);
+      if (firstType) setContributionType(firstType);
     }
   }, [isBulk, bulkItems, bulkTotal]);
 
@@ -213,6 +219,21 @@ export default function PaymentModal({
       return;
     }
 
+    if (paymentType === "group_contribution") {
+      const validation = validateContributionAmount(
+        contributionType as "revolving" | "special" | "endwell" | "festive",
+        parseFloat(amount),
+      );
+      if (!validation.valid) {
+        toast({
+          title: "Invalid Amount",
+          description: validation.message || "Please enter a valid amount.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     setIsLoading(true);
     setStep("processing");
 
@@ -226,12 +247,13 @@ export default function PaymentModal({
         amount: parsedAmount,
         email,
         paymentType: paymentType as
-          | "deposit"
           | "loan_repayment"
           | "group_contribution",
         groupId: paymentType === "group_contribution" ? selectedGroup : null,
         loanApplicationId:
           paymentType === "loan_repayment" ? selectedLoan : null,
+        contributionType:
+          paymentType === "group_contribution" ? contributionType : null,
         description: description || paymentTypeLabel,
         callbackUrl: `${window.location.origin}/payments`,
       });
@@ -258,6 +280,7 @@ export default function PaymentModal({
     setAmount(preselectedAmount?.toString() || "");
     setSelectedGroup(preselectedGroup?.id || "");
     setSelectedLoan(preselectedLoan?.id || "");
+    setContributionType("revolving");
     setDescription("");
     setErrorMessage("");
     onClose();
@@ -294,7 +317,6 @@ export default function PaymentModal({
                         setPaymentType(
                           type.value as
                             | ""
-                            | "deposit"
                             | "loan_repayment"
                             | "group_contribution",
                         )
@@ -331,25 +353,51 @@ export default function PaymentModal({
 
             {/* Group Selection for Group Contribution */}
             {paymentType === "group_contribution" && (
-              <div className="space-y-2">
-                <Label>Select Group</Label>
-                <Select
-                  value={selectedGroup}
-                  onValueChange={setSelectedGroup}
-                  disabled={isBulk}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a group" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {groups.map((group) => (
-                      <SelectItem key={group.id} value={group.id}>
-                        {group.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <>
+                <div className="space-y-2">
+                  <Label>Select Group</Label>
+                  <Select
+                    value={selectedGroup}
+                    onValueChange={setSelectedGroup}
+                    disabled={isBulk}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Choose a group" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {groups.map((group) => (
+                        <SelectItem key={group.id} value={group.id}>
+                          {group.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Contribution Type</Label>
+                  <Select
+                    value={contributionType}
+                    onValueChange={setContributionType}
+                    disabled={isBulk}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select contribution type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ContributionTypeOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {getContributionTypeConfig(contributionType)?.description && (
+                    <p className="text-xs text-gray-500">
+                      {getContributionTypeConfig(contributionType)?.description}
+                    </p>
+                  )}
+                </div>
+              </>
             )}
 
             {/* Loan Selection for Loan Repayment */}
@@ -456,6 +504,14 @@ export default function PaymentModal({
                     ₦{parseFloat(amount || "0").toLocaleString()}
                   </span>
                 </div>
+                {paymentType === "group_contribution" && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Contribution Type:</span>
+                    <span className="font-medium">
+                      {getContributionTypeLabel(contributionType)}
+                    </span>
+                  </div>
+                )}
                 {selectedGroup && (
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Group:</span>

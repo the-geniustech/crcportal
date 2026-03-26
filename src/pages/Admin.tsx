@@ -69,6 +69,7 @@ import { useSendAdminBulkSmsMutation } from "@/hooks/admin/useSendAdminBulkSmsMu
 import { useGroupMembersQuery } from "@/hooks/groups/useGroupMembersQuery";
 import { useGroupMeetingsQuery } from "@/hooks/groups/useGroupMeetingsQuery";
 import { useGroupContributionsQuery } from "@/hooks/groups/useGroupContributionsQuery";
+import { useGroupLoansQuery } from "@/hooks/groups/useGroupLoansQuery";
 import { useGroupMemberCandidatesQuery } from "@/hooks/groups/useGroupMemberCandidatesQuery";
 import { useAddGroupMembersMutation } from "@/hooks/groups/useAddGroupMembersMutation";
 import { useArchiveGroupMutation } from "@/hooks/groups/useArchiveGroupMutation";
@@ -88,6 +89,7 @@ import CreateGroupModal, {
 } from "@/components/groups/CreateGroupModal";
 import GroupDetailsModal, {
   Member,
+  Loan,
 } from "@/components/groups/GroupDetailsModal";
 import GroupManagementPanel from "@/components/groups/GroupManagementPanel";
 import { useAuth } from "@/contexts/AuthContext";
@@ -400,6 +402,9 @@ export default function Admin() {
     groupModalOpen ? activeGroupId : undefined,
     now.getFullYear(),
   );
+  const groupLoansQuery = useGroupLoansQuery(
+    groupModalOpen ? activeGroupId : undefined,
+  );
 
   const memberCandidatesQuery = useGroupMemberCandidatesQuery(
     showAddMembersModal ? activeGroupId : undefined,
@@ -561,7 +566,7 @@ export default function Admin() {
       const avatarUrl =
         avatarObj && typeof avatarObj.url === "string"
           ? avatarObj.url
-          : "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766668669096_f160165b.png";
+          : "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png";
 
       const role = (() => {
         if (m.role === "coordinator") return "admin";
@@ -611,7 +616,7 @@ export default function Admin() {
       const avatar =
         avatarObj && typeof avatarObj.url === "string"
           ? avatarObj.url
-          : "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766668669096_f160165b.png";
+          : "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png";
 
       return { id, name, avatar };
     });
@@ -728,6 +733,29 @@ export default function Admin() {
       };
     });
   }, [groupContributionsQuery.data]);
+
+  const loansForDetails: Loan[] = useMemo(() => {
+    const raw = groupLoansQuery.data ?? [];
+    if (raw.length === 0) return [];
+
+    return raw.map((loan) => ({
+      id: loan._id,
+      loanCode: loan.loanCode ?? null,
+      loanAmount: Number(loan.loanAmount ?? 0),
+      approvedAmount:
+        loan.approvedAmount === null || loan.approvedAmount === undefined
+          ? null
+          : Number(loan.approvedAmount),
+      remainingBalance:
+        loan.remainingBalance === null || loan.remainingBalance === undefined
+          ? null
+          : Number(loan.remainingBalance),
+      status: loan.status || "unknown",
+      createdAt: loan.createdAt,
+      disbursedAt: loan.disbursedAt ?? null,
+      updatedAt: loan.updatedAt,
+    }));
+  }, [groupLoansQuery.data]);
 
   const periodEndMonthShort = groupSummary
     ? new Date(
@@ -1799,8 +1827,8 @@ export default function Admin() {
                     </tbody>
                   </table>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-gray-100 border-t">
-                  <p className="text-sm text-gray-500">
+                <div className="flex flex-wrap justify-between items-center gap-3 p-4 border-gray-100 border-t">
+                  <p className="text-gray-500 text-sm">
                     Showing{" "}
                     <span className="font-medium text-gray-900">
                       {Math.min(
@@ -1822,7 +1850,7 @@ export default function Admin() {
                     >
                       Previous
                     </Button>
-                    <span className="text-sm text-gray-600">
+                    <span className="text-gray-600 text-sm">
                       Page{" "}
                       <span className="font-medium text-gray-900">
                         {groupMeta?.page ?? groupPage}
@@ -1844,8 +1872,8 @@ export default function Admin() {
                         setGroupPage((p) =>
                           Math.min(
                             Math.ceil(
-                              (groupMeta?.total ??
-                                filteredAdminGroups.length) / groupPageSize,
+                              (groupMeta?.total ?? filteredAdminGroups.length) /
+                                groupPageSize,
                             ),
                             p + 1,
                           ),
@@ -1854,8 +1882,8 @@ export default function Admin() {
                       disabled={
                         (groupMeta?.page ?? groupPage) >=
                         Math.ceil(
-                          (groupMeta?.total ??
-                            filteredAdminGroups.length) / groupPageSize,
+                          (groupMeta?.total ?? filteredAdminGroups.length) /
+                            groupPageSize,
                         )
                       }
                     >
@@ -1869,11 +1897,11 @@ export default function Admin() {
               <div className="gap-4 grid grid-cols-1 md:grid-cols-4">
                 <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-5 rounded-xl text-white">
                   <h4 className="font-medium text-emerald-100">
-                    Regular Contributions
+                    Revolving Contributions
                   </h4>
                   <p className="mt-1 font-bold text-2xl">
                     {formatCompactNaira(
-                      contributionTypeTotalsYtd?.regular ?? 0,
+                      contributionTypeTotalsYtd?.revolving ?? 0,
                     )}
                   </p>
                   <p className="mt-2 text-emerald-100 text-sm">
@@ -1882,37 +1910,37 @@ export default function Admin() {
                 </div>
                 <div className="bg-gradient-to-br from-purple-500 to-purple-600 p-5 rounded-xl text-white">
                   <h4 className="font-medium text-purple-100">
-                    Festival Contribution
+                    Festive Contribution
                   </h4>
                   <p className="mt-1 font-bold text-2xl">
                     {formatCompactNaira(
-                      contributionTypeTotalsYtd?.festival ?? 0,
+                      contributionTypeTotalsYtd?.festive ?? 0,
                     )}
                   </p>
                   <p className="mt-2 text-purple-100 text-sm">
-                    Group 0 - Annual
+                    Group 0 - Festival
                   </p>
                 </div>
                 <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-5 rounded-xl text-white">
                   <h4 className="font-medium text-blue-100">
-                    End Well Contribution
+                    Endwell Contribution
                   </h4>
                   <p className="mt-1 font-bold text-2xl">
                     {formatCompactNaira(
-                      contributionTypeTotalsYtd?.end_well ?? 0,
+                      contributionTypeTotalsYtd?.endwell ?? 0,
                     )}
                   </p>
                   <p className="mt-2 text-blue-100 text-sm">
-                    Group 0 - Year End
+                    Group 0 - Long Term
                   </p>
                 </div>
                 <div className="bg-gradient-to-br from-amber-500 to-amber-600 p-5 rounded-xl text-white">
                   <h4 className="font-medium text-amber-100">
-                    Special Savings
+                    Special Contribution
                   </h4>
                   <p className="mt-1 font-bold text-2xl">
                     {formatCompactNaira(
-                      contributionTypeTotalsYtd?.special_savings ?? 0,
+                      contributionTypeTotalsYtd?.special ?? 0,
                     )}
                   </p>
                   <p className="mt-2 text-amber-100 text-sm">
@@ -2358,9 +2386,11 @@ export default function Admin() {
         members={membersForDetails as unknown as Member[]}
         meetings={meetingsForDetails}
         contributions={contributionsForDetails}
+        loans={loansForDetails}
         membersLoading={groupMembersQuery.isLoading}
         meetingsLoading={groupMeetingsQuery.isLoading}
         contributionsLoading={groupContributionsQuery.isLoading}
+        loansLoading={groupLoansQuery.isLoading}
         isMember
         onJoinRequest={() => {}}
         onOpenChat={() => {}}
@@ -2434,7 +2464,7 @@ export default function Admin() {
                       <img
                         src={
                           candidate.avatarUrl ||
-                          "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766668669096_f160165b.png"
+                          "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png"
                         }
                         alt={candidate.fullName || "Member"}
                         className="rounded-full w-8 h-8 object-cover"

@@ -97,7 +97,7 @@ const DashboardHeader: React.FC = () => {
     { name: "Calendar", path: "/calendar" },
     { name: "Credit Score", path: "/credit-score" },
     { name: "Guarantor", path: "/guarantor" },
-    { name: "Settings", path: "/settings" },
+    // { name: "Settings", path: "/settings" },
     // { name: 'Profile', path: '/profile' },
     // (user?.role === "admin" || user?.role === "group_coordinator") && {
     //   name: "Admin",
@@ -204,7 +204,7 @@ const DashboardHeader: React.FC = () => {
                   />
                 </svg>
                 {unreadCount > 0 && (
-                  <span className="top-1 right-1 absolute flex items-center justify-center bg-red-500 rounded-full min-w-[0.75rem] h-3 px-1 text-[10px] font-semibold text-white">
+                  <span className="top-1 right-1 absolute flex justify-center items-center bg-red-500 px-1 rounded-full min-w-[0.75rem] h-3 font-semibold text-[10px] text-white">
                     {unreadCount > 9 ? "9+" : unreadCount}
                   </span>
                 )}
@@ -212,14 +212,14 @@ const DashboardHeader: React.FC = () => {
 
               {notificationsOpen && (
                 <div className="right-0 z-50 absolute bg-white shadow-xl mt-2 py-2 border border-gray-100 rounded-xl w-80">
-                  <div className="flex items-center justify-between px-4 py-2 border-gray-100 border-b">
+                  <div className="flex justify-between items-center px-4 py-2 border-gray-100 border-b">
                     <h3 className="font-semibold text-gray-900">
                       Notifications
                     </h3>
                     {unreadCount > 0 && (
                       <button
                         onClick={() => markAllMutation.mutate()}
-                        className="text-xs text-emerald-600 hover:text-emerald-700 font-medium"
+                        className="font-medium text-emerald-600 hover:text-emerald-700 text-xs"
                       >
                         Mark all read
                       </button>
@@ -227,15 +227,15 @@ const DashboardHeader: React.FC = () => {
                   </div>
                   <div className="max-h-80 overflow-y-auto">
                     {notificationsQuery.isLoading ? (
-                      <div className="px-4 py-6 text-center text-sm text-gray-500">
+                      <div className="px-4 py-6 text-gray-500 text-sm text-center">
                         Loading notifications...
                       </div>
                     ) : notificationsQuery.error ? (
-                      <div className="px-4 py-6 text-center text-sm text-gray-500">
+                      <div className="px-4 py-6 text-gray-500 text-sm text-center">
                         Unable to load notifications.
                       </div>
                     ) : notifications.length === 0 ? (
-                      <div className="px-4 py-6 text-center text-sm text-gray-500">
+                      <div className="px-4 py-6 text-gray-500 text-sm text-center">
                         You're all caught up.
                       </div>
                     ) : (

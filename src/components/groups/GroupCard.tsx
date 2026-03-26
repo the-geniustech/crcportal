@@ -1,5 +1,12 @@
 import React from "react";
-import { Users, MapPin, Calendar, TrendingUp } from "lucide-react";
+import { Users, MapPin, Calendar, TrendingUp, MoreVertical } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface GroupCardProps {
   group: {
@@ -19,6 +26,8 @@ interface GroupCardProps {
   isMember?: boolean;
   onViewDetails: (id: string) => void;
   onJoinRequest: (id: string) => void;
+  onOpenContributionDashboard: (id: string) => void;
+  onOpenLoanDashboard: (id: string) => void;
 }
 
 const GroupCard: React.FC<GroupCardProps> = ({
@@ -26,6 +35,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
   isMember = false,
   onViewDetails,
   onJoinRequest,
+  onOpenContributionDashboard,
+  onOpenLoanDashboard,
 }) => {
   return (
     <div className="group bg-white shadow-sm hover:shadow-lg border border-gray-100 rounded-2xl overflow-hidden transition-all duration-300">
@@ -47,10 +58,34 @@ const GroupCard: React.FC<GroupCardProps> = ({
             {group.isOpen ? "Open" : "Closed"}
           </span>
         </div>
-        <div className="top-3 right-3 absolute">
+        <div className="top-3 right-3 absolute flex items-center gap-2">
           <span className="bg-white/90 px-3 py-1 rounded-full font-medium text-gray-700 text-xs">
             {group.category}
           </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-full bg-white/80 text-gray-700 hover:bg-white"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onOpenLoanDashboard(group.id)}>
+                Loan Dashboard
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onOpenContributionDashboard(group.id)}
+              >
+                Contribution Tracking
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onViewDetails(group.id)}>
+                View Details
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

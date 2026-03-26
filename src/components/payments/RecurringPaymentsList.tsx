@@ -25,6 +25,7 @@ import {
   useDeleteRecurringPaymentMutation,
   useUpdateRecurringPaymentMutation,
 } from "@/hooks/finance/useRecurringPaymentsMutations";
+import { getContributionTypeLabel } from "@/lib/contributionPolicy";
 import { format, parseISO, differenceInDays } from "date-fns";
 import {
   Repeat,
@@ -50,6 +51,7 @@ interface RecurringPayment {
   id: string;
   payment_type: "deposit" | "loan_repayment" | "group_contribution";
   amount: number;
+  contribution_type?: string;
   frequency: "weekly" | "bi-weekly" | "monthly";
   start_date: string;
   next_payment_date: string;
@@ -111,6 +113,7 @@ export default function RecurringPaymentsList() {
       id: p._id,
       payment_type: p.paymentType,
       amount: Number(p.amount ?? 0),
+      contribution_type: p.contributionType ?? undefined,
       frequency: p.frequency,
       start_date: p.startDate,
       next_payment_date: p.nextPaymentDate,
@@ -416,6 +419,14 @@ export default function RecurringPaymentsList() {
                           <p className="text-gray-500 text-sm">
                             <Users className="inline mr-1 w-3 h-3" />
                             {payment.group_name}
+                          </p>
+                        )}
+                        {payment.payment_type === "group_contribution" && (
+                          <p className="text-gray-500 text-sm">
+                            Contribution type:{" "}
+                            {getContributionTypeLabel(
+                              payment.contribution_type || "revolving",
+                            )}
                           </p>
                         )}
                         {payment.loan_name && (

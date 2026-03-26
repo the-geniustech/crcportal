@@ -206,7 +206,7 @@ const RecentTransactions: React.FC<RecentTransactionsProps> = ({
           </div>
           <p className="text-gray-500">No transactions yet</p>
           <p className="mt-1 text-gray-400 text-sm">
-            Make your first deposit to get started
+            Make your first contribution or loan repayment to get started
           </p>
         </div>
       </div>

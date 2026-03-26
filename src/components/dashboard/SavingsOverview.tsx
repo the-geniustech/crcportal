@@ -7,6 +7,7 @@ interface SavingsOverviewProps {
   accountNumber: string;
   onDeposit: () => void;
   onWithdraw: () => void;
+  depositDisabled?: boolean;
 }
 
 const SavingsOverview: React.FC<SavingsOverviewProps> = ({
@@ -16,6 +17,7 @@ const SavingsOverview: React.FC<SavingsOverviewProps> = ({
   accountNumber,
   onDeposit,
   onWithdraw,
+  depositDisabled = false,
 }) => {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-NG', {
@@ -60,12 +62,17 @@ const SavingsOverview: React.FC<SavingsOverviewProps> = ({
         <div className="flex gap-3">
           <button
             onClick={onDeposit}
-            className="flex-1 bg-white text-emerald-600 font-semibold py-3 px-4 rounded-xl hover:bg-emerald-50 transition-colors flex items-center justify-center gap-2"
+            className={`flex-1 font-semibold py-3 px-4 rounded-xl transition-colors flex items-center justify-center gap-2 ${
+              depositDisabled
+                ? "bg-white/60 text-emerald-100 cursor-not-allowed"
+                : "bg-white text-emerald-600 hover:bg-emerald-50"
+            }`}
+            disabled={depositDisabled}
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
             </svg>
-            Deposit
+            {depositDisabled ? "Deposits Suspended" : "Deposit"}
           </button>
           <button
             onClick={onWithdraw}

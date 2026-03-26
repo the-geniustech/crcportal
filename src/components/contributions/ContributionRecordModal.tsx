@@ -10,7 +10,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
+import {
+  ContributionTypeOptions,
+  normalizeContributionType,
+  validateContributionAmount,
+} from '@/lib/contributionPolicy';
 
 interface ContributionRecordModalProps {
   isOpen: boolean;
@@ -51,13 +55,6 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-const CONTRIBUTION_TYPES = [
-  { value: 'regular', label: 'Regular Contribution' },
-  { value: 'festival', label: 'Festival Contribution' },
-  { value: 'end_well', label: 'End Well Contribution' },
-  { value: 'special_savings', label: 'Special Savings' },
-];
-
 const PAYMENT_METHODS = [
   { value: 'bank_transfer', label: 'Bank Transfer' },
   { value: 'cash', label: 'Cash' },
@@ -83,7 +80,7 @@ const ContributionRecordModal: React.FC<ContributionRecordModalProps> = ({
     amount: existingContribution?.amount?.toString() || '10000',
     month: existingContribution?.month?.toString() || (currentDate.getMonth() + 1).toString(),
     year: existingContribution?.year?.toString() || currentDate.getFullYear().toString(),
-    contributionType: existingContribution?.contribution_type || 'regular',
+    contributionType: normalizeContributionType(existingContribution?.contribution_type) || 'revolving',
     paymentReference: existingContribution?.payment_reference || '',
     paymentMethod: 'bank_transfer',
     notes: existingContribution?.notes || '',
@@ -108,6 +105,15 @@ const ContributionRecordModal: React.FC<ContributionRecordModalProps> = ({
     }
     if (!formData.year) {
       newErrors.year = 'Year is required';
+    }
+    if (formData.amount) {
+      const validation = validateContributionAmount(
+        formData.contributionType as 'revolving' | 'special' | 'endwell' | 'festive',
+        parseFloat(formData.amount),
+      );
+      if (!validation.valid) {
+        newErrors.amount = validation.message || 'Invalid amount for this contribution type';
+      }
     }
 
     setErrors(newErrors);
@@ -252,7 +258,7 @@ const ContributionRecordModal: React.FC<ContributionRecordModalProps> = ({
                 <SelectValue placeholder="Select type" />
               </SelectTrigger>
               <SelectContent>
-                {CONTRIBUTION_TYPES.map((type) => (
+                {ContributionTypeOptions.map((type) => (
                   <SelectItem key={type.value} value={type.value}>
                     {type.label}
                   </SelectItem>

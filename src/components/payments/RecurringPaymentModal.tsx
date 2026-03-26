@@ -30,17 +30,20 @@ import {
   useCreateRecurringPaymentMutation,
   useUpdateRecurringPaymentMutation,
 } from "@/hooks/finance/useRecurringPaymentsMutations";
-import { format, addDays, addWeeks, addMonths } from "date-fns";
+import {
+  ContributionTypeOptions,
+  getContributionTypeConfig,
+  normalizeContributionType,
+  validateContributionAmount,
+} from "@/lib/contributionPolicy";
+import { format, addWeeks, addMonths } from "date-fns";
 import {
   CalendarIcon,
   Repeat,
-  Wallet,
   CreditCard,
   Users,
   Loader2,
-  CheckCircle,
   Clock,
-  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -51,6 +54,7 @@ interface RecurringPayment {
   frequency: "weekly" | "bi-weekly" | "monthly";
   start_date: string;
   end_date?: string;
+  contribution_type?: string;
   group_id?: string;
   group_name?: string;
   loan_id?: string;
@@ -67,12 +71,6 @@ interface RecurringPaymentModalProps {
 }
 
 const paymentTypes = [
-  {
-    value: "deposit",
-    label: "Savings Deposit",
-    icon: Wallet,
-    color: "emerald",
-  },
   {
     value: "loan_repayment",
     label: "Loan Repayment",
@@ -118,6 +116,7 @@ export default function RecurringPaymentModal({
     editPayment?.group_id || "",
   );
   const [selectedLoan, setSelectedLoan] = useState(editPayment?.loan_id || "");
+  const [contributionType, setContributionType] = useState("revolving");
   const [description, setDescription] = useState(
     editPayment?.description || "",
   );
@@ -172,6 +171,10 @@ export default function RecurringPaymentModal({
       setSelectedLoan(editPayment.loan_id || "");
       setDescription(editPayment.description || "");
       setHasEndDate(!!editPayment.end_date);
+      const canonicalType = normalizeContributionType(
+        editPayment.contribution_type,
+      );
+      setContributionType(canonicalType || "revolving");
     }
   }, [editPayment]);
 
@@ -230,6 +233,30 @@ export default function RecurringPaymentModal({
       return;
     }
 
+    if (paymentType === "group_contribution") {
+      const validation = validateContributionAmount(
+        contributionType as "revolving" | "special" | "endwell" | "festive",
+        parseFloat(amount),
+      );
+      if (!validation.valid) {
+        toast({
+          title: "Invalid Amount",
+          description: validation.message || "Please enter a valid amount.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
+    if (paymentType === "deposit") {
+      toast({
+        title: "Deposits Suspended",
+        description: "Savings deposits are temporarily suspended.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -240,6 +267,8 @@ export default function RecurringPaymentModal({
       const paymentData = {
         paymentType: paymentType,
         amount: parseFloat(amount),
+        contributionType:
+          paymentType === "group_contribution" ? contributionType : null,
         frequency: frequency,
         startDate: format(startDate, "yyyy-MM-dd"),
         nextPaymentDate: format(nextPaymentDate, "yyyy-MM-dd"),
@@ -294,6 +323,7 @@ export default function RecurringPaymentModal({
     setEndDate(undefined);
     setSelectedGroup("");
     setSelectedLoan("");
+    setContributionType("revolving");
     setDescription("");
     setHasEndDate(false);
     onClose();
@@ -313,11 +343,16 @@ export default function RecurringPaymentModal({
               : "Set Up Recurring Payment"}
           </DialogTitle>
           <DialogDescription>
-            Automate your savings and contributions with scheduled payments
+            Automate your contributions and loan repayments with scheduled payments
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6 py-4">
+          {paymentType === "deposit" && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-700 text-sm">
+              Savings deposits are temporarily suspended. Please choose loan repayment or group contribution.
+            </div>
+          )}
           {/* Payment Type Selection */}
           <div className="space-y-3">
             <Label>Payment Type</Label>
@@ -392,6 +427,32 @@ export default function RecurringPaymentModal({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          )}
+
+          {paymentType === "group_contribution" && (
+            <div className="space-y-2">
+              <Label>Contribution Type</Label>
+              <Select
+                value={contributionType}
+                onValueChange={setContributionType}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select contribution type" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ContributionTypeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {getContributionTypeConfig(contributionType)?.description && (
+                <p className="text-xs text-gray-500">
+                  {getContributionTypeConfig(contributionType)?.description}
+                </p>
+              )}
             </div>
           )}
 
@@ -619,6 +680,7 @@ export default function RecurringPaymentModal({
               className="flex-1 bg-emerald-600 hover:bg-emerald-700"
               disabled={
                 !paymentType ||
+                paymentType === "deposit" ||
                 !amount ||
                 parseFloat(amount) <= 0 ||
                 !frequency ||

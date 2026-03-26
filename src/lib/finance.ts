@@ -83,6 +83,7 @@ export type BackendPaymentReminder = {
   groupName?: string | null;
   loanId?: string | null;
   loanName?: string | null;
+  contributionType?: string | null;
   isOverdue: boolean;
   daysUntilDue: number;
 };
@@ -267,6 +268,7 @@ export type BackendRecurringPayment = {
   _id: string;
   paymentType: "deposit" | "loan_repayment" | "group_contribution";
   amount: number;
+  contributionType?: string | null;
   frequency: "weekly" | "bi-weekly" | "monthly";
   startDate: string;
   nextPaymentDate: string;

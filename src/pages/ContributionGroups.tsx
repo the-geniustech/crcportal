@@ -60,6 +60,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  ContributionTypeOptions,
+  normalizeContributionType,
+} from "@/lib/contributionPolicy";
+import type { ContributionTypeCanonical } from "@/lib/contributionPolicy";
 
 // Types
 interface Group {
@@ -87,7 +92,7 @@ interface Contribution {
   month: number;
   year: number;
   amount: number;
-  contribution_type: "regular" | "festival" | "end_well" | "special_savings";
+  contribution_type: ContributionTypeCanonical;
   status: "pending" | "completed" | "verified" | "overdue";
   payment_reference: string | null;
   verified_by: string | null;
@@ -113,28 +118,17 @@ const MONTHS = [
   "December",
 ];
 
-const CONTRIBUTION_TYPES = [
-  {
-    value: "regular",
-    label: "Regular Contribution",
-    color: "bg-emerald-100 text-emerald-700",
-  },
-  {
-    value: "festival",
-    label: "Festival Contribution",
-    color: "bg-purple-100 text-purple-700",
-  },
-  {
-    value: "end_well",
-    label: "End Well Contribution",
-    color: "bg-blue-100 text-blue-700",
-  },
-  {
-    value: "special_savings",
-    label: "Special Savings",
-    color: "bg-amber-100 text-amber-700",
-  },
-];
+const CONTRIBUTION_TYPE_COLORS: Record<ContributionTypeCanonical, string> = {
+  revolving: "bg-emerald-100 text-emerald-700",
+  special: "bg-amber-100 text-amber-700",
+  endwell: "bg-blue-100 text-blue-700",
+  festive: "bg-purple-100 text-purple-700",
+};
+
+const CONTRIBUTION_TYPES = ContributionTypeOptions.map((type) => ({
+  ...type,
+  color: CONTRIBUTION_TYPE_COLORS[type.value],
+}));
 
 const ContributionGroupsContent: React.FC = () => {
   const navigate = useNavigate();
@@ -158,7 +152,8 @@ const ContributionGroupsContent: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [contributions, setContributions] = useState<Contribution[]>([]);
-  const [contributionType, setContributionType] = useState<string>("regular");
+  const [contributionType, setContributionType] =
+    useState<ContributionTypeCanonical>("revolving");
 
   // Coordinator assignment form
   const [coordinatorSearch, setCoordinatorSearch] = useState("");
@@ -192,11 +187,7 @@ const ContributionGroupsContent: React.FC = () => {
   });
   const contributionTrackingQuery = useAdminContributionTrackingQuery({
     year: selectedYear,
-    contributionType: contributionType as
-      | "regular"
-      | "festival"
-      | "end_well"
-      | "special_savings",
+    contributionType,
   });
 
   useEffect(() => {
@@ -276,7 +267,7 @@ const ContributionGroupsContent: React.FC = () => {
           month: c.month,
           year: c.year,
           amount: c.amount,
-          contribution_type: c.contributionType,
+          contribution_type: normalizeContributionType(c.contributionType) || "revolving",
           status: c.status,
           payment_reference: c.paymentReference ?? null,
           verified_by: verifiedId,
@@ -922,13 +913,13 @@ const ContributionGroupsContent: React.FC = () => {
                     Group 0 - Special Categories
                   </h2>
                   <p className="text-purple-200">
-                    Festival, End Well, and Special Savings contributions
+                    Festive, Endwell, and Special contributions
                   </p>
                 </div>
               </div>
 
               <div className="gap-4 grid grid-cols-1 md:grid-cols-3">
-                {CONTRIBUTION_TYPES.filter((t) => t.value !== "regular").map(
+                {CONTRIBUTION_TYPES.filter((t) => t.value !== "revolving").map(
                   (type) => (
                     <div
                       key={type.value}
@@ -936,10 +927,7 @@ const ContributionGroupsContent: React.FC = () => {
                     >
                       {(() => {
                         const summary = specialSummaryByType.get(
-                          type.value as
-                            | "festival"
-                            | "end_well"
-                            | "special_savings",
+                          type.value as "festive" | "endwell" | "special",
                         ) as
                           | { totalCollected?: number; contributors?: number }
                           | undefined;
@@ -983,10 +971,10 @@ const ContributionGroupsContent: React.FC = () => {
                     </div>
                     <div>
                       <h4 className="font-medium text-gray-900">
-                        Festival Contribution
+                        Festive Contribution
                       </h4>
                       <p className="text-gray-500 text-sm">
-                        Annual contribution for festive celebrations
+                        Contributions towards specific festivals
                       </p>
                     </div>
                   </div>
@@ -998,10 +986,10 @@ const ContributionGroupsContent: React.FC = () => {
                     </div>
                     <div>
                       <h4 className="font-medium text-gray-900">
-                        End Well Contribution
+                        Endwell Contribution
                       </h4>
                       <p className="text-gray-500 text-sm">
-                        Year-end savings for members
+                        Long-term savings (minimum five years)
                       </p>
                     </div>
                   </div>
@@ -1013,10 +1001,10 @@ const ContributionGroupsContent: React.FC = () => {
                     </div>
                     <div>
                       <h4 className="font-medium text-gray-900">
-                        Special Savings
+                        Special Contribution
                       </h4>
                       <p className="text-gray-500 text-sm">
-                        Additional voluntary savings program
+                        Bulk contribution with higher minimum
                       </p>
                     </div>
                   </div>

@@ -10,7 +10,13 @@ import {
   Crown,
   Shield,
   User,
+  CreditCard,
+  Wallet,
+  AlertTriangle,
+  CircleDashed,
+  CheckCircle2,
 } from "lucide-react";
+import { normalizeContributionType } from "@/lib/contributionPolicy";
 
 export interface Member {
   id: string;
@@ -27,8 +33,21 @@ export interface Contribution {
   year: number;
   amount: number;
   status: "pending" | "completed" | "verified" | "overdue";
-  contributionType?: "regular" | "festival" | "end_well" | "special_savings";
+  contributionType?: string | null;
   paidDate?: string;
+}
+
+export interface Loan {
+  id: string;
+  loanCode?: string | null;
+  loanType?: string | null;
+  loanAmount: number;
+  approvedAmount?: number | null;
+  remainingBalance?: number | null;
+  status: string;
+  createdAt?: string;
+  disbursedAt?: string | null;
+  updatedAt?: string;
 }
 
 interface Meeting {
@@ -61,9 +80,11 @@ interface GroupDetailsModalProps {
   members: Member[];
   meetings: Meeting[];
   contributions: Contribution[];
+  loans: Loan[];
   membersLoading?: boolean;
   meetingsLoading?: boolean;
   contributionsLoading?: boolean;
+  loansLoading?: boolean;
   isMember: boolean;
   onJoinRequest: () => void;
   onOpenChat: () => void;
@@ -90,9 +111,11 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
   members,
   meetings,
   contributions,
+  loans,
   membersLoading = false,
   meetingsLoading = false,
   contributionsLoading = false,
+  loansLoading = false,
   isMember,
   onJoinRequest,
   onOpenChat,
@@ -108,6 +131,77 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
     return `₦${safeValue.toLocaleString()}`;
   };
 
+  const formatDate = (value?: string | null) => {
+    if (!value) return "\u2014";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "\u2014";
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  };
+
+  const getLoanStatusKey = (status?: string | null) => {
+    const normalized = String(status || "").trim().toLowerCase();
+    if (!normalized) return "unknown";
+    if (["overdue", "defaulted", "default"].includes(normalized)) return "overdue";
+    if (["completed", "repaid", "closed", "paid"].includes(normalized)) return "repaid";
+    if (["disbursed", "active"].includes(normalized)) return "active";
+    if (["approved"].includes(normalized)) return "approved";
+    if (["pending", "under_review", "review"].includes(normalized)) return "pending";
+    if (["rejected", "declined"].includes(normalized)) return "rejected";
+    return "unknown";
+  };
+
+  const loanStatusMeta = (status?: string | null) => {
+    const key = getLoanStatusKey(status);
+    switch (key) {
+      case "active":
+        return {
+          label: "Active",
+          classes: "bg-emerald-100 text-emerald-700",
+          icon: CreditCard,
+        };
+      case "approved":
+        return {
+          label: "Approved",
+          classes: "bg-blue-100 text-blue-700",
+          icon: Wallet,
+        };
+      case "overdue":
+        return {
+          label: "Overdue",
+          classes: "bg-red-100 text-red-700",
+          icon: AlertTriangle,
+        };
+      case "repaid":
+        return {
+          label: "Repaid",
+          classes: "bg-gray-100 text-gray-700",
+          icon: CheckCircle2,
+        };
+      case "rejected":
+        return {
+          label: "Rejected",
+          classes: "bg-slate-100 text-slate-600",
+          icon: X,
+        };
+      case "pending":
+        return {
+          label: "Pending",
+          classes: "bg-amber-100 text-amber-700",
+          icon: CircleDashed,
+        };
+      default:
+        return {
+          label: "In Review",
+          classes: "bg-gray-100 text-gray-600",
+          icon: CircleDashed,
+        };
+    }
+  };
+
   const totalMembers = members.length > 0 ? members.length : group.memberCount;
   const now = new Date();
   const currentMonth = now.getMonth() + 1;
@@ -118,7 +212,7 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
       return false;
     }
     if (!contribution.contributionType) return true;
-    return contribution.contributionType === "regular";
+    return normalizeContributionType(contribution.contributionType) === "revolving";
   });
 
   const paidContributions = monthContributions.filter((contribution) =>
@@ -158,13 +252,53 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
   const membersLabel = showMembersPlaceholder ? "\u2014" : totalMembers;
   const progressWidth =
     showContributionPlaceholder || showMembersPlaceholder ? 0 : progressPercent;
-  const topContributors = [...members]
-    .sort((a, b) => b.totalContributed - a.totalContributed)
-    .slice(0, 5);
+
+  const sortedLoans = [...loans].sort((a, b) => {
+    const dateA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+    const dateB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+    return dateB - dateA;
+  });
+
+  const loanSummary = sortedLoans.reduce(
+    (acc, loan) => {
+      const statusKey = getLoanStatusKey(loan.status);
+      const principal = Number(loan.approvedAmount ?? loan.loanAmount ?? 0);
+      const remaining = Number(loan.remainingBalance ?? 0);
+      acc.total += 1;
+      acc.totalApproved += principal;
+      if (statusKey === "overdue") acc.overdue += 1;
+      if (statusKey === "active") acc.active += 1;
+      if (statusKey === "repaid") acc.repaid += 1;
+      if (statusKey !== "repaid" && statusKey !== "rejected") {
+        acc.outstanding += Math.max(remaining, 0);
+      }
+      return acc;
+    },
+    {
+      total: 0,
+      active: 0,
+      overdue: 0,
+      repaid: 0,
+      totalApproved: 0,
+      outstanding: 0,
+    },
+  );
+
+  const showLoansPlaceholder = loansLoading;
+  const loansTotalLabel = showLoansPlaceholder ? "\u2014" : loanSummary.total;
+  const loansActiveLabel = showLoansPlaceholder ? "\u2014" : loanSummary.active;
+  const loansOverdueLabel = showLoansPlaceholder ? "\u2014" : loanSummary.overdue;
+  const loansRepaidLabel = showLoansPlaceholder ? "\u2014" : loanSummary.repaid;
+  const loansApprovedLabel = showLoansPlaceholder
+    ? "\u2014"
+    : formatCurrency(loanSummary.totalApproved);
+  const loansOutstandingLabel = showLoansPlaceholder
+    ? "\u2014"
+    : formatCurrency(loanSummary.outstanding);
 
   return (
-    <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/50 p-4">
-      <div className="flex flex-col bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden">
+    <div className="z-50 fixed inset-0 bg-black/40">
+      <div className="flex flex-col bg-white w-full h-full overflow-hidden">
         {/* Header with Image */}
         <div className="relative h-48 overflow-hidden">
           <img
@@ -505,52 +639,217 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                 </div>
               </div>
 
-              {/* Top Contributors */}
-              <div>
-                <h3 className="mb-3 font-semibold text-gray-900">
-                  Top Contributors
-                </h3>
-                <div className="space-y-2">
-                  {membersLoading ? (
-                    <div className="py-6 text-center text-gray-500 text-sm">
-                      Loading contributors...
+              {/* Loan Tracking */}
+              <div className="space-y-4">
+                <div className="flex flex-wrap justify-between items-start gap-2">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">
+                      Loan Tracking Dashboard
+                    </h3>
+                    <p className="text-gray-500 text-sm">
+                      Track active, approved, and repaid loans for this group.
+                    </p>
+                  </div>
+                  <span className="text-gray-400 text-xs">
+                    Updated {formatDate(new Date().toISOString())}
+                  </span>
+                </div>
+
+                <div className="gap-3 grid grid-cols-2 md:grid-cols-4">
+                  <div className="bg-white p-4 border border-gray-100 rounded-xl">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-500 text-xs uppercase tracking-wide">
+                        Total Loans
+                      </span>
+                      <Wallet className="w-4 h-4 text-emerald-500" />
                     </div>
-                  ) : topContributors.length === 0 ? (
-                    <div className="py-6 text-center text-gray-500 text-sm">
-                      No contributors to display.
+                    <p className="font-semibold text-gray-900 text-2xl">
+                      {loansTotalLabel}
+                    </p>
+                    <p className="text-gray-500 text-xs">
+                      {loansActiveLabel} active
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-4 border border-gray-100 rounded-xl">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-500 text-xs uppercase tracking-wide">
+                        Approved Volume
+                      </span>
+                      <TrendingUp className="w-4 h-4 text-blue-500" />
+                    </div>
+                    <p className="font-semibold text-gray-900 text-lg">
+                      {loansApprovedLabel}
+                    </p>
+                    <p className="text-gray-500 text-xs">
+                      Total principal approved
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-4 border border-gray-100 rounded-xl">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-500 text-xs uppercase tracking-wide">
+                        Outstanding
+                      </span>
+                      <CreditCard className="w-4 h-4 text-amber-500" />
+                    </div>
+                    <p className="font-semibold text-gray-900 text-lg">
+                      {loansOutstandingLabel}
+                    </p>
+                    <p className="text-gray-500 text-xs">
+                      Active loan balance
+                    </p>
+                  </div>
+
+                  <div className="bg-white p-4 border border-gray-100 rounded-xl">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-gray-500 text-xs uppercase tracking-wide">
+                        Risk Watch
+                      </span>
+                      <AlertTriangle className="w-4 h-4 text-red-500" />
+                    </div>
+                    <p className="font-semibold text-gray-900 text-2xl">
+                      {loansOverdueLabel}
+                    </p>
+                    <p className="text-gray-500 text-xs">
+                      {loansRepaidLabel} repaid
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between bg-gray-50 px-4 py-3 border-b">
+                    <div>
+                      <p className="font-medium text-gray-900">Loan Ledger</p>
+                      <p className="text-gray-500 text-xs">
+                        {loansLoading
+                          ? "Loading loan records..."
+                          : `${sortedLoans.length} loan record(s)`}
+                      </p>
+                    </div>
+                  </div>
+
+                  {loansLoading ? (
+                    <div className="py-8 text-center text-gray-500 text-sm">
+                      Loading loans...
+                    </div>
+                  ) : sortedLoans.length === 0 ? (
+                    <div className="py-10 text-center text-gray-500 text-sm">
+                      No loans recorded for this group yet.
                     </div>
                   ) : (
-                    topContributors.map((member, index) => (
-                      <div
-                        key={member.id}
-                        className="flex items-center gap-4 bg-gray-50 p-3 rounded-xl"
-                      >
-                        <span
-                          className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                            index === 0
-                              ? "bg-amber-100 text-amber-700"
-                              : index === 1
-                                ? "bg-gray-200 text-gray-700"
-                                : index === 2
-                                  ? "bg-orange-100 text-orange-700"
-                                  : "bg-gray-100 text-gray-600"
-                          }`}
-                        >
-                          {index + 1}
-                        </span>
-                        <img
-                          src={member.avatar}
-                          alt={member.name}
-                          className="rounded-full w-8 h-8 object-cover"
-                        />
-                        <span className="flex-1 font-medium text-gray-900">
-                          {member.name}
-                        </span>
-                        <span className="font-medium text-emerald-600">
-                          {formatCurrency(member.totalContributed)}
-                        </span>
-                      </div>
-                    ))
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 text-gray-500">
+                          <tr>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Loan
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Principal
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Approved
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Remaining
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Status
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Progress
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Disbursed
+                            </th>
+                            <th className="px-4 py-3 text-left font-medium">
+                              Updated
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {sortedLoans.map((loan) => {
+                            const principal = Number(
+                              loan.approvedAmount ?? loan.loanAmount ?? 0,
+                            );
+                            const remaining = Number(loan.remainingBalance ?? 0);
+                            const progressRaw =
+                              principal > 0
+                                ? ((principal - remaining) / principal) * 100
+                                : null;
+                            const progressValue =
+                              progressRaw === null
+                                ? null
+                                : Math.min(100, Math.max(0, progressRaw));
+                            const status = loanStatusMeta(loan.status);
+                            const StatusIcon = status.icon;
+                            const loanLabel =
+                              loan.loanCode ||
+                              `LN-${String(loan.id).slice(-6).toUpperCase()}`;
+                            return (
+                              <tr key={loan.id} className="hover:bg-gray-50">
+                                <td className="px-4 py-3">
+                                  <p className="font-medium text-gray-900">
+                                    {loanLabel}
+                                  </p>
+                                  <p className="text-gray-500 text-xs">
+                                    Created {formatDate(loan.createdAt)}
+                                  </p>
+                                </td>
+                                <td className="px-4 py-3 font-medium text-gray-900">
+                                  {formatCurrency(loan.loanAmount)}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700">
+                                  {loan.approvedAmount != null
+                                    ? formatCurrency(loan.approvedAmount)
+                                    : "\u2014"}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700">
+                                  {loan.remainingBalance != null
+                                    ? formatCurrency(loan.remainingBalance)
+                                    : "\u2014"}
+                                </td>
+                                <td className="px-4 py-3">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium ${status.classes}`}
+                                  >
+                                    <StatusIcon className="w-3.5 h-3.5" />
+                                    {status.label}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-gray-700">
+                                  {progressValue === null ? (
+                                    <span className="text-gray-400">—</span>
+                                  ) : (
+                                    <div className="min-w-[120px]">
+                                      <div className="flex items-center justify-between text-xs text-gray-500">
+                                        <span>{Math.round(progressValue)}%</span>
+                                        <span>
+                                          {progressValue >= 100 ? "Complete" : "In progress"}
+                                        </span>
+                                      </div>
+                                      <div className="mt-1 bg-gray-200 rounded-full h-1.5">
+                                        <div
+                                          className="bg-emerald-500 rounded-full h-1.5"
+                                          style={{ width: `${progressValue}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  )}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700">
+                                  {formatDate(loan.disbursedAt)}
+                                </td>
+                                <td className="px-4 py-3 text-gray-700">
+                                  {formatDate(loan.updatedAt || loan.createdAt)}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   )}
                 </div>
               </div>

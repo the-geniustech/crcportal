@@ -8,7 +8,10 @@ import GroupFilters from "@/components/groups/GroupFilters";
 import GroupDetailsModal, {
   Member,
   Contribution,
+  Loan,
 } from "@/components/groups/GroupDetailsModal";
+import GroupContributionDashboardModal from "@/components/groups/GroupContributionDashboardModal";
+import GroupLoanDashboardModal from "@/components/groups/GroupLoanDashboardModal";
 import GroupChat from "@/components/groups/GroupChat";
 import { useMyGroupMembershipsQuery } from "@/hooks/groups/useMyGroupMembershipsQuery";
 import { useJoinGroupMutation } from "@/hooks/groups/useJoinGroupMutation";
@@ -16,6 +19,7 @@ import type { BackendGroup } from "@/lib/groups";
 import { useGroupMembersQuery } from "@/hooks/groups/useGroupMembersQuery";
 import { useGroupMeetingsQuery } from "@/hooks/groups/useGroupMeetingsQuery";
 import { useGroupContributionsQuery } from "@/hooks/groups/useGroupContributionsQuery";
+import { useGroupLoansQuery } from "@/hooks/groups/useGroupLoansQuery";
 import { Users, TrendingUp, Award } from "lucide-react";
 
 type GroupUI = {
@@ -41,7 +45,7 @@ const sampleChatMessages = [
     userId: "1",
     userName: "Adaeze Okonkwo",
     userAvatar:
-      "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766668669096_f160165b.png",
+      "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png",
     message:
       "Good morning everyone! Don't forget our meeting this Saturday at 2 PM.",
     timestamp: new Date(Date.now() - 86400000 * 2).toISOString(),
@@ -80,7 +84,7 @@ const sampleChatMessages = [
     userId: "1",
     userName: "Adaeze Okonkwo",
     userAvatar:
-      "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766668669096_f160165b.png",
+      "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png",
     message:
       "Also, we have two new loan applications to review. Please come prepared with your thoughts.",
     timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),
@@ -124,6 +128,9 @@ const GroupsContent: React.FC = () => {
   const [sortBy, setSortBy] = useState("popular");
   const [selectedGroup, setSelectedGroup] = useState<GroupUI | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showContributionDashboard, setShowContributionDashboard] =
+    useState(false);
+  const [showLoanDashboard, setShowLoanDashboard] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [chatMessages, setChatMessages] = useState(sampleChatMessages);
 
@@ -134,6 +141,7 @@ const GroupsContent: React.FC = () => {
     selectedGroupId,
     new Date().getFullYear(),
   );
+  const groupLoansQuery = useGroupLoansQuery(selectedGroupId);
 
   const membersForDetails: Member[] = useMemo(() => {
     const raw = groupMembersQuery.data ?? [];
@@ -155,7 +163,7 @@ const GroupsContent: React.FC = () => {
       const avatarUrl =
         avatarObj && typeof avatarObj.url === "string"
           ? avatarObj.url
-          : "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766668669096_f160165b.png";
+          : "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png";
 
       const role = (() => {
         if (m.role === "coordinator") return "admin";
@@ -250,6 +258,30 @@ const GroupsContent: React.FC = () => {
       };
     });
   }, [groupContributionsQuery.data]);
+
+  const loansForDetails: Loan[] = useMemo(() => {
+    const raw = groupLoansQuery.data ?? [];
+    if (raw.length === 0) return [];
+
+    return raw.map((loan) => ({
+      id: loan._id,
+      loanCode: loan.loanCode ?? null,
+      loanType: loan.loanType ?? null,
+      loanAmount: Number(loan.loanAmount ?? 0),
+      approvedAmount:
+        loan.approvedAmount === null || loan.approvedAmount === undefined
+          ? null
+          : Number(loan.approvedAmount),
+      remainingBalance:
+        loan.remainingBalance === null || loan.remainingBalance === undefined
+          ? null
+          : Number(loan.remainingBalance),
+      status: loan.status || "unknown",
+      createdAt: loan.createdAt,
+      disbursedAt: loan.disbursedAt ?? null,
+      updatedAt: loan.updatedAt,
+    }));
+  }, [groupLoansQuery.data]);
 
   const myGroupIdSet = useMemo(() => {
     const ids = new Set<string>();
@@ -404,6 +436,26 @@ const GroupsContent: React.FC = () => {
     }
   };
 
+  const handleOpenContributionDashboard = (groupId: string) => {
+    const group = groupsData.find((g) => g.id === groupId);
+    if (group) {
+      setSelectedGroup(group);
+      setShowDetailsModal(false);
+      setShowLoanDashboard(false);
+      setShowContributionDashboard(true);
+    }
+  };
+
+  const handleOpenLoanDashboard = (groupId: string) => {
+    const group = groupsData.find((g) => g.id === groupId);
+    if (group) {
+      setSelectedGroup(group);
+      setShowDetailsModal(false);
+      setShowContributionDashboard(false);
+      setShowLoanDashboard(true);
+    }
+  };
+
   const handleJoinRequest = async (groupId: string) => {
     try {
       await joinGroupMutation.mutateAsync(groupId);
@@ -432,7 +484,7 @@ const GroupsContent: React.FC = () => {
       userName: profile?.full_name || "You",
       userAvatar:
         profile?.avatar_url ||
-        "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766668669096_f160165b.png",
+        "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png",
       message,
       timestamp: new Date().toISOString(),
     };
@@ -574,6 +626,8 @@ const GroupsContent: React.FC = () => {
                   isMember={myGroupIdSet.has(group.id)}
                   onViewDetails={handleViewDetails}
                   onJoinRequest={handleJoinRequest}
+                  onOpenContributionDashboard={handleOpenContributionDashboard}
+                  onOpenLoanDashboard={handleOpenLoanDashboard}
                 />
               </div>
             ))}
@@ -596,9 +650,11 @@ const GroupsContent: React.FC = () => {
         members={membersForDetails}
         meetings={meetingsForDetails}
         contributions={contributionsForDetails}
+        loans={loansForDetails}
         membersLoading={groupMembersQuery.isLoading}
         meetingsLoading={groupMeetingsQuery.isLoading}
         contributionsLoading={groupContributionsQuery.isLoading}
+        loansLoading={groupLoansQuery.isLoading}
         isMember={selectedGroup ? myGroupIdSet.has(selectedGroup.id) : false}
         onJoinRequest={() => {
           if (selectedGroup) {
@@ -618,6 +674,24 @@ const GroupsContent: React.FC = () => {
         messages={chatMessages}
         currentUserId="current"
         onSendMessage={handleSendMessage}
+      />
+
+      <GroupContributionDashboardModal
+        isOpen={showContributionDashboard}
+        onClose={() => setShowContributionDashboard(false)}
+        group={selectedGroup}
+        members={membersForDetails}
+        contributions={contributionsForDetails}
+        membersLoading={groupMembersQuery.isLoading}
+        contributionsLoading={groupContributionsQuery.isLoading}
+      />
+
+      <GroupLoanDashboardModal
+        isOpen={showLoanDashboard}
+        onClose={() => setShowLoanDashboard(false)}
+        group={selectedGroup}
+        loans={loansForDetails}
+        loansLoading={groupLoansQuery.isLoading}
       />
     </div>
   );

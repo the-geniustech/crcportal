@@ -377,7 +377,12 @@ const DashboardContent: React.FC = () => {
     return null;
   }
   const handleDeposit = () => {
-    navigate("/payments");
+    toast({
+      title: "Deposits Suspended",
+      description:
+        "Savings deposits are temporarily suspended. Please use contributions or loan repayments.",
+      variant: "destructive",
+    });
   };
 
   const handleWithdraw = () => {
@@ -507,6 +512,7 @@ const DashboardContent: React.FC = () => {
               accountNumber="CRC1234567"
               onDeposit={handleDeposit}
               onWithdraw={handleWithdraw}
+              depositDisabled
             />
 
             {/* Quick Actions */}

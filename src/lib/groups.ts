@@ -1,4 +1,8 @@
 import { api, getApiErrorMessage } from "./api/client";
+import type {
+  ContributionTypeCanonical,
+  ContributionTypeValue,
+} from "./contributionPolicy";
 
 export type BackendGroup = {
   _id: string;
@@ -224,7 +228,7 @@ export type BackendContribution = {
   month: number;
   year: number;
   amount: number;
-  contributionType: "regular" | "festival" | "end_well" | "special_savings";
+  contributionType?: ContributionTypeValue | null;
   status: "pending" | "completed" | "verified" | "overdue";
   paymentReference?: string | null;
   paymentMethod?: string | null;
@@ -260,7 +264,7 @@ export async function createGroupContribution(
     month: number;
     year: number;
     amount: number;
-    contributionType: BackendContribution["contributionType"];
+    contributionType: ContributionTypeValue;
     status?: BackendContribution["status"];
     paymentReference?: string | null;
     paymentMethod?: string | null;
@@ -535,11 +539,45 @@ export async function downloadGroupContributionReportPdf(
   }
 }
 
+export type GroupContributionTargets = {
+  groupId: string;
+  monthlyTargets: Record<ContributionTypeCanonical, number>;
+  unitAmounts?: Record<ContributionTypeCanonical, number | null>;
+  minAmounts?: Record<ContributionTypeCanonical, number | null>;
+};
+
+export async function getGroupContributionTargets(
+  groupId: string,
+): Promise<GroupContributionTargets> {
+  try {
+    const res = await api.get(`/groups/${groupId}/contributions/targets`);
+    return res.data?.data as GroupContributionTargets;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function downloadGroupContributionLedgerPdf(
+  groupId: string,
+  params: { year?: number; contributionType?: string } = {},
+): Promise<Blob> {
+  try {
+    const res = await api.get(`/groups/${groupId}/contributions/ledger`, {
+      params,
+      responseType: "blob",
+    });
+    return res.data as Blob;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
 export type BackendGroupLoan = {
   _id: string;
   groupId?: string | null;
   groupName?: string | null;
   loanCode?: string | null;
+  loanType?: string | null;
   loanAmount: number;
   approvedAmount?: number | null;
   remainingBalance?: number | null;
