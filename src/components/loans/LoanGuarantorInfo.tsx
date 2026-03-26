@@ -32,6 +32,7 @@ interface LoanGuarantorInfoProps {
   onBack: () => void;
   loanAmount: number;
   groupMembers: GroupMember[];
+  currentUserId?: string | null;
 }
 
 const relationships = [
@@ -49,13 +50,16 @@ export default function LoanGuarantorInfo({
   onContinue,
   onBack,
   loanAmount,
-  groupMembers
+  groupMembers,
+  currentUserId
 }: LoanGuarantorInfoProps) {
   const [showMemberSearch, setShowMemberSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeGuarantorIndex, setActiveGuarantorIndex] = useState<number | null>(null);
+  const [selectionError, setSelectionError] = useState<string | null>(null);
 
   const requiredGuarantors = loanAmount >= 500000 ? 2 : 1;
+  const normalizedCurrentUserId = currentUserId ? String(currentUserId) : null;
   
   const addGuarantor = (type: 'member' | 'external') => {
     const newGuarantor: Guarantor = {
@@ -83,6 +87,17 @@ export default function LoanGuarantorInfo({
 
   const selectMemberAsGuarantor = (member: GroupMember) => {
     if (activeGuarantorIndex !== null) {
+      if (normalizedCurrentUserId && member.id === normalizedCurrentUserId) {
+        setSelectionError("You cannot select yourself as a guarantor.");
+        return;
+      }
+      const selectedIds = guarantors
+        .filter((g, idx) => g.type === 'member' && g.profileId && idx !== activeGuarantorIndex)
+        .map((g) => String(g.profileId));
+      if (selectedIds.includes(member.id)) {
+        setSelectionError("This member is already selected as a guarantor.");
+        return;
+      }
       const updated = [...guarantors];
       updated[activeGuarantorIndex] = {
         ...updated[activeGuarantorIndex],
@@ -98,23 +113,57 @@ export default function LoanGuarantorInfo({
     setShowMemberSearch(false);
     setSearchQuery('');
     setActiveGuarantorIndex(null);
+    setSelectionError(null);
   };
 
   const openMemberSearch = (index: number) => {
     setActiveGuarantorIndex(index);
     setShowMemberSearch(true);
+    setSelectionError(null);
   };
 
-  const filteredMembers = groupMembers.filter(m => 
+  const activeSelectedId =
+    activeGuarantorIndex !== null
+      ? guarantors[activeGuarantorIndex]?.profileId
+      : null;
+  const selectedMemberIds = guarantors
+    .filter((g, idx) => g.type === 'member' && g.profileId && idx !== activeGuarantorIndex)
+    .map((g) => String(g.profileId));
+  const selectedMemberIdSet = new Set(selectedMemberIds);
+
+  const filteredMembers = groupMembers.filter((m) =>
     m.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    m.email.toLowerCase().includes(searchQuery.toLowerCase())
+    m.email.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const isGuarantorComplete = (g: Guarantor) => {
     return g.name && g.email && g.phone && g.relationship && g.occupation && g.address;
   };
 
-  const canContinue = guarantors.length >= requiredGuarantors && guarantors.every(isGuarantorComplete);
+  const memberGuarantorIds = guarantors
+    .filter((g) => g.type === 'member' && g.profileId)
+    .map((g) => String(g.profileId));
+  const hasDuplicateMembers = new Set(memberGuarantorIds).size !== memberGuarantorIds.length;
+  const hasSelfAsGuarantor =
+    normalizedCurrentUserId ? memberGuarantorIds.includes(normalizedCurrentUserId) : false;
+
+  const externalKeys = guarantors
+    .filter((g) => g.type === 'external')
+    .map((g) => `${g.email.trim().toLowerCase()}|${g.phone.replace(/\s+/g, '')}`)
+    .filter((key) => key !== '|');
+  const hasDuplicateExternal = new Set(externalKeys).size !== externalKeys.length;
+  const hasSelectionIssues = hasDuplicateMembers || hasSelfAsGuarantor || hasDuplicateExternal;
+
+  const canContinue =
+    guarantors.length >= requiredGuarantors &&
+    guarantors.every(isGuarantorComplete) &&
+    !hasSelectionIssues;
+
+  React.useEffect(() => {
+    if (selectionError && !hasSelectionIssues) {
+      setSelectionError(null);
+    }
+  }, [selectionError, hasSelectionIssues]);
 
   return (
     <div className="space-y-6">
@@ -337,6 +386,13 @@ export default function LoanGuarantorInfo({
         </div>
       )}
 
+      {(selectionError || hasSelectionIssues) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700">
+          {selectionError ||
+            "Guarantors must be unique and cannot include you as the borrower."}
+        </div>
+      )}
+
       {/* Navigation Buttons */}
       <div className="flex justify-between">
         <button
@@ -370,6 +426,7 @@ export default function LoanGuarantorInfo({
                     setShowMemberSearch(false);
                     setSearchQuery('');
                     setActiveGuarantorIndex(null);
+                    setSelectionError(null);
                   }}
                   className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 >
@@ -395,33 +452,56 @@ export default function LoanGuarantorInfo({
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
-                  {filteredMembers.map((member) => (
-                    <button
-                      key={member.id}
-                      onClick={() => selectMemberAsGuarantor(member)}
-                      className="w-full p-4 flex items-center gap-4 hover:bg-gray-50 transition-colors text-left"
-                    >
-                      <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
-                        {member.avatar ? (
-                          <img src={member.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                        ) : (
-                          <span className="text-lg font-semibold text-emerald-600">
-                            {member.name.charAt(0)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-900">{member.name}</h4>
-                        <p className="text-sm text-gray-500">{member.email}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-medium text-emerald-600">
-                          ₦{member.savingsBalance.toLocaleString()}
-                        </p>
-                        <p className="text-xs text-gray-500">Since {member.memberSince}</p>
-                      </div>
-                    </button>
-                  ))}
+                  {filteredMembers.map((member) => {
+                    const isSelf =
+                      normalizedCurrentUserId &&
+                      member.id === normalizedCurrentUserId;
+                    const isAlreadySelected = selectedMemberIdSet.has(member.id);
+                    const isBlocked =
+                      (isSelf || isAlreadySelected) &&
+                      member.id !== String(activeSelectedId || "");
+                    const blockLabel = isSelf
+                      ? "You"
+                      : isAlreadySelected
+                        ? "Already selected"
+                        : null;
+
+                    return (
+                      <button
+                        key={member.id}
+                        onClick={() => selectMemberAsGuarantor(member)}
+                        disabled={isBlocked}
+                        className={`w-full p-4 flex items-center gap-4 transition-colors text-left ${
+                          isBlocked ? "opacity-60 cursor-not-allowed" : "hover:bg-gray-50"
+                        }`}
+                      >
+                        <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center">
+                          {member.avatar ? (
+                            <img src={member.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+                          ) : (
+                            <span className="text-lg font-semibold text-emerald-600">
+                              {member.name.charAt(0)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1">
+                          <h4 className="font-medium text-gray-900">{member.name}</h4>
+                          <p className="text-sm text-gray-500">{member.email}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium text-emerald-600">
+                            ₦{member.savingsBalance.toLocaleString()}
+                          </p>
+                          <p className="text-xs text-gray-500">Since {member.memberSince}</p>
+                          {blockLabel && (
+                            <p className="text-xs font-medium text-amber-600">
+                              {blockLabel}
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -431,3 +511,4 @@ export default function LoanGuarantorInfo({
     </div>
   );
 }
+

@@ -272,10 +272,28 @@ const GroupsContent: React.FC = () => {
         loan.approvedAmount === null || loan.approvedAmount === undefined
           ? null
           : Number(loan.approvedAmount),
+      approvedInterestRate:
+        loan.approvedInterestRate === null ||
+        loan.approvedInterestRate === undefined
+          ? null
+          : Number(loan.approvedInterestRate),
+      interestRate:
+        loan.interestRate === null || loan.interestRate === undefined
+          ? null
+          : Number(loan.interestRate),
+      interestRateType: loan.interestRateType ?? null,
+      totalRepayable:
+        loan.totalRepayable === null || loan.totalRepayable === undefined
+          ? null
+          : Number(loan.totalRepayable),
       remainingBalance:
         loan.remainingBalance === null || loan.remainingBalance === undefined
           ? null
           : Number(loan.remainingBalance),
+      repaymentToDate:
+        loan.repaymentToDate === null || loan.repaymentToDate === undefined
+          ? null
+          : Number(loan.repaymentToDate),
       status: loan.status || "unknown",
       createdAt: loan.createdAt,
       disbursedAt: loan.disbursedAt ?? null,

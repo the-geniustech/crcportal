@@ -43,7 +43,12 @@ export interface Loan {
   loanType?: string | null;
   loanAmount: number;
   approvedAmount?: number | null;
+  approvedInterestRate?: number | null;
+  interestRate?: number | null;
+  interestRateType?: "annual" | "monthly" | "total" | null;
+  totalRepayable?: number | null;
   remainingBalance?: number | null;
+  repaymentToDate?: number | null;
   status: string;
   createdAt?: string;
   disbursedAt?: string | null;

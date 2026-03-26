@@ -23,6 +23,8 @@ import {
   MessageSquare,
   MoreVertical,
   UserPlus,
+  UserMinus,
+  Check,
   Pencil,
   Eye,
   Trash2,
@@ -75,6 +77,7 @@ import { useAddGroupMembersMutation } from "@/hooks/groups/useAddGroupMembersMut
 import { useArchiveGroupMutation } from "@/hooks/groups/useArchiveGroupMutation";
 import { useCreateGroupMutation } from "@/hooks/groups/useCreateGroupMutation";
 import { useUpdateGroupMutation } from "@/hooks/groups/useUpdateGroupMutation";
+import { useSetGroupCoordinatorMutation } from "@/hooks/groups/useSetGroupCoordinatorMutation";
 
 import AdminStats from "@/components/admin/AdminStats";
 import MemberApprovalPanel from "@/components/admin/MemberApprovalPanel";
@@ -346,8 +349,18 @@ export default function Admin() {
   const [groupSortBy, setGroupSortBy] = useState("popular");
   const [groupPage, setGroupPage] = useState(1);
   const groupPageSize = 10;
+  const [coordinatorPage, setCoordinatorPage] = useState(1);
+  const coordinatorPageSize = 10;
   const [groupActionTarget, setGroupActionTarget] =
     useState<AdminGroupRow | null>(null);
+  const [coordinatorActionTarget, setCoordinatorActionTarget] =
+    useState<AdminGroupRow | null>(null);
+  const [showAssignCoordinator, setShowAssignCoordinator] = useState(false);
+  const [showRemoveCoordinator, setShowRemoveCoordinator] = useState(false);
+  const [coordinatorSearch, setCoordinatorSearch] = useState("");
+  const [selectedCoordinatorId, setSelectedCoordinatorId] = useState<
+    string | null
+  >(null);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [showEditGroupModal, setShowEditGroupModal] = useState(false);
   const [showGroupDetailsModal, setShowGroupDetailsModal] = useState(false);
@@ -380,20 +393,41 @@ export default function Admin() {
     location: groupLocation !== "All Locations" ? groupLocation : undefined,
     sort: groupSortBy,
   });
+  const coordinatorsQuery = useAdminGroupsQuery({
+    includeMetrics: false,
+    limit: coordinatorPageSize,
+    page: coordinatorPage,
+    sort: "groupNumber",
+  });
   const manageableGroups = adminGroupsQuery.data?.groups ?? [];
   const groupSummary = adminGroupsQuery.data?.summary;
   const groupMeta = adminGroupsQuery.data?.meta;
+  const coordinatorGroups = coordinatorsQuery.data?.groups ?? [];
+  const coordinatorMeta = coordinatorsQuery.data?.meta;
+  const coordinatorTotal = coordinatorMeta?.total ?? coordinatorGroups.length;
+  const coordinatorTotalPages = Math.max(
+    1,
+    Math.ceil(coordinatorTotal / coordinatorPageSize),
+  );
+  const coordinatorPageValue = coordinatorMeta?.page ?? coordinatorPage;
   const contributionTypeTotalsYtd = groupSummary?.contributionTypeTotalsYtd;
   const isAdminAuthorized =
     user?.role === "admin" ||
     user?.role === "groupCoordinator" ||
     user?.role === "group_coordinator";
+  const canAssignCoordinator = user?.role === "admin";
   const canDeleteGroup = user?.role === "admin";
   const activeGroupId = groupActionTarget?._id;
   const groupModalOpen = showGroupDetailsModal || showGroupSettingsPanel;
+  const coordinatorTargetId = coordinatorActionTarget?._id;
 
   const groupMembersQuery = useGroupMembersQuery(
     groupModalOpen ? activeGroupId : undefined,
+  );
+  const coordinatorMembersQuery = useGroupMembersQuery(
+    showAssignCoordinator ? coordinatorTargetId : undefined,
+    { search: coordinatorSearch, status: "active" },
+    showAssignCoordinator,
   );
   const groupMeetingsQuery = useGroupMeetingsQuery(
     groupModalOpen ? activeGroupId : undefined,
@@ -415,6 +449,7 @@ export default function Admin() {
   const archiveGroupMutation = useArchiveGroupMutation();
   const createGroupMutation = useCreateGroupMutation();
   const updateGroupMutation = useUpdateGroupMutation();
+  const setCoordinatorMutation = useSetGroupCoordinatorMutation();
 
   const groupCategoryOptions = useMemo(() => {
     const base = groupSummary?.categories?.length
@@ -435,6 +470,51 @@ export default function Admin() {
     const unique = Array.from(new Set(base)) as string[];
     return ["All Locations", ...unique.sort()];
   }, [groupSummary?.locations, manageableGroups]);
+
+  const coordinatorCandidates = useMemo(() => {
+    const raw = coordinatorMembersQuery.data ?? [];
+    if (raw.length === 0) return [];
+
+    return raw
+      .map((member) => {
+        const profile =
+          member.userId && typeof member.userId === "object"
+            ? (member.userId as Record<string, unknown>)
+            : null;
+        const id =
+          profile && (profile._id || profile.id)
+            ? String(profile._id || profile.id)
+            : typeof member.userId === "string"
+              ? member.userId
+              : "";
+        if (!id) return null;
+
+        return {
+          id,
+          fullName:
+            profile && typeof profile.fullName === "string"
+              ? profile.fullName
+              : "Member",
+          email:
+            profile && typeof profile.email === "string"
+              ? profile.email
+              : null,
+          phone:
+            profile && typeof profile.phone === "string"
+              ? profile.phone
+              : null,
+          avatarUrl:
+            profile &&
+            typeof profile.avatar === "object" &&
+            profile.avatar &&
+            typeof (profile.avatar as Record<string, unknown>).url === "string"
+              ? (profile.avatar as Record<string, unknown>).url
+              : null,
+          role: member.role,
+        };
+      })
+      .filter((candidate) => Boolean(candidate));
+  }, [coordinatorMembersQuery.data]);
 
   useEffect(() => {
     if (!groupCategoryOptions.includes(groupCategory)) {
@@ -479,6 +559,16 @@ export default function Admin() {
       setGroupPage(totalPages);
     }
   }, [groupMeta?.total, groupPage, groupPageSize]);
+
+  useEffect(() => {
+    const totalPages = Math.max(
+      1,
+      Math.ceil((coordinatorMeta?.total ?? 0) / coordinatorPageSize),
+    );
+    if (coordinatorPage > totalPages) {
+      setCoordinatorPage(totalPages);
+    }
+  }, [coordinatorMeta?.total, coordinatorPage, coordinatorPageSize]);
 
   const selectedGroupDetails = useMemo(() => {
     if (!groupActionTarget) return null;
@@ -1206,6 +1296,110 @@ export default function Admin() {
     setGroupActionTarget(group);
     setDeleteConfirmText("");
     setShowDeleteGroupModal(true);
+  };
+
+  const handleAssignCoordinator = (group: AdminGroupRow) => {
+    if (!canAssignCoordinator) {
+      toast({
+        title: "Read-only",
+        description: "Only admins can assign or edit coordinators.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCoordinatorActionTarget(group);
+    setCoordinatorSearch("");
+    setSelectedCoordinatorId(group.coordinatorId || null);
+    setShowAssignCoordinator(true);
+  };
+
+  const handleRemoveCoordinator = (group: AdminGroupRow) => {
+    if (!canAssignCoordinator) {
+      toast({
+        title: "Read-only",
+        description: "Only admins can assign or edit coordinators.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setCoordinatorActionTarget(group);
+    setShowRemoveCoordinator(true);
+  };
+
+  const saveCoordinatorAssignment = async () => {
+    if (!coordinatorActionTarget) return;
+    if (!canAssignCoordinator) return;
+    if (!selectedCoordinatorId) {
+      toast({
+        title: "Select a Coordinator",
+        description: "Choose an active member to assign as coordinator.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await setCoordinatorMutation.mutateAsync({
+        groupId: coordinatorActionTarget._id,
+        coordinatorProfileId: selectedCoordinatorId,
+      });
+
+      await Promise.all([
+        coordinatorsQuery.refetch(),
+        adminGroupsQuery.refetch(),
+      ]);
+
+      const selected = coordinatorCandidates.find(
+        (candidate) => candidate.id === selectedCoordinatorId,
+      );
+
+      toast({
+        title: coordinatorActionTarget.coordinatorName
+          ? "Coordinator Updated"
+          : "Coordinator Assigned",
+        description: selected
+          ? `${selected.fullName} has been assigned as coordinator for ${coordinatorActionTarget.groupName}.`
+          : "Coordinator updated successfully.",
+      });
+      setShowAssignCoordinator(false);
+    } catch (error: unknown) {
+      toast({
+        title: "Update Failed",
+        description: "Failed to update coordinator. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setShowAssignCoordinator(false);
+    }
+  };
+
+  const confirmRemoveCoordinator = async () => {
+    if (!coordinatorActionTarget || !canAssignCoordinator) return;
+    try {
+      await setCoordinatorMutation.mutateAsync({
+        groupId: coordinatorActionTarget._id,
+        removeCoordinator: true,
+      });
+
+      await Promise.all([
+        coordinatorsQuery.refetch(),
+        adminGroupsQuery.refetch(),
+      ]);
+
+      toast({
+        title: "Coordinator Removed",
+        description: `Coordinator removed from ${coordinatorActionTarget.groupName}.`,
+      });
+      setShowRemoveCoordinator(false);
+    } catch (error: unknown) {
+      toast({
+        title: "Remove Failed",
+        description: "Failed to remove coordinator. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleCreateGroup = async (data: GroupFormData) => {
@@ -1958,7 +2152,11 @@ export default function Admin() {
                   Group Coordinators Directory
                 </h3>
                 <p className="text-gray-500 text-sm">
-                  Contact information for all 30 group coordinators
+                  Contact information for group coordinators across{" "}
+                  <span className="font-medium text-gray-700">
+                    {coordinatorTotal}
+                  </span>{" "}
+                  groups
                 </p>
               </div>
               <div className="overflow-x-auto">
@@ -1986,67 +2184,168 @@ export default function Admin() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {manageableGroups.map((group) => (
-                      <tr key={group.groupNumber} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                          <span className="flex justify-center items-center bg-emerald-100 rounded-full w-8 h-8 font-medium text-emerald-700 text-sm">
-                            {group.groupNumber}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 font-medium text-gray-900">
-                          {group.groupName}
-                        </td>
-                        <td className="px-4 py-3 text-gray-700">
-                          {group.coordinatorName || (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {group.coordinatorPhone ? (
-                            <a
-                              href={`tel:${group.coordinatorPhone.split(",")[0]}`}
-                              className="flex items-center gap-1 text-emerald-600 hover:underline"
-                            >
-                              <Phone className="w-4 h-4" />
-                              {group.coordinatorPhone}
-                            </a>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {group.coordinatorEmail ? (
-                            <a
-                              href={`mailto:${group.coordinatorEmail}`}
-                              className="flex items-center gap-1 text-emerald-600 hover:underline"
-                            >
-                              <Mail className="w-4 h-4" />
-                              {group.coordinatorEmail}
-                            </a>
-                          ) : (
-                            <span className="text-gray-400">-</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {group.coordinatorEmail && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedGroups([group.groupNumber]);
-                                setAnnouncementTarget("selected");
-                                setShowAnnouncementModal(true);
-                              }}
-                            >
-                              <Send className="mr-1 w-4 h-4" />
-                              Message
-                            </Button>
-                          )}
+                    {coordinatorsQuery.isLoading ? (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="px-4 py-6 text-gray-500 text-center"
+                        >
+                          Loading coordinators...
                         </td>
                       </tr>
-                    ))}
+                    ) : coordinatorGroups.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={6}
+                          className="px-4 py-6 text-gray-500 text-center"
+                        >
+                          No coordinators found.
+                        </td>
+                      </tr>
+                    ) : (
+                      coordinatorGroups.map((group) => (
+                        <tr
+                          key={group.groupNumber}
+                          className="hover:bg-gray-50"
+                        >
+                          <td className="px-4 py-3">
+                            <span className="flex justify-center items-center bg-emerald-100 rounded-full w-8 h-8 font-medium text-emerald-700 text-sm">
+                              {group.groupNumber}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 font-medium text-gray-900">
+                            {group.groupName}
+                          </td>
+                          <td className="px-4 py-3 text-gray-700">
+                            {group.coordinatorName || (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {group.coordinatorPhone ? (
+                              <a
+                                href={`tel:${group.coordinatorPhone.split(",")[0]}`}
+                                className="flex items-center gap-1 text-emerald-600 hover:underline"
+                              >
+                                <Phone className="w-4 h-4" />
+                                {group.coordinatorPhone}
+                              </a>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            {group.coordinatorEmail ? (
+                              <a
+                                href={`mailto:${group.coordinatorEmail}`}
+                                className="flex items-center gap-1 text-emerald-600 hover:underline"
+                              >
+                                <Mail className="w-4 h-4" />
+                                {group.coordinatorEmail}
+                              </a>
+                            ) : (
+                              <span className="text-gray-400">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3">
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button className="hover:bg-gray-100 p-2 rounded-lg transition-colors">
+                                  <MoreVertical className="w-4 h-4 text-gray-500" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem
+                                  disabled={!group.coordinatorEmail}
+                                  onClick={() => {
+                                    setSelectedGroups([group.groupNumber]);
+                                    setAnnouncementTarget("selected");
+                                    setShowAnnouncementModal(true);
+                                  }}
+                                >
+                                  <Send className="mr-2 w-4 h-4" />
+                                  Message
+                                </DropdownMenuItem>
+                                {canAssignCoordinator && (
+                                  <>
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        handleAssignCoordinator(group)
+                                      }
+                                    >
+                                      <UserPlus className="mr-2 w-4 h-4" />
+                                      {group.coordinatorName
+                                        ? "Change Coordinator"
+                                        : "Assign Coordinator"}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem
+                                      onClick={() =>
+                                        handleRemoveCoordinator(group)
+                                      }
+                                      disabled={!group.coordinatorName}
+                                      className="text-red-600 focus:text-red-600"
+                                    >
+                                      <UserMinus className="mr-2 w-4 h-4" />
+                                      Remove Coordinator
+                                    </DropdownMenuItem>
+                                  </>
+                                )}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
+              </div>
+              <div className="flex flex-wrap justify-between items-center gap-3 p-4 border-gray-100 border-t">
+                <p className="text-gray-500 text-sm">
+                  Showing{" "}
+                  <span className="font-medium text-gray-900">
+                    {Math.min(
+                      coordinatorPageValue * coordinatorPageSize,
+                      coordinatorTotal,
+                    )}
+                  </span>{" "}
+                  of{" "}
+                  <span className="font-medium text-gray-900">
+                    {coordinatorTotal}
+                  </span>{" "}
+                  coordinators
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setCoordinatorPage((p) => Math.max(1, p - 1))
+                    }
+                    disabled={coordinatorPageValue <= 1}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-gray-600 text-sm">
+                    Page{" "}
+                    <span className="font-medium text-gray-900">
+                      {coordinatorPageValue}
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-medium text-gray-900">
+                      {coordinatorTotalPages}
+                    </span>
+                  </span>
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setCoordinatorPage((p) =>
+                        Math.min(coordinatorTotalPages, p + 1),
+                      )
+                    }
+                    disabled={coordinatorPageValue >= coordinatorTotalPages}
+                  >
+                    Next
+                  </Button>
+                </div>
               </div>
             </div>
           )}
@@ -2560,6 +2859,153 @@ export default function Admin() {
                 className="bg-red-600 hover:bg-red-700"
               >
                 {archiveGroupMutation.isPending ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Coordinator Modal */}
+      <Dialog
+        open={showAssignCoordinator}
+        onOpenChange={setShowAssignCoordinator}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {coordinatorActionTarget?.coordinatorName
+                ? "Change Coordinator"
+                : "Assign Coordinator"}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block mb-2 font-medium text-gray-700 text-sm">
+                Group
+              </label>
+              <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg">
+                <div className="flex justify-center items-center bg-emerald-100 rounded-lg w-10 h-10 font-bold text-emerald-700">
+                  {coordinatorActionTarget?.groupNumber}
+                </div>
+                <span className="font-medium">
+                  {coordinatorActionTarget?.groupName}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-2 font-medium text-gray-700 text-sm">
+                Search Group Members
+              </label>
+              <Input
+                value={coordinatorSearch}
+                onChange={(e) => setCoordinatorSearch(e.target.value)}
+                placeholder="Search by name, email, or phone"
+              />
+            </div>
+
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              {coordinatorMembersQuery.isLoading ? (
+                <div className="py-6 text-gray-500 text-sm text-center">
+                  Loading members...
+                </div>
+              ) : coordinatorCandidates.length === 0 ? (
+                <div className="py-6 text-gray-500 text-sm text-center">
+                  No active members found.
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100 max-h-60 overflow-y-auto">
+                  {coordinatorCandidates.map((candidate) => (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      onClick={() => setSelectedCoordinatorId(candidate.id)}
+                      className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 ${
+                        selectedCoordinatorId === candidate.id
+                          ? "bg-emerald-50"
+                          : ""
+                      }`}
+                    >
+                      <div className="flex justify-center items-center bg-emerald-100 rounded-full w-9 h-9 font-semibold text-emerald-700 text-sm">
+                        {candidate.fullName
+                          .split(" ")
+                          .map((s) => s[0])
+                          .slice(0, 2)
+                          .join("")
+                          .toUpperCase()}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900">
+                          {candidate.fullName}
+                        </p>
+                        <p className="text-gray-500 text-xs">
+                          {candidate.email || candidate.phone || "No contact"}
+                        </p>
+                      </div>
+                      {selectedCoordinatorId === candidate.id && (
+                        <Check className="w-4 h-4 text-emerald-600" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setShowAssignCoordinator(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                onClick={saveCoordinatorAssignment}
+                disabled={
+                  !selectedCoordinatorId || setCoordinatorMutation.isPending
+                }
+              >
+                {setCoordinatorMutation.isPending
+                  ? "Updating..."
+                  : `${coordinatorActionTarget?.coordinatorName ? "Update" : "Assign"} Coordinator`}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Remove Coordinator Confirmation */}
+      <Dialog
+        open={showRemoveCoordinator}
+        onOpenChange={setShowRemoveCoordinator}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove Coordinator</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-gray-600 text-sm">
+              This will remove the coordinator from{" "}
+              <span className="font-semibold text-gray-900">
+                {coordinatorActionTarget?.groupName}
+              </span>
+              . The member will remain in the group.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setShowRemoveCoordinator(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700"
+                onClick={confirmRemoveCoordinator}
+                disabled={setCoordinatorMutation.isPending}
+              >
+                {setCoordinatorMutation.isPending ? "Removing..." : "Remove"}
               </Button>
             </div>
           </div>

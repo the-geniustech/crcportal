@@ -130,6 +130,59 @@ const CONTRIBUTION_TYPES = ContributionTypeOptions.map((type) => ({
   color: CONTRIBUTION_TYPE_COLORS[type.value],
 }));
 
+type GroupCardActionsProps = {
+  group: Group;
+  canAssignCoordinator: boolean;
+  onViewGroup: (group: Group) => void;
+  onAssignCoordinator: (group: Group) => void;
+  onRemoveCoordinator: (group: Group) => void;
+};
+
+const GroupCardActions: React.FC<GroupCardActionsProps> = ({
+  group,
+  canAssignCoordinator,
+  onViewGroup,
+  onAssignCoordinator,
+  onRemoveCoordinator,
+}) => (
+  <div className="flex gap-2 pt-3 border-gray-100 border-t">
+    <Button
+      variant="outline"
+      size="sm"
+      className="flex-1"
+      onClick={() => onViewGroup(group)}
+    >
+      <Eye className="mr-1 w-4 h-4" />
+      View
+    </Button>
+    {canAssignCoordinator && (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm">
+            <MoreVertical className="w-4 h-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem onClick={() => onAssignCoordinator(group)}>
+            <UserPlus className="mr-2 w-4 h-4" />
+            {group.coordinator_name
+              ? "Change Coordinator"
+              : "Assign Coordinator"}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => onRemoveCoordinator(group)}
+            disabled={!group.coordinator_name}
+            className="text-red-600 focus:text-red-600"
+          >
+            <UserMinus className="mr-2 w-4 h-4" />
+            Remove Coordinator
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )}
+  </div>
+);
+
 const ContributionGroupsContent: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
@@ -267,7 +320,8 @@ const ContributionGroupsContent: React.FC = () => {
           month: c.month,
           year: c.year,
           amount: c.amount,
-          contribution_type: normalizeContributionType(c.contributionType) || "revolving",
+          contribution_type:
+            normalizeContributionType(c.contributionType) || "revolving",
           status: c.status,
           payment_reference: c.paymentReference ?? null,
           verified_by: verifiedId,
@@ -857,44 +911,13 @@ const ContributionGroupsContent: React.FC = () => {
                     )}
 
                     {/* Actions */}
-                    <div className="flex gap-2 pt-3 border-gray-100 border-t">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1"
-                        onClick={() => handleViewGroup(group)}
-                      >
-                        <Eye className="mr-1 w-4 h-4" />
-                        View
-                      </Button>
-                      {canAssignCoordinator && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="outline" size="sm">
-                              <MoreVertical className="w-4 h-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => handleAssignCoordinator(group)}
-                            >
-                              <UserPlus className="mr-2 w-4 h-4" />
-                              {group.coordinator_name
-                                ? "Change Coordinator"
-                                : "Assign Coordinator"}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => handleRemoveCoordinator(group)}
-                              disabled={!group.coordinator_name}
-                              className="text-red-600 focus:text-red-600"
-                            >
-                              <UserMinus className="mr-2 w-4 h-4" />
-                              Remove Coordinator
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </div>
+                    <GroupCardActions
+                      group={group}
+                      canAssignCoordinator={canAssignCoordinator}
+                      onViewGroup={handleViewGroup}
+                      onAssignCoordinator={handleAssignCoordinator}
+                      onRemoveCoordinator={handleRemoveCoordinator}
+                    />
                   </div>
                 </div>
               ))}

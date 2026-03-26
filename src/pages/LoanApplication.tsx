@@ -141,7 +141,7 @@ const addMonths = (date: Date, months: number) => {
 const LoanApplicationContent: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, loading } = useAuth();
+  const { user, profile, loading } = useAuth();
   const { toast } = useToast();
   const eligibilityQuery = useLoanEligibilityQuery();
   const myGroupsQuery = useMyGroupMembershipsQuery();
@@ -218,7 +218,12 @@ const LoanApplicationContent: React.FC = () => {
     interestRateType,
     loanFacility?.interestRateRange,
   );
-  const termOptions = getLoanTermOptions(loanType, addMonths(new Date(), 1));
+  const termOptions = (() => {
+    const baseOptions = getLoanTermOptions(loanType, addMonths(new Date(), 1));
+    const unique = new Set(baseOptions);
+    unique.add(12);
+    return Array.from(unique).sort((a, b) => a - b);
+  })();
 
   const groupMembersQuery = useGroupMembersQuery(selectedGroup || undefined);
   const groupMembers = React.useMemo(() => {
@@ -594,6 +599,7 @@ const LoanApplicationContent: React.FC = () => {
               onBack={() => goToStep(3)}
               loanAmount={loanAmount}
               groupMembers={groupMembers}
+              currentUserId={profile?.id ?? null}
             />
           )}
 

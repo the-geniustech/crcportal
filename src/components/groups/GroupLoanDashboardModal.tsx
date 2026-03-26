@@ -9,7 +9,11 @@ import {
   X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { LOAN_FACILITIES, type LoanFacilityKey } from "@/lib/loanPolicy";
+import {
+  LOAN_FACILITIES,
+  formatInterestLabel,
+  type LoanFacilityKey,
+} from "@/lib/loanPolicy";
 
 interface GroupLoan {
   id: string;
@@ -17,7 +21,12 @@ interface GroupLoan {
   loanType?: string | null;
   loanAmount: number;
   approvedAmount?: number | null;
+  approvedInterestRate?: number | null;
+  interestRate?: number | null;
+  interestRateType?: "annual" | "monthly" | "total" | null;
+  totalRepayable?: number | null;
   remainingBalance?: number | null;
+  repaymentToDate?: number | null;
   status: string;
   createdAt?: string;
   disbursedAt?: string | null;
@@ -523,7 +532,7 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-[1200px] w-full text-sm">
+                  <table className="min-w-[1400px] w-full text-sm">
                     <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                       <tr>
                         <th className="px-4 py-3 text-left font-semibold">
@@ -539,7 +548,13 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                           Approved
                         </th>
                         <th className="px-4 py-3 text-left font-semibold">
+                          Interest Rate
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
                           Remaining
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold">
+                          Repaid So Far
                         </th>
                         <th className="px-4 py-3 text-left font-semibold">
                           Status
@@ -583,6 +598,30 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                             (item) => item.key === loan.typeKey,
                           ) || null;
                         const typeStyle = loanTypeStyles[loan.typeKey];
+                        const rateValue =
+                          loan.approvedInterestRate ?? loan.interestRate ?? null;
+                        const rateType = (loan.interestRateType ||
+                          facility?.interestRateType ||
+                          "annual") as "annual" | "monthly" | "total";
+                        const interestLabel =
+                          rateValue != null
+                            ? formatInterestLabel(
+                                rateValue,
+                                rateType,
+                              )
+                            : facility?.interestRateRange
+                              ? formatInterestLabel(
+                                  facility.interestRateRange.min,
+                                  rateType,
+                                  facility.interestRateRange,
+                                )
+                              : "-";
+                        const repaymentToDate =
+                          loan.repaymentToDate != null
+                            ? loan.repaymentToDate
+                            : loan.totalRepayable != null && remaining !== null
+                              ? Math.max(0, loan.totalRepayable - remaining)
+                              : null;
 
                         return (
                           <tr key={loan.id} className="hover:bg-slate-50/60">
@@ -610,8 +649,16 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                                 : "-"}
                             </td>
                             <td className="px-4 py-3 text-gray-700">
+                              {interestLabel}
+                            </td>
+                            <td className="px-4 py-3 text-gray-700">
                               {remaining !== null
                                 ? formatCurrency(remaining)
+                                : "-"}
+                            </td>
+                            <td className="px-4 py-3 text-gray-700">
+                              {repaymentToDate != null
+                                ? formatCurrency(repaymentToDate)
                                 : "-"}
                             </td>
                             <td className="px-4 py-3">
