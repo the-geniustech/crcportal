@@ -91,7 +91,7 @@ const DashboardHeader: React.FC = () => {
   const navItems = [
     // { name: 'Dashboard', path: '/dashboard' },
     // { name: "Groups", path: "/groups" },
-    { name: "Contribution Groups", path: "/contribution-groups" },
+    // { name: "Contribution Groups", path: "/contribution-groups" },
     { name: "Loans", path: "/loans" },
     // { name: "Payments", path: "/payments" },
     { name: "Calendar", path: "/calendar" },

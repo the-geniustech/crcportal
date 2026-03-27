@@ -45,13 +45,19 @@ const App = () => (
                 <Route element={<RequireAuth />}>
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/groups" element={<Groups />} />
-                  <Route
+                  {/* <Route
                     path="/contribution-groups"
                     element={<ContributionGroups />}
+                  /> */}
+                  <Route
+                    path="/admin"
+                    element={<Navigate to="/admin/overview" replace />}
                   />
-                  <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
                   <Route path="/admin/:tab" element={<Admin />} />
-                  <Route path="/loan-application" element={<LoanApplication />} />
+                  <Route
+                    path="/loan-application"
+                    element={<LoanApplication />}
+                  />
                   <Route path="/loans" element={<Loans />} />
                   <Route path="/payments" element={<Payments />} />
                   <Route path="/profile" element={<Profile />} />

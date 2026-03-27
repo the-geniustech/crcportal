@@ -693,7 +693,7 @@ const ContributionGroupsContent: React.FC = () => {
               member contributions
             </p>
           </div>
-          <div className="flex gap-3 mt-4 md:mt-0">
+          {/* <div className="flex gap-3 mt-4 md:mt-0">
             <Button variant="outline" className="gap-2">
               <Download className="w-4 h-4" />
               Export Report
@@ -702,7 +702,7 @@ const ContributionGroupsContent: React.FC = () => {
               <BarChart3 className="w-4 h-4" />
               Financial Summary
             </Button>
-          </div>
+          </div> */}
         </div>
 
         {/* Stats Cards */}
