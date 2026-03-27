@@ -29,23 +29,25 @@ export const ContributionTypeConfig: Record<
     description: string;
     minAmount: number;
     unitAmount?: number;
+    stepAmount?: number;
     allowedMonths?: number[];
   }
 > = {
   revolving: {
     label: "Revolving Contribution",
     description:
-      "Uniform monthly contribution from January to October. Withdrawals are allowed in October.",
+      "Uniform monthly contribution with NGN 1,000 per unit. Minimum NGN 5,000 per month.",
     minAmount: 5_000,
-    unitAmount: 5_000,
-    allowedMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    unitAmount: 1_000,
+    stepAmount: 5_000,
   },
   special: {
     label: "Special Contribution",
     description:
-      "Voluntary bulk contribution from January to October. Withdrawable monthly by the owner.",
-    minAmount: 500_000,
-    allowedMonths: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+      "Flexible savings with NGN 1,000 per unit. Minimum NGN 5,000 per contribution.",
+    minAmount: 5_000,
+    unitAmount: 1_000,
+    stepAmount: 5_000,
   },
   endwell: {
     label: "Endwell Contribution",
@@ -124,6 +126,38 @@ export function formatNaira(amount: number) {
   }).format(safe);
 }
 
+export const CONTRIBUTION_UNIT_BASE = 1000;
+export const CONTRIBUTION_INTEREST_PER_UNIT = 35;
+
+export function calculateContributionUnits(amount: number) {
+  const safe = Number(amount);
+  if (!Number.isFinite(safe) || safe <= 0) return 0;
+  return safe / CONTRIBUTION_UNIT_BASE;
+}
+
+export function calculateContributionInterest(amount: number) {
+  const units = calculateContributionUnits(amount);
+  if (!units) return 0;
+  return Math.round(units * CONTRIBUTION_INTEREST_PER_UNIT * 100) / 100;
+}
+
+export function isContributionInterestEligible(value?: string | null) {
+  const normalized = normalizeContributionType(value);
+  if (normalized) return normalized === "revolving";
+  if (value === null || typeof value === "undefined") return true;
+  const raw = String(value || "").trim();
+  if (!raw) return true;
+  return false;
+}
+
+export function calculateContributionInterestForType(
+  value: string | null | undefined,
+  amount: number,
+) {
+  if (!isContributionInterestEligible(value)) return 0;
+  return calculateContributionInterest(amount);
+}
+
 export function validateContributionAmount(
   type: ContributionTypeCanonical,
   amount: number,
@@ -142,12 +176,12 @@ export function validateContributionAmount(
       message: `Minimum for ${config.label} is ${formatNaira(config.minAmount)}.`,
     };
   }
-  if (config.unitAmount && safeAmount % config.unitAmount !== 0) {
+  const step = config.stepAmount ?? config.unitAmount;
+  if (step && safeAmount % step !== 0) {
     return {
       valid: false,
-      message: `${config.label} must be in multiples of ${formatNaira(config.unitAmount)}.`,
+      message: `${config.label} must be in multiples of ${formatNaira(step)}.`,
     };
   }
   return { valid: true };
 }
-

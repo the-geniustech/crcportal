@@ -7,6 +7,8 @@ import NotificationSettings from "@/components/profile/NotificationSettings";
 import { ChangePasswordDialog } from "@/components/auth/ChangePasswordDialog";
 import { useNotificationPreferencesQuery } from "@/hooks/profile/useNotificationPreferencesQuery";
 import { useUpdateNotificationPreferencesMutation } from "@/hooks/profile/useUpdateNotificationPreferencesMutation";
+import { useContributionSettingsQuery } from "@/hooks/profile/useContributionSettingsQuery";
+import { useUpdateContributionSettingsMutation } from "@/hooks/profile/useUpdateContributionSettingsMutation";
 import { useTwoFactorStatusQuery } from "@/hooks/auth/useTwoFactorStatusQuery";
 import { useTwoFactorSetupMutation } from "@/hooks/auth/useTwoFactorSetupMutation";
 import { useEnableTwoFactorMutation } from "@/hooks/auth/useEnableTwoFactorMutation";
@@ -26,15 +28,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Bell, Shield } from "lucide-react";
+import { Bell, Shield, Coins } from "lucide-react";
 
 const SettingsContent: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"notifications" | "security">(
-    "notifications",
-  );
+  const [activeTab, setActiveTab] = useState<
+    "notifications" | "security" | "contribution"
+  >("notifications");
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isTwoFactorSetupOpen, setIsTwoFactorSetupOpen] = useState(false);
   const [isTwoFactorDisableOpen, setIsTwoFactorDisableOpen] = useState(false);
@@ -54,10 +56,16 @@ const SettingsContent: React.FC = () => {
     otpauthUrl?: string | null;
     qrCodeDataUrl?: string | null;
   } | null>(null);
+  const [contributionUnits, setContributionUnits] = useState("");
+  const [contributionUnitsError, setContributionUnitsError] =
+    useState<string | null>(null);
 
   const notificationPreferencesQuery = useNotificationPreferencesQuery();
   const updateNotificationPreferencesMutation =
     useUpdateNotificationPreferencesMutation();
+  const contributionSettingsQuery = useContributionSettingsQuery();
+  const updateContributionSettingsMutation =
+    useUpdateContributionSettingsMutation();
   const twoFactorStatusQuery = useTwoFactorStatusQuery();
   const twoFactorSetupMutation = useTwoFactorSetupMutation();
   const enableTwoFactorMutation = useEnableTwoFactorMutation();
@@ -75,6 +83,13 @@ const SettingsContent: React.FC = () => {
       navigate("/");
     }
   }, [user, loading, navigate]);
+
+  useEffect(() => {
+    if (!contributionSettingsQuery.data) return;
+    const units = contributionSettingsQuery.data.units;
+    setContributionUnits(units ? String(units) : "");
+    setContributionUnitsError(null);
+  }, [contributionSettingsQuery.data]);
 
   if (loading) {
     return (
@@ -101,6 +116,18 @@ const SettingsContent: React.FC = () => {
       marketingEmails: false,
     };
 
+  const currentYear = new Date().getFullYear();
+  const contributionSettings =
+    contributionSettingsQuery.data ?? {
+      year: currentYear,
+      units: null,
+      updatedAt: null,
+      canEdit: true,
+      window: { startMonth: 1, endMonth: 2 },
+    };
+  const contributionSettingsLoading =
+    contributionSettingsQuery.isLoading || updateContributionSettingsMutation.isPending;
+
   const handleSaveNotifications = async (
     prefs: typeof notificationPreferences,
   ) => {
@@ -117,6 +144,48 @@ const SettingsContent: React.FC = () => {
         variant: "destructive",
       });
       throw error;
+    }
+  };
+
+  const handleSaveContributionSettings = async () => {
+    const unitsValue = Number(contributionUnits);
+    if (!Number.isFinite(unitsValue)) {
+      setContributionUnitsError("Enter a valid number of units.");
+      return;
+    }
+    if (unitsValue < 5 || unitsValue % 5 !== 0) {
+      setContributionUnitsError("Units must be at least 5 and in multiples of 5.");
+      return;
+    }
+    if (!contributionSettings.canEdit) {
+      toast({
+        title: "Update Locked",
+        description:
+          "Contribution settings can only be updated between January and February.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      await updateContributionSettingsMutation.mutateAsync({
+        units: unitsValue,
+        year: contributionSettings.year,
+      });
+      setContributionUnitsError(null);
+      toast({
+        title: "Contribution Settings Saved",
+        description: `Your ${contributionSettings.year} contribution plan has been updated.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Update Failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to update contribution settings.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -249,6 +318,7 @@ const SettingsContent: React.FC = () => {
 
   const tabs = [
     { id: "notifications" as const, label: "Notifications", icon: Bell },
+    { id: "contribution" as const, label: "Contribution", icon: Coins },
     { id: "security" as const, label: "Security", icon: Shield },
   ];
 
@@ -305,6 +375,83 @@ const SettingsContent: React.FC = () => {
               preferences={notificationPreferences}
               onSave={handleSaveNotifications}
             />
+          )}
+
+          {activeTab === "contribution" && (
+            <div className="bg-white p-6 border border-gray-200 rounded-xl">
+              <h3 className="flex items-center gap-2 mb-2 font-semibold text-gray-900 text-lg">
+                <Coins className="w-5 h-5 text-emerald-600" />
+                Contribution Settings
+              </h3>
+              <p className="text-gray-500 text-sm">
+                Set your planned monthly contribution units for {contributionSettings.year}.
+                Updates are expected within January and February.
+              </p>
+
+              <div className="gap-6 grid md:grid-cols-2 mt-6">
+                <div>
+                  <Label htmlFor="contribution-units">Planned Units</Label>
+                  <Input
+                    id="contribution-units"
+                    type="number"
+                    min={5}
+                    step={5}
+                    value={contributionUnits}
+                    onChange={(event) => {
+                      setContributionUnits(event.target.value);
+                      setContributionUnitsError(null);
+                    }}
+                    disabled={contributionSettingsLoading || !contributionSettings.canEdit}
+                    className="mt-2"
+                    placeholder="e.g. 10"
+                  />
+                  <p className="mt-2 text-xs text-gray-500">
+                    Minimum 5 units, in multiples of 5.
+                  </p>
+                  {contributionUnitsError && (
+                    <p className="mt-2 text-xs text-rose-600">
+                      {contributionUnitsError}
+                    </p>
+                  )}
+                </div>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs uppercase tracking-wide text-gray-500">
+                    Planning Window
+                  </p>
+                  <p className="mt-2 text-sm text-gray-700">
+                    Jan {contributionSettings.year} to Feb {contributionSettings.year}
+                  </p>
+                  <p
+                    className={`mt-2 text-sm font-semibold ${
+                      contributionSettings.canEdit
+                        ? "text-emerald-600"
+                        : "text-rose-600"
+                    }`}
+                  >
+                    {contributionSettings.canEdit ? "Open for updates" : "Locked for the year"}
+                  </p>
+                  {contributionSettings.updatedAt && (
+                    <p className="mt-2 text-xs text-gray-500">
+                      Last updated{" "}
+                      {new Date(contributionSettings.updatedAt).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap justify-end items-center gap-3 mt-6">
+                <Button
+                  onClick={handleSaveContributionSettings}
+                  disabled={
+                    contributionSettingsLoading || !contributionSettings.canEdit
+                  }
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {contributionSettingsLoading ? "Saving..." : "Save Plan"}
+                </Button>
+              </div>
+            </div>
           )}
 
           {activeTab === "security" && (

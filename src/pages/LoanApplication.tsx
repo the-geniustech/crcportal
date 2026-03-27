@@ -536,7 +536,7 @@ const LoanApplicationContent: React.FC = () => {
                   defaultedLoans: 0,
                   overdueContributions: 0,
                   overdueRepayments: 0,
-                  contributionWindow: { startDay: 27, endDay: 4, isOpen: false },
+                  contributionWindow: { startDay: 1, endDay: 31, isOpen: true },
                   creditScore: 0,
                 }
               }

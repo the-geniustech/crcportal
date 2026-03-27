@@ -7,6 +7,8 @@ export type InitializePaystackPaymentInput = {
   groupId?: string | null;
   loanApplicationId?: string | null;
   contributionType?: string | null;
+  month?: number | null;
+  year?: number | null;
   description?: string | null;
   callbackUrl?: string | null;
 };
@@ -18,6 +20,8 @@ export type BulkPaymentItem = {
   loanApplicationId?: string | null;
   contributionType?: string | null;
   dueDate?: string | null;
+  month?: number | null;
+  year?: number | null;
   description?: string | null;
 };
 

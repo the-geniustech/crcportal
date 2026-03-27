@@ -21,6 +21,11 @@ import { useGroupContributionTargetsQuery } from "@/hooks/groups/useGroupContrib
 import {
   ContributionTypeConfig,
   ContributionTypeOptions,
+  CONTRIBUTION_INTEREST_PER_UNIT,
+  calculateContributionInterest,
+  calculateContributionInterestForType,
+  calculateContributionUnits,
+  isContributionInterestEligible,
   normalizeContributionType,
   type ContributionTypeCanonical,
 } from "@/lib/contributionPolicy";
@@ -31,6 +36,7 @@ interface GroupMember {
   name: string;
   avatar: string;
   totalContributed: number;
+  contributionUnits?: number | null;
 }
 
 interface GroupContribution {
@@ -38,6 +44,8 @@ interface GroupContribution {
   month: number;
   year: number;
   amount: number;
+  units?: number;
+  interestAmount?: number;
   status: "pending" | "completed" | "verified" | "overdue";
   contributionType?: string | null;
   paidDate?: string;
@@ -65,6 +73,8 @@ interface GroupContributionDashboardModalProps {
   contributions: GroupContribution[];
   membersLoading?: boolean;
   contributionsLoading?: boolean;
+  selectedYear?: number;
+  onYearChange?: (year: number) => void;
 }
 
 const MONTHS = [
@@ -81,6 +91,21 @@ const MONTHS = [
   { value: 11, label: "Nov", long: "November" },
   { value: 12, label: "Dec", long: "December" },
 ];
+
+type DashboardContributionType = ContributionTypeCanonical | "interest";
+
+const INTEREST_META = {
+  value: "interest",
+  label: "Interest Earned",
+  description:
+    "Interest accrued at NGN 35 per NGN 1,000 from revolving contributions.",
+} as const;
+
+const DASHBOARD_TYPES: Array<{
+  value: DashboardContributionType;
+  label: string;
+  description: string;
+}> = [...ContributionTypeOptions, INTEREST_META];
 
 const paidStatuses = new Set(["completed", "verified"]);
 
@@ -105,10 +130,12 @@ const GroupContributionDashboardModal: React.FC<
   contributions,
   membersLoading = false,
   contributionsLoading = false,
+  selectedYear: selectedYearProp,
+  onYearChange,
 }) => {
   const { toast } = useToast();
   const [selectedType, setSelectedType] =
-    useState<ContributionTypeCanonical>("revolving");
+    useState<DashboardContributionType>("revolving");
   const [searchQuery, setSearchQuery] = useState("");
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
@@ -121,39 +148,76 @@ const GroupContributionDashboardModal: React.FC<
 
   const normalizedContributions = useMemo(
     () =>
-      contributions.map((contribution) => ({
-        memberId: contribution.memberId,
-        month: Number(contribution.month),
-        year: Number(contribution.year),
-        amount: Number(contribution.amount ?? 0),
-        status: contribution.status,
-        type:
-          normalizeContributionType(contribution.contributionType) ||
-          "revolving",
-      })),
+      contributions.map((contribution) => {
+        const amount = Number(contribution.amount ?? 0);
+        const normalizedType = normalizeContributionType(
+          contribution.contributionType,
+        );
+        const resolvedType = normalizedType || "revolving";
+        return {
+          memberId: contribution.memberId,
+          month: Number(contribution.month),
+          year: Number(contribution.year),
+          amount,
+          units:
+            typeof contribution.units === "number"
+              ? contribution.units
+              : calculateContributionUnits(amount),
+          interestAmount:
+            typeof contribution.interestAmount === "number"
+              ? contribution.interestAmount
+              : calculateContributionInterestForType(
+                  contribution.contributionType,
+                  amount,
+                ),
+          interestEligible: isContributionInterestEligible(
+            contribution.contributionType,
+          ),
+          status: contribution.status,
+          type: resolvedType,
+        };
+      }),
     [contributions],
   );
 
+  const resolvedSelectedYear =
+    Number.isFinite(Number(selectedYearProp)) && selectedYearProp
+      ? Number(selectedYearProp)
+      : null;
+
   const yearOptions = useMemo(() => {
     const years = new Set<number>();
+    const span = 20;
+    for (let i = 0; i < span; i += 1) {
+      years.add(currentYear - i);
+    }
     normalizedContributions.forEach((contribution) => {
       if (Number.isFinite(contribution.year)) {
         years.add(contribution.year);
       }
     });
+    if (Number.isFinite(resolvedSelectedYear || NaN)) {
+      years.add(Number(resolvedSelectedYear));
+    }
     if (years.size === 0) years.add(currentYear);
     return Array.from(years).sort((a, b) => b - a);
-  }, [normalizedContributions, currentYear]);
+  }, [normalizedContributions, currentYear, resolvedSelectedYear]);
 
-  const [selectedYear, setSelectedYear] = useState(() => {
-    return yearOptions[0] ?? currentYear;
+  const [internalYear, setInternalYear] = useState(() => {
+    return resolvedSelectedYear ?? yearOptions[0] ?? currentYear;
   });
 
+  const selectedYear = resolvedSelectedYear ?? internalYear;
+
   useEffect(() => {
-    if (!yearOptions.includes(selectedYear)) {
-      setSelectedYear(yearOptions[0] ?? currentYear);
+    if (resolvedSelectedYear !== null) {
+      setInternalYear(resolvedSelectedYear);
+      return;
     }
-  }, [yearOptions, selectedYear, currentYear]);
+    if (!yearOptions.includes(internalYear)) {
+      setInternalYear(yearOptions[0] ?? currentYear);
+    }
+  }, [yearOptions, resolvedSelectedYear, internalYear, currentYear]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -162,11 +226,19 @@ const GroupContributionDashboardModal: React.FC<
     }
   }, [isOpen]);
 
+  const handleYearSelect = (year: number) => {
+    if (!Number.isFinite(year)) return;
+    if (onYearChange) onYearChange(year);
+    if (resolvedSelectedYear === null) {
+      setInternalYear(year);
+    }
+  };
+
   const monthsToDate = selectedYear === currentYear ? currentMonth : 12;
   const totalMembers =
     members.length > 0 ? members.length : Number(group?.memberCount ?? 0);
 
-  const getExpectedMonthly = (type: ContributionTypeCanonical) => {
+  const getExpectedMonthlyBase = (type: ContributionTypeCanonical) => {
     const target = targets?.[type];
     if (typeof target === "number" && Number.isFinite(target) && target > 0) {
       return target;
@@ -176,20 +248,47 @@ const GroupContributionDashboardModal: React.FC<
     return ContributionTypeConfig[type]?.minAmount ?? 0;
   };
 
+  const getExpectedMonthly = (type: DashboardContributionType) => {
+    if (type === "interest") {
+      return calculateContributionInterest(getExpectedMonthlyBase("revolving"));
+    }
+    return getExpectedMonthlyBase(type);
+  };
+
   const expectedMonthly = getExpectedMonthly(selectedType);
   const resolvedUnitAmount =
-    unitAmounts?.[selectedType] ?? ContributionTypeConfig[selectedType]?.unitAmount;
-  const expectedUnits =
-    resolvedUnitAmount && resolvedUnitAmount > 0 && expectedMonthly > 0
-      ? Math.max(1, Math.round(expectedMonthly / resolvedUnitAmount))
-      : null;
+    selectedType === "interest"
+      ? CONTRIBUTION_INTEREST_PER_UNIT
+      : (unitAmounts?.[selectedType] ??
+        ContributionTypeConfig[selectedType]?.unitAmount);
+
+  const resolveMemberUnits = (member: GroupMember) => {
+    if (selectedYear !== currentYear) return null;
+    const raw = Number(member.contributionUnits ?? NaN);
+    if (!Number.isFinite(raw) || raw <= 0) return null;
+    return raw;
+  };
+
+  const resolveMemberExpectedMonthly = (member: GroupMember) => {
+    const units = resolveMemberUnits(member);
+    if (
+      units &&
+      resolvedUnitAmount &&
+      (selectedType === "revolving" || selectedType === "interest")
+    ) {
+      return units * resolvedUnitAmount;
+    }
+    return expectedMonthly;
+  };
 
   const filteredContributions = useMemo(
     () =>
       normalizedContributions.filter(
         (contribution) =>
           contribution.year === selectedYear &&
-          contribution.type === selectedType &&
+          (selectedType === "interest"
+            ? contribution.interestEligible
+            : contribution.type === selectedType) &&
           contribution.month >= 1 &&
           contribution.month <= 12,
       ),
@@ -206,11 +305,18 @@ const GroupContributionDashboardModal: React.FC<
       const month = contribution.month;
       if (!month) continue;
       const memberMap = map.get(contribution.memberId) ?? new Map();
-      const current =
-        memberMap.get(month) ?? { amount: 0, hasRecord: false, status: "pending" };
+      const current = memberMap.get(month) ?? {
+        amount: 0,
+        hasRecord: false,
+        status: "pending",
+      };
       current.hasRecord = true;
       if (paidStatuses.has(contribution.status)) {
-        current.amount += Number(contribution.amount ?? 0);
+        const value =
+          selectedType === "interest"
+            ? Number(contribution.interestAmount ?? 0)
+            : Number(contribution.amount ?? 0);
+        current.amount += value;
         current.status = "paid";
       } else if (contribution.status === "overdue") {
         current.status = "overdue";
@@ -219,12 +325,10 @@ const GroupContributionDashboardModal: React.FC<
       map.set(contribution.memberId, memberMap);
     }
     return map;
-  }, [filteredContributions]);
+  }, [filteredContributions, selectedType]);
 
   const allMemberRows = useMemo(() => {
-    const sorted = [...members].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
+    const sorted = [...members].sort((a, b) => a.name.localeCompare(b.name));
     return sorted.map((member) => {
       const monthAmounts = MONTHS.map(({ value }) => {
         const record = memberMonthMap.get(member.id)?.get(value);
@@ -236,10 +340,14 @@ const GroupContributionDashboardModal: React.FC<
       const ytdTotal = monthAmounts
         .slice(0, monthsToDate)
         .reduce((sum, month) => sum + month.amount, 0);
-      const expectedYtd = expectedMonthly * monthsToDate;
+      const units = resolveMemberUnits(member);
+      const expectedMonthlyForMember = resolveMemberExpectedMonthly(member);
+      const expectedYtd = expectedMonthlyForMember * monthsToDate;
       const arrears = Math.max(expectedYtd - ytdTotal, 0);
       return {
         member,
+        units,
+        expectedMonthly: expectedMonthlyForMember,
         monthAmounts,
         ytdTotal,
         expectedYtd,
@@ -247,7 +355,14 @@ const GroupContributionDashboardModal: React.FC<
         status: arrears > 0 ? "ARREARS" : "ON TRACK",
       };
     });
-  }, [members, memberMonthMap, monthsToDate, expectedMonthly]);
+  }, [
+    members,
+    memberMonthMap,
+    monthsToDate,
+    expectedMonthly,
+    resolveMemberExpectedMonthly,
+    resolveMemberUnits,
+  ]);
 
   const visibleRows = useMemo(() => {
     if (!searchQuery) return allMemberRows;
@@ -258,14 +373,23 @@ const GroupContributionDashboardModal: React.FC<
   }, [allMemberRows, searchQuery]);
 
   const collectionSummary = useMemo(() => {
-    const expectedTotal = expectedMonthly * totalMembers * monthsToDate;
+    const expectedTotal = allMemberRows.reduce(
+      (sum, row) => sum + row.expectedYtd,
+      0,
+    );
     const collectedTotal = filteredContributions
       .filter(
         (contribution) =>
           paidStatuses.has(contribution.status) &&
           contribution.month <= monthsToDate,
       )
-      .reduce((sum, contribution) => sum + contribution.amount, 0);
+      .reduce((sum, contribution) => {
+        const value =
+          selectedType === "interest"
+            ? Number(contribution.interestAmount ?? 0)
+            : Number(contribution.amount ?? 0);
+        return sum + value;
+      }, 0);
     const arrears = Math.max(expectedTotal - collectedTotal, 0);
     const collectionRate =
       expectedTotal > 0
@@ -282,18 +406,36 @@ const GroupContributionDashboardModal: React.FC<
       membersInArrears,
     };
   }, [
-    expectedMonthly,
-    totalMembers,
-    monthsToDate,
     filteredContributions,
     allMemberRows,
+    selectedType,
+    monthsToDate,
+  ]);
+
+  const plannedUnitsSummary = useMemo(() => {
+    const units = allMemberRows
+      .map((row) => row.units)
+      .filter((value): value is number => Number.isFinite(value ?? NaN));
+    const total = units.reduce((sum, value) => sum + value, 0);
+    const average = units.length > 0 ? Math.round(total / units.length) : null;
+    return { total, average, count: units.length };
+  }, [allMemberRows]);
+
+  const averageExpectedMonthly = useMemo(() => {
+    const denominator = totalMembers * monthsToDate;
+    if (!denominator) return expectedMonthly;
+    return collectionSummary.expectedTotal / denominator;
+  }, [
+    collectionSummary.expectedTotal,
+    expectedMonthly,
+    monthsToDate,
+    totalMembers,
   ]);
 
   const totalsByType = useMemo(() => {
     return ContributionTypeOptions.map((type) => {
-      const expectedMonthlyAmount = getExpectedMonthly(type.value);
-      const expectedTotal =
-        expectedMonthlyAmount * totalMembers * monthsToDate;
+      const expectedMonthlyAmount = getExpectedMonthlyBase(type.value);
+      const expectedTotal = expectedMonthlyAmount * totalMembers * monthsToDate;
       const collectedTotal = normalizedContributions
         .filter(
           (contribution) =>
@@ -332,21 +474,32 @@ const GroupContributionDashboardModal: React.FC<
         0,
       ),
     );
+    const unitsTotal = visibleRows.reduce(
+      (sum, row) => sum + (row.units ?? 0),
+      0,
+    );
     const ytdTotal = monthTotals
       .slice(0, monthsToDate)
       .reduce((sum, value) => sum + value, 0);
-    const expectedYtd = expectedMonthly * monthsToDate * visibleRows.length;
+    const expectedYtd = visibleRows.reduce(
+      (sum, row) => sum + row.expectedYtd,
+      0,
+    );
     const arrears = Math.max(expectedYtd - ytdTotal, 0);
     return {
       monthTotals,
+      unitsTotal,
       ytdTotal,
       expectedYtd,
       arrears,
       status: arrears > 0 ? "ARREARS" : "ON TRACK",
     };
-  }, [visibleRows, monthsToDate, expectedMonthly]);
+  }, [visibleRows, monthsToDate]);
 
-  const selectedTypeMeta = ContributionTypeConfig[selectedType];
+  const selectedTypeMeta =
+    selectedType === "interest"
+      ? INTEREST_META
+      : ContributionTypeConfig[selectedType];
   const isSummaryLoading =
     membersLoading || contributionsLoading || targetsQuery.isLoading;
   const isTableLoading = membersLoading || contributionsLoading;
@@ -368,7 +521,6 @@ const GroupContributionDashboardModal: React.FC<
         "S/N",
         "Member Name",
         "Units",
-        "Expected Monthly",
         ...MONTHS.map((month) => month.label),
         "YTD Total",
         "Expected YTD",
@@ -379,8 +531,7 @@ const GroupContributionDashboardModal: React.FC<
       const rows = visibleRows.map((row, index) => [
         index + 1,
         row.member.name,
-        expectedUnits ?? "-",
-        formatCurrency(expectedMonthly),
+        row.units ?? "-",
         ...row.monthAmounts.map((month) =>
           month.amount > 0 ? formatCurrency(month.amount) : "-",
         ),
@@ -393,8 +544,7 @@ const GroupContributionDashboardModal: React.FC<
       const totals = [
         "Totals",
         `${visibleRows.length} members`,
-        expectedUnits ?? "-",
-        formatCurrency(expectedMonthly * visibleRows.length),
+        tableTotals.unitsTotal > 0 ? tableTotals.unitsTotal : "-",
         ...tableTotals.monthTotals.map((total) =>
           total > 0 ? formatCurrency(total) : "-",
         ),
@@ -452,37 +602,37 @@ const GroupContributionDashboardModal: React.FC<
   if (!isOpen || !group) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/60">
-      <div className="flex h-full w-full flex-col bg-slate-50">
+    <div className="z-50 fixed inset-0 bg-slate-950/60">
+      <div className="flex flex-col bg-slate-50 w-full h-full">
         <div className="relative">
-          <div className="h-48 w-full overflow-hidden">
+          <div className="w-full h-48 overflow-hidden">
             <img
               src={group.image}
               alt={group.name}
-              className="h-full w-full object-cover"
+              className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-slate-900/90 via-slate-900/60 to-transparent" />
           </div>
           <button
             onClick={onClose}
-            className="absolute right-6 top-6 rounded-full bg-white/20 p-2 text-white transition hover:bg-white/30"
+            className="top-6 right-6 absolute bg-white/20 hover:bg-white/30 p-2 rounded-full text-white transition"
             aria-label="Close contribution dashboard"
           >
-            <X className="h-5 w-5" />
+            <X className="w-5 h-5" />
           </button>
-          <div className="absolute bottom-6 left-6 right-6">
+          <div className="right-6 bottom-6 left-6 absolute">
             <div className="flex flex-col gap-3">
-              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200">
+              <span className="font-semibold text-emerald-200 text-xs uppercase tracking-[0.3em]">
                 Contribution Tracking Dashboard
               </span>
-              <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div className="flex lg:flex-row flex-col lg:justify-between lg:items-end gap-2">
                 <div>
-                  <h2 className="text-2xl font-bold text-white">
+                  <h2 className="font-bold text-white text-2xl">
                     {group.name}
                   </h2>
-                  <p className="text-sm text-emerald-100">
-                    {selectedTypeMeta?.label} | {selectedYear} |{" "}
-                    {totalMembers} members
+                  <p className="text-emerald-100 text-sm">
+                    {selectedTypeMeta?.label} | {selectedYear} | {totalMembers}{" "}
+                    members
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -490,9 +640,9 @@ const GroupContributionDashboardModal: React.FC<
                     <select
                       value={selectedYear}
                       onChange={(event) =>
-                        setSelectedYear(Number(event.target.value))
+                        handleYearSelect(Number(event.target.value))
                       }
-                      className="rounded-full border border-white/30 bg-white/10 px-4 py-2 text-xs font-semibold text-white backdrop-blur-sm"
+                      className="bg-white/10 backdrop-blur-sm px-4 py-2 border border-white/30 rounded-full font-semibold text-white text-xs"
                     >
                       {yearOptions.map((year) => (
                         <option key={year} value={year}>
@@ -501,7 +651,7 @@ const GroupContributionDashboardModal: React.FC<
                       ))}
                     </select>
                   )}
-                  <span className="rounded-full border border-white/30 bg-white/10 px-4 py-2 text-xs font-semibold text-white">
+                  <span className="bg-white/10 px-4 py-2 border border-white/30 rounded-full font-semibold text-white text-xs">
                     Updated {currentDate.toLocaleDateString("en-US")}
                   </span>
                 </div>
@@ -511,10 +661,10 @@ const GroupContributionDashboardModal: React.FC<
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6 px-6 py-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-col gap-6 mx-auto px-6 py-6 w-full max-w-[1500px]">
+            <div className="flex flex-wrap justify-between items-center gap-4">
               <div className="flex flex-wrap gap-2">
-                {ContributionTypeOptions.map((type) => (
+                {DASHBOARD_TYPES.map((type) => (
                   <button
                     key={type.value}
                     onClick={() => setSelectedType(type.value)}
@@ -528,9 +678,9 @@ const GroupContributionDashboardModal: React.FC<
                   </button>
                 ))}
               </div>
-              <div className="flex w-full max-w-lg items-center gap-3">
+              <div className="flex items-center gap-3 w-full max-w-lg">
                 <div className="relative w-full max-w-xs">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <Search className="top-1/2 left-3 absolute w-4 h-4 text-gray-400 -translate-y-1/2" />
                   <Input
                     placeholder="Search members..."
                     value={searchQuery}
@@ -545,8 +695,10 @@ const GroupContributionDashboardModal: React.FC<
                       className="gap-2"
                       disabled={isExportingPdf || isExportingCsv}
                     >
-                      <Download className="h-4 w-4" />
-                      {isExportingPdf || isExportingCsv ? "Exporting..." : "Export"}
+                      <Download className="w-4 h-4" />
+                      {isExportingPdf || isExportingCsv
+                        ? "Exporting..."
+                        : "Export"}
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -567,91 +719,91 @@ const GroupContributionDashboardModal: React.FC<
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">
+            <div className="gap-4 grid md:grid-cols-2 xl:grid-cols-4">
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
                     Expected YTD
                   </p>
-                  <Users className="h-4 w-4 text-emerald-500" />
+                  <Users className="w-4 h-4 text-emerald-500" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold text-gray-900">
+                <p className="mt-2 font-semibold text-gray-900 text-2xl">
                   {isSummaryLoading
                     ? "-"
                     : formatCurrency(collectionSummary.expectedTotal)}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-gray-500 text-xs">
                   {totalMembers} members | {monthsToDate} months
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
                     Collected YTD
                   </p>
-                  <TrendingUp className="h-4 w-4 text-emerald-500" />
+                  <TrendingUp className="w-4 h-4 text-emerald-500" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold text-emerald-600">
+                <p className="mt-2 font-semibold text-emerald-600 text-2xl">
                   {isSummaryLoading
                     ? "-"
                     : formatCurrency(collectionSummary.collectedTotal)}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-gray-500 text-xs">
                   {isSummaryLoading
                     ? "-"
                     : `${collectionSummary.collectionRate}% collection rate`}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
                     Arrears YTD
                   </p>
-                  <AlertTriangle className="h-4 w-4 text-rose-500" />
+                  <AlertTriangle className="w-4 h-4 text-rose-500" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold text-rose-600">
+                <p className="mt-2 font-semibold text-rose-600 text-2xl">
                   {isSummaryLoading
                     ? "-"
                     : formatCurrency(collectionSummary.arrears)}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-gray-500 text-xs">
                   {isSummaryLoading
                     ? "-"
                     : `${collectionSummary.membersInArrears} members behind`}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">
-                    Expected Monthly
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
+                    Avg Expected Monthly
                   </p>
-                  <CheckCircle2 className="h-4 w-4 text-blue-500" />
+                  <CheckCircle2 className="w-4 h-4 text-blue-500" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold text-gray-900">
-                  {formatCurrency(expectedMonthly)}
+                <p className="mt-2 font-semibold text-gray-900 text-2xl">
+                  {formatCurrency(averageExpectedMonthly)}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-gray-500 text-xs">
                   {selectedTypeMeta?.description || "Expected monthly target"}
                 </p>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="bg-white shadow-sm p-5 border border-slate-200 rounded-2xl">
+              <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">
+                  <p className="font-semibold text-gray-900 text-sm">
                     Totals by Contribution Type
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-gray-500 text-xs">
                     Tracking totals across all four contribution types in the
                     same format.
                   </p>
                 </div>
-                <span className="text-xs text-gray-400">
+                <span className="text-gray-400 text-xs">
                   Year to date overview
                 </span>
               </div>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="gap-4 grid md:grid-cols-2 xl:grid-cols-4">
                 {totalsByType.map((type) => (
                   <div
                     key={type.value}
@@ -661,15 +813,15 @@ const GroupContributionDashboardModal: React.FC<
                         : "border-slate-200 bg-white"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                    <div className="flex justify-between items-center">
+                      <p className="font-semibold text-gray-600 text-xs uppercase tracking-wide">
                         {type.label}
                       </p>
-                      <span className="text-xs font-semibold text-gray-500">
+                      <span className="font-semibold text-gray-500 text-xs">
                         {type.rate}%
                       </span>
                     </div>
-                    <div className="mt-3 space-y-1 text-xs text-gray-500">
+                    <div className="space-y-1 mt-3 text-gray-500 text-xs">
                       <div className="flex justify-between">
                         <span>Expected</span>
                         <span className="font-semibold text-gray-900">
@@ -686,9 +838,7 @@ const GroupContributionDashboardModal: React.FC<
                         <span>Arrears</span>
                         <span
                           className={`font-semibold ${
-                            type.arrears > 0
-                              ? "text-rose-600"
-                              : "text-gray-700"
+                            type.arrears > 0 ? "text-rose-600" : "text-gray-700"
                           }`}
                         >
                           {formatCurrency(type.arrears)}
@@ -700,79 +850,86 @@ const GroupContributionDashboardModal: React.FC<
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+            <div className="bg-white shadow-sm border border-slate-200 rounded-2xl">
+              <div className="flex flex-wrap justify-between items-center gap-3 px-5 py-4 border-slate-200 border-b">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">
-                    Member Contribution Ledger
+                  <p className="font-semibold text-gray-900 text-sm">
+                    {selectedType === "interest"
+                      ? "Member Interest Ledger"
+                      : "Member Contribution Ledger"}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-gray-500 text-xs">
                     {selectedTypeMeta?.label} tracking in {selectedYear}
                   </p>
                 </div>
-                <div className="text-xs text-gray-500">
-                  Expected Monthly: {formatCurrency(expectedMonthly)}
-                  {ContributionTypeConfig[selectedType]?.unitAmount ? (
+                <div className="text-gray-500 text-xs">
+                  Avg Expected Monthly: {formatCurrency(averageExpectedMonthly)}
+                  {resolvedUnitAmount ? (
                     <span>
                       {" "}
-                      | Units: {expectedUnits ?? "-"} @{" "}
-                      {formatCurrency(
-                        ContributionTypeConfig[selectedType]?.unitAmount || 0,
-                      )}{" "}
-                      per unit
+                      | Planned Units (avg):{" "}
+                      {plannedUnitsSummary.average ?? "-"} @{" "}
+                      {formatCurrency(resolvedUnitAmount)} per unit
                     </span>
-                  ) : null}
+                  ) : (
+                    <span>
+                      {" "}
+                      | Planned Units (avg): {plannedUnitsSummary.average ?? "-"}
+                    </span>
+                  )}
                 </div>
               </div>
 
               {isTableLoading ? (
-                <div className="py-16 text-center text-sm text-gray-500">
+                <div className="py-16 text-gray-500 text-sm text-center">
                   Loading contribution dashboard...
                 </div>
               ) : visibleRows.length === 0 ? (
-                <div className="py-16 text-center text-sm text-gray-500">
+                <div className="py-16 text-gray-500 text-sm text-center">
                   No members found for the current filters.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-[1400px] w-full text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <table className="w-full min-w-[1400px] text-sm">
+                    <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
                       <tr>
-                        <th className="px-4 py-3 text-left font-semibold">S/N</th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th className="px-4 py-3 font-semibold text-left">
+                          S/N
+                        </th>
+                        <th className="px-4 py-3 font-semibold text-left">
                           Member Name
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th className="px-4 py-3 font-semibold text-left">
                           Units
-                        </th>
-                        <th className="px-4 py-3 text-left font-semibold">
-                          Expected Monthly
                         </th>
                         {MONTHS.map((month) => (
                           <th
                             key={month.value}
-                            className="px-3 py-3 text-center font-semibold"
+                            className="px-3 py-3 font-semibold text-center"
                           >
                             {month.label}
                           </th>
                         ))}
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th className="px-4 py-3 font-semibold text-left">
                           YTD Total
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th className="px-4 py-3 font-semibold text-left">
                           Expected YTD
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th className="px-4 py-3 font-semibold text-left">
                           Arrears
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th className="px-4 py-3 font-semibold text-left">
                           Status
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {visibleRows.map((row, rowIndex) => (
-                        <tr key={row.member.id} className="hover:bg-slate-50/60">
+                        <tr
+                          key={row.member.id}
+                          className="hover:bg-slate-50/60"
+                        >
                           <td className="px-4 py-3 text-gray-500">
                             {rowIndex + 1}
                           </td>
@@ -781,7 +938,7 @@ const GroupContributionDashboardModal: React.FC<
                               <img
                                 src={row.member.avatar}
                                 alt={row.member.name}
-                                className="h-8 w-8 rounded-full object-cover"
+                                className="rounded-full w-8 h-8 object-cover"
                               />
                               <span className="font-medium text-gray-900">
                                 {row.member.name}
@@ -789,15 +946,12 @@ const GroupContributionDashboardModal: React.FC<
                             </div>
                           </td>
                           <td className="px-4 py-3 text-gray-600">
-                            {expectedUnits ?? "-"}
-                          </td>
-                          <td className="px-4 py-3 font-medium text-gray-900">
-                            {formatCurrency(expectedMonthly)}
+                            {row.units ?? "-"}
                           </td>
                           {row.monthAmounts.map((month, index) => (
                             <td
                               key={`${row.member.id}-${MONTHS[index].value}`}
-                              className="px-3 py-3 text-center text-gray-700"
+                              className="px-3 py-3 text-gray-700 text-center"
                             >
                               {month.amount > 0
                                 ? formatCurrency(month.amount)
@@ -829,33 +983,32 @@ const GroupContributionDashboardModal: React.FC<
                     </tbody>
                     <tfoot className="bg-slate-50">
                       <tr>
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-700">
+                        <td className="px-4 py-3 font-semibold text-gray-700 text-sm">
                           Totals
                         </td>
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-700">
+                        <td className="px-4 py-3 font-semibold text-gray-700 text-sm">
                           {visibleRows.length} members
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
-                          {expectedUnits ?? "-"}
-                        </td>
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-900">
-                          {formatCurrency(expectedMonthly * visibleRows.length)}
+                        <td className="px-4 py-3 text-gray-600 text-sm">
+                          {tableTotals.unitsTotal > 0
+                            ? tableTotals.unitsTotal
+                            : "-"}
                         </td>
                         {tableTotals.monthTotals.map((total, index) => (
                           <td
                             key={`total-${MONTHS[index].value}`}
-                            className="px-3 py-3 text-center text-sm font-semibold text-gray-700"
+                            className="px-3 py-3 font-semibold text-gray-700 text-sm text-center"
                           >
                             {total > 0 ? formatCurrency(total) : "-"}
                           </td>
                         ))}
-                        <td className="px-4 py-3 text-sm font-semibold text-gray-900">
+                        <td className="px-4 py-3 font-semibold text-gray-900 text-sm">
                           {formatCurrency(tableTotals.ytdTotal)}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-600">
+                        <td className="px-4 py-3 text-gray-600 text-sm">
                           {formatCurrency(tableTotals.expectedYtd)}
                         </td>
-                        <td className="px-4 py-3 text-sm font-semibold text-rose-600">
+                        <td className="px-4 py-3 font-semibold text-rose-600 text-sm">
                           {formatCurrency(tableTotals.arrears)}
                         </td>
                         <td className="px-4 py-3">

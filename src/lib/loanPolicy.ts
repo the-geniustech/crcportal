@@ -16,7 +16,7 @@ export type LoanFacility = {
 };
 
 export const LOAN_POLICY = {
-  contributionWindow: { startDay: 27, endDay: 4 },
+  contributionWindow: { startDay: 1, endDay: 31 },
   repaymentDeadlines: { generalMonth: 10, bridgingMonth: 1 },
   transactionsViaGroupLeaders: true,
 };

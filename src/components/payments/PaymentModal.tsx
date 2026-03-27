@@ -87,13 +87,27 @@ export default function PaymentModal({
   );
   const [selectedLoan, setSelectedLoan] = useState(preselectedLoan?.id || "");
   const [contributionType, setContributionType] = useState("revolving");
+  const [contributionMonth, setContributionMonth] = useState(
+    new Date().getMonth() + 1,
+  );
+  const [contributionYear, setContributionYear] = useState(
+    new Date().getFullYear(),
+  );
   const [description, setDescription] = useState("");
   const [email, setEmail] = useState("member@crc.org");
   const [isLoading, setIsLoading] = useState(false);
   const [transactionRef, setTransactionRef] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  const quickAmounts = [1000, 5000, 10000, 25000, 50000, 100000];
+  const quickAmounts = useMemo(() => {
+    if (paymentType === "group_contribution") {
+      const config = getContributionTypeConfig(contributionType);
+      const step = config?.stepAmount ?? config?.unitAmount ?? 1000;
+      const base = Math.max(step, config?.minAmount ?? step);
+      return [base, base * 2, base * 3, base * 5, base * 10, base * 20];
+    }
+    return [1000, 5000, 10000, 25000, 50000, 100000];
+  }, [paymentType, contributionType]);
 
   const groupMembershipsQuery = useMyGroupMembershipsQuery();
   const loanApplicationsQuery = useMyLoanApplicationsQuery();
@@ -150,7 +164,7 @@ export default function PaymentModal({
         const code = String(a.loanCode ?? a._id);
         return {
           id: a._id,
-          name: `${code} - ₦${amountLabel.toLocaleString()}`,
+          name: `${code} - NGN ${amountLabel.toLocaleString()}`,
           monthlyPayment: Number(a.monthlyPayment ?? 0),
         };
       });
@@ -254,6 +268,8 @@ export default function PaymentModal({
           paymentType === "loan_repayment" ? selectedLoan : null,
         contributionType:
           paymentType === "group_contribution" ? contributionType : null,
+        month: paymentType === "group_contribution" ? contributionMonth : null,
+        year: paymentType === "group_contribution" ? contributionYear : null,
         description: description || paymentTypeLabel,
         callbackUrl: `${window.location.origin}/payments`,
       });
@@ -281,6 +297,8 @@ export default function PaymentModal({
     setSelectedGroup(preselectedGroup?.id || "");
     setSelectedLoan(preselectedLoan?.id || "");
     setContributionType("revolving");
+    setContributionMonth(new Date().getMonth() + 1);
+    setContributionYear(new Date().getFullYear());
     setDescription("");
     setErrorMessage("");
     onClose();
@@ -397,6 +415,63 @@ export default function PaymentModal({
                     </p>
                   )}
                 </div>
+                <div className="space-y-2">
+                  <Label>Contribution Month</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Select
+                      value={String(contributionMonth)}
+                      onValueChange={(value) =>
+                        setContributionMonth(Number(value))
+                      }
+                      disabled={isBulk}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select month" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[
+                          "January",
+                          "February",
+                          "March",
+                          "April",
+                          "May",
+                          "June",
+                          "July",
+                          "August",
+                          "September",
+                          "October",
+                          "November",
+                          "December",
+                        ].map((label, idx) => (
+                          <SelectItem key={label} value={String(idx + 1)}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={String(contributionYear)}
+                      onValueChange={(value) =>
+                        setContributionYear(Number(value))
+                      }
+                      disabled={isBulk}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select year" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {Array.from({ length: 5 }).map((_, idx) => {
+                          const year = new Date().getFullYear() - 2 + idx;
+                          return (
+                            <SelectItem key={year} value={String(year)}>
+                              {year}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
               </>
             )}
 
@@ -429,7 +504,7 @@ export default function PaymentModal({
 
             {/* Amount Input */}
             <div className="space-y-2">
-              <Label>Amount (₦)</Label>
+              <Label>Amount (NGN)</Label>
               <Input
                 type="number"
                 placeholder="Enter amount"
@@ -454,7 +529,7 @@ export default function PaymentModal({
                     }
                     disabled={isBulk}
                   >
-                    ₦{quickAmount.toLocaleString()}
+                    NGN {quickAmount.toLocaleString()}
                   </Button>
                 ))}
               </div>
@@ -501,7 +576,7 @@ export default function PaymentModal({
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Amount:</span>
                   <span className="font-bold text-emerald-600">
-                    ₦{parseFloat(amount || "0").toLocaleString()}
+                    NGN {parseFloat(amount || "0").toLocaleString()}
                   </span>
                 </div>
                 {paymentType === "group_contribution" && (
@@ -509,6 +584,21 @@ export default function PaymentModal({
                     <span className="text-gray-600">Contribution Type:</span>
                     <span className="font-medium">
                       {getContributionTypeLabel(contributionType)}
+                    </span>
+                  </div>
+                )}
+                {paymentType === "group_contribution" && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Contribution Month:</span>
+                    <span className="font-medium">
+                      {new Date(
+                        contributionYear,
+                        contributionMonth - 1,
+                        1,
+                      ).toLocaleDateString("en-US", {
+                        month: "long",
+                        year: "numeric",
+                      })}
                     </span>
                   </div>
                 )}
@@ -545,7 +635,7 @@ export default function PaymentModal({
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700"
                 disabled={!paymentType || !amount || parseFloat(amount) <= 0}
               >
-                Pay ₦{parseFloat(amount || "0").toLocaleString()}
+                Pay NGN {parseFloat(amount || "0").toLocaleString()}
               </Button>
             </div>
           </div>

@@ -25,6 +25,7 @@ export interface Member {
   role: "admin" | "treasurer" | "secretary" | "member";
   joinedDate: string;
   totalContributed: number;
+  contributionUnits?: number | null;
 }
 
 export interface Contribution {
@@ -32,6 +33,8 @@ export interface Contribution {
   month: number;
   year: number;
   amount: number;
+  units?: number;
+  interestAmount?: number;
   status: "pending" | "completed" | "verified" | "overdue";
   contributionType?: string | null;
   paidDate?: string;

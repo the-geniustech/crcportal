@@ -84,7 +84,7 @@ const ContributionRecordModal: React.FC<ContributionRecordModalProps> = ({
     paymentReference: existingContribution?.payment_reference || '',
     paymentMethod: 'bank_transfer',
     notes: existingContribution?.notes || '',
-    status: existingContribution?.status || 'completed',
+    status: existingContribution?.status || 'verified',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -187,7 +187,7 @@ const ContributionRecordModal: React.FC<ContributionRecordModalProps> = ({
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               <DollarSign className="w-4 h-4 inline mr-2" />
-              Amount (₦)
+              Amount (NGN)
             </label>
             <Input
               type="number"

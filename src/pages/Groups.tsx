@@ -136,11 +136,19 @@ const GroupsContent: React.FC = () => {
   const [chatMessages, setChatMessages] = useState(sampleChatMessages);
 
   const selectedGroupId = selectedGroup?.id;
+  const currentYear = new Date().getFullYear();
+  const [selectedContributionYear, setSelectedContributionYear] = useState(
+    currentYear,
+  );
   const groupMembersQuery = useGroupMembersQuery(selectedGroupId);
   const groupMeetingsQuery = useGroupMeetingsQuery(selectedGroupId);
   const groupContributionsQuery = useGroupContributionsQuery(
     selectedGroupId,
-    new Date().getFullYear(),
+    selectedContributionYear,
+  );
+  const groupCurrentYearContributionsQuery = useGroupContributionsQuery(
+    selectedGroupId,
+    currentYear,
   );
   const groupLoansQuery = useGroupLoansQuery(selectedGroupId);
 
@@ -173,8 +181,37 @@ const GroupsContent: React.FC = () => {
         return "member";
       })();
 
+      const contributionSettings =
+        userObj && typeof userObj.contributionSettings === "object"
+          ? (userObj.contributionSettings as Record<string, unknown>)
+          : null;
+      const unitsRaw = contributionSettings?.units;
+      const yearRaw = contributionSettings?.year;
+      const settingsYear =
+        typeof yearRaw === "number"
+          ? yearRaw
+          : typeof yearRaw === "string"
+            ? Number(yearRaw)
+            : null;
+      const units =
+        typeof unitsRaw === "number"
+          ? unitsRaw
+          : typeof unitsRaw === "string"
+            ? Number(unitsRaw)
+            : null;
+      const isCurrentYearSetting =
+        settingsYear === null ? true : settingsYear === currentYear;
+
+      const profileId =
+        userObj &&
+        (typeof userObj._id === "string" || typeof userObj.id === "string")
+          ? String((userObj._id || userObj.id) as string)
+          : typeof m.userId === "string"
+            ? m.userId
+            : null;
+
       return {
-        id: m._id,
+        id: profileId || m._id,
         name: fullName,
         avatar: avatarUrl,
         role,
@@ -182,9 +219,15 @@ const GroupsContent: React.FC = () => {
           ? String(m.joinedAt).slice(0, 10)
           : new Date().toISOString().slice(0, 10),
         totalContributed: m.totalContributed ?? 0,
+        contributionUnits:
+          units !== null &&
+          Number.isFinite(units) &&
+          isCurrentYearSetting
+            ? Number(units)
+            : null,
       };
     });
-  }, [groupMembersQuery.data]);
+  }, [groupMembersQuery.data, currentYear]);
 
   const meetingsForDetails = useMemo(() => {
     const raw = groupMeetingsQuery.data ?? [];
@@ -228,7 +271,46 @@ const GroupsContent: React.FC = () => {
     });
   }, [groupMeetingsQuery.data]);
 
+
   const contributionsForDetails: Contribution[] = useMemo(() => {
+    const raw = groupCurrentYearContributionsQuery.data ?? [];
+    if (raw.length === 0) return [];
+
+    return raw.map((c) => {
+      const userObj =
+        typeof c.userId === "object" && c.userId
+          ? (c.userId as Record<string, unknown>)
+          : null;
+      const memberId =
+        userObj &&
+        (typeof userObj._id === "string" || typeof userObj.id === "string")
+          ? String((userObj._id || userObj.id) as string)
+          : typeof c.userId === "string"
+            ? c.userId
+            : "";
+
+      return {
+        memberId,
+        month: c.month,
+        year: c.year,
+        amount: Number(c.amount ?? 0),
+        units:
+          c.units === null || c.units === undefined ? undefined : Number(c.units),
+        interestAmount:
+          c.interestAmount === null || c.interestAmount === undefined
+            ? undefined
+            : Number(c.interestAmount),
+        status: c.status,
+        contributionType: c.contributionType,
+        paidDate:
+          c.status === "pending" || c.status === "overdue"
+            ? undefined
+            : c.updatedAt || c.createdAt,
+      };
+    });
+  }, [groupCurrentYearContributionsQuery.data]);
+
+  const contributionsForDashboard: Contribution[] = useMemo(() => {
     const raw = groupContributionsQuery.data ?? [];
     if (raw.length === 0) return [];
 
@@ -250,6 +332,12 @@ const GroupsContent: React.FC = () => {
         month: c.month,
         year: c.year,
         amount: Number(c.amount ?? 0),
+        units:
+          c.units === null || c.units === undefined ? undefined : Number(c.units),
+        interestAmount:
+          c.interestAmount === null || c.interestAmount === undefined
+            ? undefined
+            : Number(c.interestAmount),
         status: c.status,
         contributionType: c.contributionType,
         paidDate:
@@ -729,7 +817,7 @@ const GroupsContent: React.FC = () => {
         loans={loansForDetails}
         membersLoading={groupMembersQuery.isLoading}
         meetingsLoading={groupMeetingsQuery.isLoading}
-        contributionsLoading={groupContributionsQuery.isLoading}
+        contributionsLoading={groupCurrentYearContributionsQuery.isLoading}
         loansLoading={groupLoansQuery.isLoading}
         isMember={selectedGroup ? myGroupIdSet.has(selectedGroup.id) : false}
         joinDisabled={Boolean(selectedJoinBlockReason)}
@@ -759,9 +847,11 @@ const GroupsContent: React.FC = () => {
         onClose={() => setShowContributionDashboard(false)}
         group={selectedGroup}
         members={membersForDetails}
-        contributions={contributionsForDetails}
+        contributions={contributionsForDashboard}
         membersLoading={groupMembersQuery.isLoading}
         contributionsLoading={groupContributionsQuery.isLoading}
+        selectedYear={selectedContributionYear}
+        onYearChange={setSelectedContributionYear}
       />
 
       <GroupLoanDashboardModal
