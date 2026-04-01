@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useMyWithdrawalsQuery } from "@/hooks/finance/useMyWithdrawalsQuery";
+import { getContributionTypeLabel } from "@/lib/contributionPolicy";
 import {
   ArrowDownRight,
   Clock,
@@ -19,6 +20,9 @@ import {
 interface WithdrawalRequest {
   id: string;
   amount: number;
+  group_id: string | null;
+  group_name: string | null;
+  contribution_type: string | null;
   bank_name: string;
   account_number: string;
   account_name: string;
@@ -29,6 +33,8 @@ interface WithdrawalRequest {
   created_at: string;
   approved_at: string | null;
   completed_at: string | null;
+  payout_reference: string | null;
+  payout_gateway: string | null;
 }
 
 export default function WithdrawalHistory() {
@@ -40,6 +46,9 @@ export default function WithdrawalHistory() {
     (w: unknown) => ({
       id: String(w._id),
       amount: Number(w.amount || 0),
+      group_id: w.groupId ? String(w.groupId) : null,
+      group_name: w.groupName ? String(w.groupName) : null,
+      contribution_type: w.contributionType ? String(w.contributionType) : null,
       bank_name: String(w.bankName),
       account_number: String(w.accountNumber),
       account_name: String(w.accountName),
@@ -50,6 +59,8 @@ export default function WithdrawalHistory() {
       created_at: String(w.createdAt || ""),
       approved_at: w.approvedAt ? String(w.approvedAt) : null,
       completed_at: w.completedAt ? String(w.completedAt) : null,
+      payout_reference: w.payoutReference ? String(w.payoutReference) : null,
+      payout_gateway: w.payoutGateway ? String(w.payoutGateway) : null,
     }),
   );
 
@@ -279,6 +290,19 @@ export default function WithdrawalHistory() {
                             {withdrawal.bank_name} - {withdrawal.account_number}
                           </span>
                         </div>
+                        {(withdrawal.contribution_type || withdrawal.group_name) && (
+                          <p className="mt-1 text-gray-500 text-sm">
+                            Contribution:{" "}
+                            {withdrawal.contribution_type
+                              ? getContributionTypeLabel(
+                                  withdrawal.contribution_type,
+                                )
+                              : "Contribution"}{" "}
+                            {withdrawal.group_name
+                              ? `· ${withdrawal.group_name}`
+                              : ""}
+                          </p>
+                        )}
                         <div className="flex items-center gap-2 mt-1 text-gray-500 text-sm">
                           <Calendar className="w-4 h-4" />
                           <span>{formatDate(withdrawal.created_at)}</span>
@@ -300,6 +324,15 @@ export default function WithdrawalHistory() {
                       {withdrawal.completed_at && (
                         <p className="mt-2 text-gray-500 text-xs">
                           Completed: {formatDate(withdrawal.completed_at)}
+                        </p>
+                      )}
+                      {withdrawal.payout_reference && (
+                        <p className="mt-1 text-gray-500 text-xs">
+                          Payout:{" "}
+                          {withdrawal.payout_gateway
+                            ? withdrawal.payout_gateway.toUpperCase()
+                            : "Gateway"}{" "}
+                          · {withdrawal.payout_reference}
                         </p>
                       )}
                     </div>

@@ -9,6 +9,7 @@ import { useNotificationPreferencesQuery } from "@/hooks/profile/useNotification
 import { useUpdateNotificationPreferencesMutation } from "@/hooks/profile/useUpdateNotificationPreferencesMutation";
 import { useContributionSettingsQuery } from "@/hooks/profile/useContributionSettingsQuery";
 import { useUpdateContributionSettingsMutation } from "@/hooks/profile/useUpdateContributionSettingsMutation";
+import type { PlannedContributionType } from "@/lib/contributionSettings";
 import { useTwoFactorStatusQuery } from "@/hooks/auth/useTwoFactorStatusQuery";
 import { useTwoFactorSetupMutation } from "@/hooks/auth/useTwoFactorSetupMutation";
 import { useEnableTwoFactorMutation } from "@/hooks/auth/useEnableTwoFactorMutation";
@@ -56,9 +57,16 @@ const SettingsContent: React.FC = () => {
     otpauthUrl?: string | null;
     qrCodeDataUrl?: string | null;
   } | null>(null);
-  const [contributionUnits, setContributionUnits] = useState("");
-  const [contributionUnitsError, setContributionUnitsError] =
-    useState<string | null>(null);
+  const [contributionUnits, setContributionUnits] = useState<
+    Record<PlannedContributionType, string>
+  >({
+    revolving: "",
+    endwell: "",
+    festive: "",
+  });
+  const [contributionUnitsError, setContributionUnitsError] = useState<
+    Partial<Record<PlannedContributionType, string>>
+  >({});
 
   const notificationPreferencesQuery = useNotificationPreferencesQuery();
   const updateNotificationPreferencesMutation =
@@ -87,8 +95,16 @@ const SettingsContent: React.FC = () => {
   useEffect(() => {
     if (!contributionSettingsQuery.data) return;
     const units = contributionSettingsQuery.data.units;
-    setContributionUnits(units ? String(units) : "");
-    setContributionUnitsError(null);
+    const formatUnits = (value?: number | null) =>
+      typeof value === "number" && Number.isFinite(value) && value > 0
+        ? String(value)
+        : "";
+    setContributionUnits({
+      revolving: formatUnits(units?.revolving ?? null),
+      endwell: formatUnits(units?.endwell ?? null),
+      festive: formatUnits(units?.festive ?? null),
+    });
+    setContributionUnitsError({});
   }, [contributionSettingsQuery.data]);
 
   if (loading) {
@@ -120,7 +136,11 @@ const SettingsContent: React.FC = () => {
   const contributionSettings =
     contributionSettingsQuery.data ?? {
       year: currentYear,
-      units: null,
+      units: {
+        revolving: null,
+        endwell: null,
+        festive: null,
+      },
       updatedAt: null,
       canEdit: true,
       window: { startMonth: 1, endMonth: 2 },
@@ -148,13 +168,32 @@ const SettingsContent: React.FC = () => {
   };
 
   const handleSaveContributionSettings = async () => {
-    const unitsValue = Number(contributionUnits);
-    if (!Number.isFinite(unitsValue)) {
-      setContributionUnitsError("Enter a valid number of units.");
-      return;
-    }
-    if (unitsValue < 5 || unitsValue % 5 !== 0) {
-      setContributionUnitsError("Units must be at least 5 and in multiples of 5.");
+    const nextErrors: Partial<Record<PlannedContributionType, string>> = {};
+    const payloadUnits: Partial<Record<PlannedContributionType, number | null>> =
+      {};
+
+    (["revolving", "endwell", "festive"] as PlannedContributionType[]).forEach(
+      (key) => {
+        const raw = contributionUnits[key];
+        if (!raw || !raw.trim()) {
+          payloadUnits[key] = null;
+          return;
+        }
+        const value = Number(raw);
+        if (!Number.isFinite(value)) {
+          nextErrors[key] = "Enter a valid number of units.";
+          return;
+        }
+        if (value < 5 || value % 5 !== 0) {
+          nextErrors[key] = "Units must be at least 5 and in multiples of 5.";
+          return;
+        }
+        payloadUnits[key] = value;
+      },
+    );
+
+    if (Object.keys(nextErrors).length > 0) {
+      setContributionUnitsError(nextErrors);
       return;
     }
     if (!contributionSettings.canEdit) {
@@ -169,10 +208,10 @@ const SettingsContent: React.FC = () => {
 
     try {
       await updateContributionSettingsMutation.mutateAsync({
-        units: unitsValue,
+        units: payloadUnits,
         year: contributionSettings.year,
       });
-      setContributionUnitsError(null);
+      setContributionUnitsError({});
       toast({
         title: "Contribution Settings Saved",
         description: `Your ${contributionSettings.year} contribution plan has been updated.`,
@@ -322,6 +361,28 @@ const SettingsContent: React.FC = () => {
     { id: "security" as const, label: "Security", icon: Shield },
   ];
 
+  const plannedUnitFields: Array<{
+    key: PlannedContributionType;
+    label: string;
+    helper: string;
+  }> = [
+    {
+      key: "revolving",
+      label: "Revolving Units",
+      helper: "Minimum 5 units, in multiples of 5.",
+    },
+    {
+      key: "endwell",
+      label: "Endwell Units",
+      helper: "Minimum 5 units, in multiples of 5.",
+    },
+    {
+      key: "festive",
+      label: "Festive Units",
+      helper: "Minimum 5 units, in multiples of 5.",
+    },
+  ];
+
   return (
     <div className="bg-gray-50 min-h-screen">
       <DashboardHeader />
@@ -384,36 +445,50 @@ const SettingsContent: React.FC = () => {
                 Contribution Settings
               </h3>
               <p className="text-gray-500 text-sm">
-                Set your planned monthly contribution units for {contributionSettings.year}.
-                Updates are expected within January and February.
+                Set your planned monthly contribution units for {contributionSettings.year} across
+                revolving, endwell, and festive contributions. Updates are expected within
+                January and February.
               </p>
 
               <div className="gap-6 grid md:grid-cols-2 mt-6">
-                <div>
-                  <Label htmlFor="contribution-units">Planned Units</Label>
-                  <Input
-                    id="contribution-units"
-                    type="number"
-                    min={5}
-                    step={5}
-                    value={contributionUnits}
-                    onChange={(event) => {
-                      setContributionUnits(event.target.value);
-                      setContributionUnitsError(null);
-                    }}
-                    disabled={contributionSettingsLoading || !contributionSettings.canEdit}
-                    className="mt-2"
-                    placeholder="e.g. 10"
-                  />
-                  <p className="mt-2 text-xs text-gray-500">
-                    Minimum 5 units, in multiples of 5.
-                  </p>
-                  {contributionUnitsError && (
-                    <p className="mt-2 text-xs text-rose-600">
-                      {contributionUnitsError}
+                {plannedUnitFields.map((field) => (
+                  <div key={field.key}>
+                    <Label htmlFor={`contribution-units-${field.key}`}>
+                      {field.label}
+                    </Label>
+                    <Input
+                      id={`contribution-units-${field.key}`}
+                      type="number"
+                      min={5}
+                      step={5}
+                      value={contributionUnits[field.key]}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setContributionUnits((prev) => ({
+                          ...prev,
+                          [field.key]: value,
+                        }));
+                        setContributionUnitsError((prev) => ({
+                          ...prev,
+                          [field.key]: undefined,
+                        }));
+                      }}
+                      disabled={
+                        contributionSettingsLoading || !contributionSettings.canEdit
+                      }
+                      className="mt-2"
+                      placeholder="e.g. 10"
+                    />
+                    <p className="mt-2 text-xs text-gray-500">
+                      {field.helper}
                     </p>
-                  )}
-                </div>
+                    {contributionUnitsError[field.key] && (
+                      <p className="mt-2 text-xs text-rose-600">
+                        {contributionUnitsError[field.key]}
+                      </p>
+                    )}
+                  </div>
+                ))}
 
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
                   <p className="text-xs uppercase tracking-wide text-gray-500">

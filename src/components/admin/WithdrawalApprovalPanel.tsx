@@ -12,6 +12,7 @@ import {
   useMarkWithdrawalProcessingMutation,
   useRejectWithdrawalMutation,
 } from "@/hooks/finance/useWithdrawalAdminMutations";
+import { getContributionTypeLabel } from "@/lib/contributionPolicy";
 import {
   ArrowDownRight,
   CheckCircle,
@@ -32,6 +33,9 @@ interface WithdrawalRequest {
   id: string;
   user_id: string;
   amount: number;
+  group_id: string | null;
+  group_name: string | null;
+  contribution_type: string | null;
   bank_name: string;
   account_number: string;
   account_name: string;
@@ -42,6 +46,8 @@ interface WithdrawalRequest {
   created_at: string;
   approved_at: string | null;
   completed_at: string | null;
+  payout_reference: string | null;
+  payout_gateway: string | null;
 }
 
 export default function WithdrawalApprovalPanel() {
@@ -55,6 +61,9 @@ export default function WithdrawalApprovalPanel() {
     useState<WithdrawalRequest | null>(null);
   const [adminNotes, setAdminNotes] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
+  const [completionTarget, setCompletionTarget] =
+    useState<WithdrawalRequest | null>(null);
+  const [payoutReference, setPayoutReference] = useState("");
 
   const withdrawalsQuery = useWithdrawalsAdminQuery({
     status: filter === "all" ? undefined : filter,
@@ -69,6 +78,9 @@ export default function WithdrawalApprovalPanel() {
       id: String(w._id),
       user_id: String(w.userId),
       amount: Number(w.amount || 0),
+      group_id: w.groupId ? String(w.groupId) : null,
+      group_name: w.groupName ? String(w.groupName) : null,
+      contribution_type: w.contributionType ? String(w.contributionType) : null,
       bank_name: String(w.bankName),
       account_number: String(w.accountNumber),
       account_name: String(w.accountName),
@@ -79,6 +91,8 @@ export default function WithdrawalApprovalPanel() {
       created_at: String(w.createdAt || ""),
       approved_at: w.approvedAt ? String(w.approvedAt) : null,
       completed_at: w.completedAt ? String(w.completedAt) : null,
+      payout_reference: w.payoutReference ? String(w.payoutReference) : null,
+      payout_gateway: w.payoutGateway ? String(w.payoutGateway) : null,
     }));
 
     setWithdrawals(data);
@@ -155,7 +169,8 @@ export default function WithdrawalApprovalPanel() {
     try {
       await completeMutation.mutateAsync({
         id: withdrawal.id,
-        gateway: "manual",
+        reference: payoutReference || undefined,
+        gateway: "paystack",
       });
 
       toast({
@@ -164,11 +179,35 @@ export default function WithdrawalApprovalPanel() {
       });
 
       await withdrawalsQuery.refetch();
+      setCompletionTarget(null);
+      setPayoutReference("");
     } catch (error: unknown) {
       toast({
         title: "Error",
         description:
           (error as Error).message || "Failed to complete withdrawal",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+  const handleMarkProcessing = async (withdrawal: WithdrawalRequest) => {
+    setProcessingId(withdrawal.id);
+    try {
+      await markProcessingMutation.mutateAsync(withdrawal.id);
+      toast({
+        title: "Marked as Processing",
+        description: "Withdrawal status updated to processing.",
+      });
+      await withdrawalsQuery.refetch();
+    } catch (error: unknown) {
+      toast({
+        title: "Error",
+        description:
+          (error as Error).message ||
+          "Failed to mark withdrawal as processing",
         variant: "destructive",
       });
     } finally {
@@ -371,6 +410,20 @@ export default function WithdrawalApprovalPanel() {
                             {withdrawal.bank_name} - {withdrawal.account_number}
                           </span>
                         </div>
+                        {(withdrawal.contribution_type ||
+                          withdrawal.group_name) && (
+                          <p className="mt-1 text-gray-500 text-sm">
+                            Contribution:{" "}
+                            {withdrawal.contribution_type
+                              ? getContributionTypeLabel(
+                                  withdrawal.contribution_type,
+                                )
+                              : "Contribution"}{" "}
+                            {withdrawal.group_name
+                              ? `· ${withdrawal.group_name}`
+                              : ""}
+                          </p>
+                        )}
                         <div className="flex items-center gap-2 mt-1 text-gray-500 text-sm">
                           <Calendar className="w-4 h-4" />
                           <span>{formatDate(withdrawal.created_at)}</span>
@@ -389,6 +442,15 @@ export default function WithdrawalApprovalPanel() {
                       <div className="mt-2">
                         {getStatusBadge(withdrawal.status)}
                       </div>
+                      {withdrawal.payout_reference && (
+                        <p className="mt-1 text-gray-500 text-xs">
+                          Payout:{" "}
+                          {withdrawal.payout_gateway
+                            ? withdrawal.payout_gateway.toUpperCase()
+                            : "Gateway"}{" "}
+                          · {withdrawal.payout_reference}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -401,7 +463,7 @@ export default function WithdrawalApprovalPanel() {
                         onClick={() => setSelectedWithdrawal(withdrawal)}
                       >
                         <CheckCircle className="mr-1 w-4 h-4" />
-                        Review
+                        Review & Verify
                       </Button>
                     </div>
                   )}
@@ -410,16 +472,45 @@ export default function WithdrawalApprovalPanel() {
                     <div className="flex gap-2 mt-4 pt-4 border-t">
                       <Button
                         size="sm"
-                        className="bg-purple-600 hover:bg-purple-700"
-                        onClick={() => handleMarkComplete(withdrawal)}
+                        variant="outline"
+                        onClick={() => handleMarkProcessing(withdrawal)}
                         disabled={processingId === withdrawal.id}
                       >
                         {processingId === withdrawal.id ? (
                           <Loader2 className="mr-1 w-4 h-4 animate-spin" />
                         ) : (
-                          <Send className="mr-1 w-4 h-4" />
+                          <Clock className="mr-1 w-4 h-4" />
                         )}
-                        Mark as Completed
+                        Mark Processing
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-purple-600 hover:bg-purple-700"
+                        onClick={() => {
+                          setCompletionTarget(withdrawal);
+                          setPayoutReference("");
+                        }}
+                        disabled={processingId === withdrawal.id}
+                      >
+                        <Send className="mr-1 w-4 h-4" />
+                        Complete Payout
+                      </Button>
+                    </div>
+                  )}
+
+                  {withdrawal.status === "processing" && (
+                    <div className="flex gap-2 mt-4 pt-4 border-t">
+                      <Button
+                        size="sm"
+                        className="bg-purple-600 hover:bg-purple-700"
+                        onClick={() => {
+                          setCompletionTarget(withdrawal);
+                          setPayoutReference("");
+                        }}
+                        disabled={processingId === withdrawal.id}
+                      >
+                        <Send className="mr-1 w-4 h-4" />
+                        Complete Payout
                       </Button>
                     </div>
                   )}
@@ -448,6 +539,20 @@ export default function WithdrawalApprovalPanel() {
                       {selectedWithdrawal.bank_name} -{" "}
                       {selectedWithdrawal.account_number}
                     </p>
+                    {(selectedWithdrawal.contribution_type ||
+                      selectedWithdrawal.group_name) && (
+                      <p className="text-gray-500 text-sm">
+                        Contribution:{" "}
+                        {selectedWithdrawal.contribution_type
+                          ? getContributionTypeLabel(
+                              selectedWithdrawal.contribution_type,
+                            )
+                          : "Contribution"}{" "}
+                        {selectedWithdrawal.group_name
+                          ? `· ${selectedWithdrawal.group_name}`
+                          : ""}
+                      </p>
+                    )}
                   </div>
                   <p className="font-bold text-xl">
                     ₦{selectedWithdrawal.amount.toLocaleString()}
@@ -516,7 +621,77 @@ export default function WithdrawalApprovalPanel() {
                   ) : (
                     <CheckCircle className="mr-1 w-4 h-4" />
                   )}
-                  Approve
+                  Verify & Approve
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Complete Payout Modal */}
+      {completionTarget && (
+        <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/50 p-4">
+          <Card className="w-full max-w-lg">
+            <CardHeader>
+              <CardTitle>Complete Withdrawal Payout</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="font-medium">{completionTarget.account_name}</p>
+                    <p className="text-gray-500 text-sm">
+                      {completionTarget.bank_name} -{" "}
+                      {completionTarget.account_number}
+                    </p>
+                  </div>
+                  <p className="font-bold text-xl">
+                    â‚¦{completionTarget.amount.toLocaleString()}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded-lg text-blue-700 text-sm">
+                This payout will be sent from the Paystack balance to the bank
+                account provided by the member.
+              </div>
+
+              <div>
+                <label className="font-medium text-gray-700 text-sm">
+                  Paystack Transfer Reference (Optional)
+                </label>
+                <Input
+                  placeholder="e.g., PTSK_TRF_123456"
+                  value={payoutReference}
+                  onChange={(e) => setPayoutReference(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setCompletionTarget(null);
+                    setPayoutReference("");
+                  }}
+                  disabled={processingId === completionTarget.id}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-purple-600 hover:bg-purple-700"
+                  onClick={() => handleMarkComplete(completionTarget)}
+                  disabled={processingId === completionTarget.id}
+                >
+                  {processingId === completionTarget.id ? (
+                    <Loader2 className="mr-1 w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="mr-1 w-4 h-4" />
+                  )}
+                  Complete Payout
                 </Button>
               </div>
             </CardContent>

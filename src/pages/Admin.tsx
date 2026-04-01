@@ -7,7 +7,6 @@ import {
   BarChart3,
   Calendar,
   Bell,
-  Settings,
   LogOut,
   Menu,
   X,
@@ -71,7 +70,6 @@ import { useSendAdminBulkSmsMutation } from "@/hooks/admin/useSendAdminBulkSmsMu
 import { useGroupMembersQuery } from "@/hooks/groups/useGroupMembersQuery";
 import { useGroupMeetingsQuery } from "@/hooks/groups/useGroupMeetingsQuery";
 import { useGroupContributionsQuery } from "@/hooks/groups/useGroupContributionsQuery";
-import { useGroupLoansQuery } from "@/hooks/groups/useGroupLoansQuery";
 import { useGroupMemberCandidatesQuery } from "@/hooks/groups/useGroupMemberCandidatesQuery";
 import { useAddGroupMembersMutation } from "@/hooks/groups/useAddGroupMembersMutation";
 import { useArchiveGroupMutation } from "@/hooks/groups/useArchiveGroupMutation";
@@ -90,10 +88,6 @@ import GroupFilters from "@/components/groups/GroupFilters";
 import CreateGroupModal, {
   GroupFormData,
 } from "@/components/groups/CreateGroupModal";
-import GroupDetailsModal, {
-  Member,
-  Loan,
-} from "@/components/groups/GroupDetailsModal";
 import GroupManagementPanel from "@/components/groups/GroupManagementPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import type { AdminGroupRow } from "@/lib/admin";
@@ -111,216 +105,62 @@ type Applicant = {
   status: ApplicantStatus;
 };
 
-const sampleApplicants: Applicant[] = [
-  {
-    id: "1",
-    name: "Adebayo Johnson",
-    email: "adebayo.j@email.com",
-    phone: "08012345678",
-    groupName: "Sunshine Champions",
-    applicationDate: "2025-12-20",
-    status: "pending",
-  },
-  {
-    id: "2",
-    name: "Chioma Okafor",
-    email: "chioma.o@email.com",
-    phone: "08023456789",
-    groupName: "Golden Champions",
-    applicationDate: "2025-12-21",
-    status: "pending",
-  },
-  {
-    id: "3",
-    name: "Emeka Nwosu",
-    email: "emeka.n@email.com",
-    phone: "08034567890",
-    groupName: "Amazing Grace Champions",
-    applicationDate: "2025-12-22",
-    status: "pending",
-  },
-  {
-    id: "4",
-    name: "Fatima Ibrahim",
-    email: "fatima.i@email.com",
-    phone: "08045678901",
-    groupName: "Victorious Champions",
-    applicationDate: "2025-12-23",
-    status: "pending",
-  },
-  {
-    id: "5",
-    name: "Grace Adeyemi",
-    email: "grace.a@email.com",
-    phone: "08056789012",
-    groupName: "Great Champions",
-    applicationDate: "2025-12-24",
-    status: "pending",
-  },
-];
-
-const sampleContributions = [
-  {
-    id: "1",
-    memberName: "Ruth Adedeji",
-    groupName: "Sunshine Champions",
-    expectedAmount: 50000,
-    paidAmount: 50000,
-    dueDate: "2025-12-25",
-    status: "paid" as const,
-    monthsDefaulted: 0,
-  },
-  {
-    id: "2",
-    memberName: "Adekunle Tawakalitu",
-    groupName: "Golden Champions",
-    expectedAmount: 50000,
-    paidAmount: 25000,
-    dueDate: "2025-12-25",
-    status: "partial" as const,
-    monthsDefaulted: 0,
-  },
-  {
-    id: "3",
-    memberName: "Adeleke Risikat",
-    groupName: "Amazing Grace Champions",
-    expectedAmount: 50000,
-    paidAmount: 0,
-    dueDate: "2025-12-20",
-    status: "defaulted" as const,
-    monthsDefaulted: 2,
-  },
-  {
-    id: "4",
-    memberName: "Funmilayo Akinade",
-    groupName: "Victorious Champions",
-    expectedAmount: 50000,
-    paidAmount: 50000,
-    dueDate: "2025-12-25",
-    status: "paid" as const,
-    monthsDefaulted: 0,
-  },
-  {
-    id: "5",
-    memberName: "Rebecca Akintonde",
-    groupName: "Great Champions",
-    expectedAmount: 50000,
-    paidAmount: 0,
-    dueDate: "2025-12-25",
-    status: "pending" as const,
-    monthsDefaulted: 0,
-  },
-  {
-    id: "6",
-    memberName: "Kehinde Babarinlo",
-    groupName: "Classic Champions",
-    expectedAmount: 50000,
-    paidAmount: 0,
-    dueDate: "2025-11-15",
-    status: "defaulted" as const,
-    monthsDefaulted: 3,
-  },
-  {
-    id: "7",
-    memberName: "Nike Bamigbola",
-    groupName: "Champions for God",
-    expectedAmount: 50000,
-    paidAmount: 50000,
-    dueDate: "2025-12-25",
-    status: "paid" as const,
-    monthsDefaulted: 0,
-  },
-  {
-    id: "8",
-    memberName: "Aderoju Fanifosi",
-    groupName: "Fulfilling Champions",
-    expectedAmount: 50000,
-    paidAmount: 50000,
-    dueDate: "2025-12-25",
-    status: "paid" as const,
-    monthsDefaulted: 0,
-  },
-];
-
 // Define LoanApplication type with all possible statuses
 type LoanApplicationStatus =
   | "pending"
   | "under_review"
   | "approved"
-  | "rejected";
+  | "rejected"
+  | "disbursed";
 type LoanApplication = {
   id: string;
   applicantName: string;
   applicantEmail: string;
+  applicantPhone?: string;
   groupName: string;
+  loanCode?: string | null;
+  loanNumber?: number | null;
+  loanType?: string | null;
   loanAmount: number;
   loanPurpose: string;
+  purposeDescription?: string | null;
   repaymentPeriod: number;
+  interestRate?: number | null;
+  interestRateType?: "annual" | "monthly" | "total" | null;
+  approvedAmount?: number | null;
+  approvedInterestRate?: number | null;
+  approvedAt?: string | null;
+  disbursedAt?: string | null;
+  repaymentStartDate?: string | null;
+  monthlyPayment?: number | null;
+  totalRepayable?: number | null;
+  remainingBalance?: number | null;
   monthlyIncome: number;
   guarantorName: string;
   guarantorPhone: string;
+  guarantors?: Array<{
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+    relationship?: string | null;
+    occupation?: string | null;
+    address?: string | null;
+    memberSince?: string | null;
+    savingsBalance?: number | null;
+    liabilityPercentage?: number | null;
+    type?: string | null;
+  }>;
+  documents?: Array<{
+    name: string;
+    type: string;
+    size: number;
+    status: string;
+    url?: string | null;
+  }>;
   status: LoanApplicationStatus;
   createdAt: string;
+  reviewNotes?: string;
 };
-
-const sampleLoanApplications: LoanApplication[] = [
-  {
-    id: "1",
-    applicantName: "Adedoyin Gbadeyan",
-    applicantEmail: "lizecrown4real84@gmail.com",
-    groupName: "Dominion Champions",
-    loanAmount: 500000,
-    loanPurpose: "Business Expansion",
-    repaymentPeriod: 12,
-    monthlyIncome: 150000,
-    guarantorName: "Folasade Hassan",
-    guarantorPhone: "08035770132",
-    status: "pending",
-    createdAt: "2025-12-20",
-  },
-  {
-    id: "2",
-    applicantName: "Fausat Jimoh",
-    applicantEmail: "jimohfausat2000@gmail.com",
-    groupName: "Excellent Champions",
-    loanAmount: 300000,
-    loanPurpose: "Education",
-    repaymentPeriod: 6,
-    monthlyIncome: 120000,
-    guarantorName: "Oluyemi Kehinde",
-    guarantorPhone: "07031191572",
-    status: "under_review",
-    createdAt: "2025-12-18",
-  },
-  {
-    id: "3",
-    applicantName: "James Olukayode Maboreje",
-    applicantEmail: "logjameskay@gmail.com",
-    groupName: "Able God Champions",
-    loanAmount: 750000,
-    loanPurpose: "Home Renovation",
-    repaymentPeriod: 18,
-    monthlyIncome: 200000,
-    guarantorName: "Michael Oluranti",
-    guarantorPhone: "08025672379",
-    status: "pending",
-    createdAt: "2025-12-22",
-  },
-  {
-    id: "4",
-    applicantName: "Oluwaseun Oladele",
-    applicantEmail: "oladeleoluwaseunajoke@gmail.com",
-    groupName: "TolaTops Champions",
-    loanAmount: 200000,
-    loanPurpose: "Medical Emergency",
-    repaymentPeriod: 6,
-    monthlyIncome: 100000,
-    guarantorName: "Olanrewaju Adebola",
-    guarantorPhone: "07039362614",
-    status: "approved",
-    createdAt: "2025-12-15",
-  },
-];
 
 export default function Admin() {
   const navigate = useNavigate();
@@ -363,7 +203,6 @@ export default function Admin() {
   >(null);
   const [showCreateGroupModal, setShowCreateGroupModal] = useState(false);
   const [showEditGroupModal, setShowEditGroupModal] = useState(false);
-  const [showGroupDetailsModal, setShowGroupDetailsModal] = useState(false);
   const [showGroupSettingsPanel, setShowGroupSettingsPanel] = useState(false);
   const [showAddMembersModal, setShowAddMembersModal] = useState(false);
   const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
@@ -371,15 +210,28 @@ export default function Admin() {
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
 
-  const memberApprovalsQuery = useMemberApprovalsQuery({ status: "pending" });
+  const isAdminAuthorized =
+    user?.role === "admin" ||
+    user?.role === "groupCoordinator" ||
+    user?.role === "group_coordinator";
+  const isCoordinator =
+    user?.role === "groupCoordinator" || user?.role === "group_coordinator";
+
+  const memberApprovalsQuery = useMemberApprovalsQuery(
+    { status: "pending" },
+    isCoordinator,
+  );
   const approveMemberMutation = useApproveMemberApprovalMutation();
   const rejectMemberMutation = useRejectMemberApprovalMutation();
 
   const now = new Date();
-  const trackerQuery = useContributionTrackerQuery({
-    year: now.getFullYear(),
-    month: now.getMonth() + 1,
-  });
+  const trackerQuery = useContributionTrackerQuery(
+    {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+    },
+    isCoordinator,
+  );
   const markPaidMutation = useMarkContributionPaidMutation();
 
   const adminGroupsQuery = useAdminGroupsQuery({
@@ -411,14 +263,10 @@ export default function Admin() {
   );
   const coordinatorPageValue = coordinatorMeta?.page ?? coordinatorPage;
   const contributionTypeTotalsYtd = groupSummary?.contributionTypeTotalsYtd;
-  const isAdminAuthorized =
-    user?.role === "admin" ||
-    user?.role === "groupCoordinator" ||
-    user?.role === "group_coordinator";
   const canAssignCoordinator = user?.role === "admin";
   const canDeleteGroup = user?.role === "admin";
   const activeGroupId = groupActionTarget?._id;
-  const groupModalOpen = showGroupDetailsModal || showGroupSettingsPanel;
+  const groupModalOpen = showGroupSettingsPanel;
   const coordinatorTargetId = coordinatorActionTarget?._id;
 
   const groupMembersQuery = useGroupMembersQuery(
@@ -433,10 +281,6 @@ export default function Admin() {
     groupModalOpen ? activeGroupId : undefined,
   );
   const groupContributionsQuery = useGroupContributionsQuery(
-    groupModalOpen ? activeGroupId : undefined,
-    now.getFullYear(),
-  );
-  const groupLoansQuery = useGroupLoansQuery(
     groupModalOpen ? activeGroupId : undefined,
   );
 
@@ -496,13 +340,9 @@ export default function Admin() {
               ? profile.fullName
               : "Member",
           email:
-            profile && typeof profile.email === "string"
-              ? profile.email
-              : null,
+            profile && typeof profile.email === "string" ? profile.email : null,
           phone:
-            profile && typeof profile.phone === "string"
-              ? profile.phone
-              : null,
+            profile && typeof profile.phone === "string" ? profile.phone : null,
           avatarUrl:
             profile &&
             typeof profile.avatar === "object" &&
@@ -570,35 +410,6 @@ export default function Admin() {
     }
   }, [coordinatorMeta?.total, coordinatorPage, coordinatorPageSize]);
 
-  const selectedGroupDetails = useMemo(() => {
-    if (!groupActionTarget) return null;
-    return {
-      id: groupActionTarget._id,
-      name: groupActionTarget.groupName,
-      description: groupActionTarget.description || "",
-      location: groupActionTarget.location || "Nigeria",
-      memberCount:
-        groupActionTarget.activeMemberCount ??
-        groupActionTarget.memberCount ??
-        0,
-      maxMembers: groupActionTarget.maxMembers,
-      monthlyContribution: Number(groupActionTarget.monthlyContribution || 0),
-      totalSavings: Number(groupActionTarget.totalSavings || 0),
-      category: groupActionTarget.category || "General",
-      image:
-        groupActionTarget.imageUrl ||
-        "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766668648245_79b3ca67.png",
-      isOpen:
-        typeof groupActionTarget.isOpen === "boolean"
-          ? groupActionTarget.isOpen
-          : true,
-      createdAt: groupActionTarget.createdAt
-        ? String(groupActionTarget.createdAt).slice(0, 10)
-        : new Date().toISOString().slice(0, 10),
-      rules: groupActionTarget.rules || undefined,
-    };
-  }, [groupActionTarget]);
-
   const groupManagementSummary = useMemo(() => {
     if (!groupActionTarget) return null;
     return {
@@ -636,48 +447,6 @@ export default function Admin() {
     };
   }, [groupActionTarget]);
 
-  const membersForDetails = useMemo(() => {
-    const raw = groupMembersQuery.data ?? [];
-    if (raw.length === 0) return [];
-
-    return raw.map((m) => {
-      const userObj =
-        typeof m.userId === "object" && m.userId
-          ? (m.userId as Record<string, unknown>)
-          : null;
-      const fullName =
-        userObj && typeof userObj.fullName === "string"
-          ? userObj.fullName
-          : "Member";
-      const avatarObj =
-        userObj && typeof userObj.avatar === "object" && userObj.avatar
-          ? (userObj.avatar as Record<string, unknown>)
-          : null;
-      const avatarUrl =
-        avatarObj && typeof avatarObj.url === "string"
-          ? avatarObj.url
-          : "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png";
-
-      const role = (() => {
-        if (m.role === "coordinator") return "admin";
-        if (m.role === "treasurer") return "treasurer";
-        if (m.role === "secretary") return "secretary";
-        return "member";
-      })();
-
-      return {
-        id: m._id,
-        name: fullName,
-        avatar: avatarUrl,
-        role,
-        joinedDate: m.joinedAt
-          ? String(m.joinedAt).slice(0, 10)
-          : new Date().toISOString().slice(0, 10),
-        totalContributed: m.totalContributed ?? 0,
-      };
-    });
-  }, [groupMembersQuery.data]);
-
   const membersForTracker = useMemo(() => {
     const raw = groupMembersQuery.data ?? [];
     if (raw.length === 0) return [];
@@ -708,7 +477,19 @@ export default function Admin() {
           ? avatarObj.url
           : "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png";
 
-      return { id, name, avatar };
+      const contributionSettings =
+        userObj && typeof userObj.contributionSettings === "object"
+          ? (userObj.contributionSettings as Record<string, unknown>)
+          : null;
+
+      return {
+        id,
+        name,
+        avatar,
+        memberSerial:
+          typeof m.memberSerial === "string" ? m.memberSerial : null,
+        contributionSettings,
+      };
     });
   }, [groupMembersQuery.data]);
 
@@ -771,51 +552,13 @@ export default function Admin() {
             ? c.userId
             : "unknown";
 
-      const month = `${c.year}-${String(c.month).padStart(2, "0")}`;
-      const status =
-        c.status === "overdue"
-          ? "overdue"
-          : c.status === "pending"
-            ? "pending"
-            : "paid";
-
       return {
         memberId,
-        month,
-        amount: c.amount,
-        status: status as "paid" | "pending" | "overdue",
-        paidDate:
-          c.status === "pending" || c.status === "overdue"
-            ? undefined
-            : c.updatedAt || c.createdAt,
-      };
-    });
-  }, [groupContributionsQuery.data]);
-
-  const contributionsForDetails = useMemo(() => {
-    const raw = groupContributionsQuery.data ?? [];
-    if (raw.length === 0) return [];
-
-    return raw.map((c) => {
-      const userObj =
-        typeof c.userId === "object" && c.userId
-          ? (c.userId as Record<string, unknown>)
-          : null;
-      const memberId =
-        userObj &&
-        (typeof userObj._id === "string" || typeof userObj.id === "string")
-          ? String((userObj._id || userObj.id) as string)
-          : typeof c.userId === "string"
-            ? c.userId
-            : "";
-
-      return {
-        memberId,
-        month: c.month,
-        year: c.year,
+        month: Number(c.month),
+        year: Number(c.year),
         amount: Number(c.amount ?? 0),
         status: c.status,
-        contributionType: c.contributionType,
+        contributionType: c.contributionType ?? null,
         paidDate:
           c.status === "pending" || c.status === "overdue"
             ? undefined
@@ -824,28 +567,7 @@ export default function Admin() {
     });
   }, [groupContributionsQuery.data]);
 
-  const loansForDetails: Loan[] = useMemo(() => {
-    const raw = groupLoansQuery.data ?? [];
-    if (raw.length === 0) return [];
-
-    return raw.map((loan) => ({
-      id: loan._id,
-      loanCode: loan.loanCode ?? null,
-      loanAmount: Number(loan.loanAmount ?? 0),
-      approvedAmount:
-        loan.approvedAmount === null || loan.approvedAmount === undefined
-          ? null
-          : Number(loan.approvedAmount),
-      remainingBalance:
-        loan.remainingBalance === null || loan.remainingBalance === undefined
-          ? null
-          : Number(loan.remainingBalance),
-      status: loan.status || "unknown",
-      createdAt: loan.createdAt,
-      disbursedAt: loan.disbursedAt ?? null,
-      updatedAt: loan.updatedAt,
-    }));
-  }, [groupLoansQuery.data]);
+  // Group management panel consumes tracker-specific contributions; no details modal needed here.
 
   const periodEndMonthShort = groupSummary
     ? new Date(
@@ -862,7 +584,10 @@ export default function Admin() {
 
   const applicants = memberApprovalsQuery.data ?? [];
   const contributions = trackerQuery.data ?? [];
-  const adminLoanAppsQuery = useAdminLoanApplicationsQuery({ status: "all" });
+  const adminLoanAppsQuery = useAdminLoanApplicationsQuery(
+    { status: "all" },
+    isCoordinator,
+  );
   const reviewAdminLoanMutation = useReviewAdminLoanApplicationMutation();
   const disburseAdminLoanMutation = useDisburseAdminLoanApplicationMutation();
   const loanApplications = adminLoanAppsQuery.data ?? [];
@@ -900,17 +625,30 @@ export default function Admin() {
         id: a._id,
         applicantName: a.applicant?.fullName || "Applicant",
         applicantEmail: a.applicant?.email || "",
+        applicantPhone: a.applicant?.phone || "",
         groupName: a.groupName || "—",
+        loanCode: a.loanCode ?? null,
+        loanNumber: a.loanNumber ?? null,
         loanAmount: Number(a.loanAmount || 0),
         loanPurpose: String(a.loanPurpose || ""),
+        purposeDescription: a.purposeDescription ?? "",
         loanType: a.loanType ?? null,
         repaymentPeriod: Number(a.repaymentPeriod || 0),
         interestRate: a.interestRate ?? null,
         interestRateType: a.interestRateType ?? null,
+        approvedAmount: a.approvedAmount ?? null,
         approvedInterestRate: a.approvedInterestRate ?? null,
+        approvedAt: a.approvedAt ?? null,
+        disbursedAt: a.disbursedAt ?? null,
+        repaymentStartDate: a.repaymentStartDate ?? null,
+        monthlyPayment: a.monthlyPayment ?? null,
+        totalRepayable: a.totalRepayable ?? null,
+        remainingBalance: a.remainingBalance ?? null,
         monthlyIncome: Number(a.monthlyIncome || 0),
         guarantorName: guarantor?.name || "—",
         guarantorPhone: guarantor?.phone || "—",
+        guarantors: Array.isArray(a.guarantors) ? a.guarantors : [],
+        documents: Array.isArray(a.documents) ? a.documents : [],
         status: a.status as LoanApplicationStatus,
         createdAt: a.createdAt,
         reviewNotes: a.reviewNotes ?? undefined,
@@ -977,8 +715,8 @@ export default function Admin() {
     return `₦${Math.round(n).toLocaleString()}`;
   };
 
-  const menuItems = useMemo(
-    () => [
+  const menuItems = useMemo(() => {
+    const items = [
       { id: "overview", label: "Overview", icon: LayoutDashboard },
       {
         id: "approvals",
@@ -1005,9 +743,24 @@ export default function Admin() {
       { id: "coordinators", label: "Group Coordinators", icon: Users },
       { id: "announcements", label: "Announcements", icon: Bell },
       { id: "sms", label: "SMS Center", icon: MessageSquare },
-    ],
-    [stats.pendingApprovals, stats.defaulters, stats.pendingLoans],
-  );
+    ];
+
+    const coordinatorOnly = new Set([
+      "approvals",
+      "contributions",
+      "loans",
+      "withdrawals",
+    ]);
+
+    return isCoordinator
+      ? items
+      : items.filter((item) => !coordinatorOnly.has(item.id));
+  }, [
+    stats.pendingApprovals,
+    stats.defaulters,
+    stats.pendingLoans,
+    isCoordinator,
+  ]);
 
   const activeTab = menuItems.some((item) => item.id === tab)
     ? (tab as string)
@@ -1056,13 +809,6 @@ export default function Admin() {
           : "Failed to reject member.";
       toast({ title: "Error", description: message, variant: "destructive" });
     }
-  };
-
-  const handleSendReminder = (id: string) => {
-    toast({
-      title: "Reminder Sent",
-      description: "Payment reminder has been sent to the member.",
-    });
   };
 
   const handleMarkPaid = async (id: string) => {
@@ -1268,11 +1014,6 @@ export default function Admin() {
     } finally {
       setIsSending(false);
     }
-  };
-
-  const handleOpenGroupDetails = (group: AdminGroupRow) => {
-    setGroupActionTarget(group);
-    setShowGroupDetailsModal(true);
   };
 
   const handleOpenGroupSettings = (group: AdminGroupRow) => {
@@ -1491,9 +1232,7 @@ export default function Admin() {
       });
       const conflicts = result.conflicts ?? 0;
       const conflictNote =
-        conflicts > 0
-          ? ` (${conflicts} already in another group)`
-          : "";
+        conflicts > 0 ? ` (${conflicts} already in another group)` : "";
       toast({
         title: "Members Added",
         description: `${result.added} added, ${result.skipped} skipped${conflictNote}, ${result.missing} missing.`,
@@ -1678,34 +1417,49 @@ export default function Admin() {
         <div className="p-6">
           {activeTab === "overview" && (
             <div className="space-y-6">
-              <AdminStats stats={stats} />
-              <div className="gap-6 grid grid-cols-1 lg:grid-cols-2">
-                <MemberApprovalPanel
-                  applicants={applicants}
-                  onApprove={handleApprove}
-                  onReject={handleReject}
-                />
+              <AdminStats
+                stats={stats}
+                visibleCards={
+                  isCoordinator ? undefined : ["totalMembers", "attendanceRate"]
+                }
+              />
+              <div
+                className={`gap-6 grid grid-cols-1 ${
+                  isCoordinator ? "lg:grid-cols-2" : ""
+                }`}
+              >
+                {isCoordinator && (
+                  <MemberApprovalPanel
+                    applicants={applicants}
+                    onApprove={handleApprove}
+                    onReject={handleReject}
+                  />
+                )}
                 <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
                   <h3 className="mb-4 font-semibold text-gray-900 text-lg">
                     Quick Actions
                   </h3>
                   <div className="gap-3 grid grid-cols-2">
-                    <Button
-                      variant="outline"
-                      className="flex-col gap-2 h-20"
-                      onClick={() => navigate("/admin/contributions")}
-                    >
-                      <AlertTriangle className="w-6 h-6 text-red-500" />
-                      <span className="text-sm">View Defaulters</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      className="flex-col gap-2 h-20"
-                      onClick={() => navigate("/admin/loans")}
-                    >
-                      <CreditCard className="w-6 h-6 text-blue-500" />
-                      <span className="text-sm">Review Loans</span>
-                    </Button>
+                    {isCoordinator && (
+                      <Button
+                        variant="outline"
+                        className="flex-col gap-2 h-20"
+                        onClick={() => navigate("/admin/contributions")}
+                      >
+                        <AlertTriangle className="w-6 h-6 text-red-500" />
+                        <span className="text-sm">View Defaulters</span>
+                      </Button>
+                    )}
+                    {isCoordinator && (
+                      <Button
+                        variant="outline"
+                        className="flex-col gap-2 h-20"
+                        onClick={() => navigate("/admin/loans")}
+                      >
+                        <CreditCard className="w-6 h-6 text-blue-500" />
+                        <span className="text-sm">Review Loans</span>
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       className="flex-col gap-2 h-20"
@@ -1728,7 +1482,7 @@ export default function Admin() {
             </div>
           )}
 
-          {activeTab === "approvals" && (
+          {activeTab === "approvals" && isCoordinator && (
             <MemberApprovalPanel
               applicants={applicants}
               onApprove={handleApprove}
@@ -1736,15 +1490,16 @@ export default function Admin() {
             />
           )}
 
-          {activeTab === "contributions" && (
+          {activeTab === "contributions" && isCoordinator && (
             <ContributionTracker
               contributions={contributions}
-              onSendReminder={handleSendReminder}
               onMarkPaid={handleMarkPaid}
+              year={now.getFullYear()}
+              month={now.getMonth() + 1}
             />
           )}
 
-          {activeTab === "loans" && (
+          {activeTab === "loans" && isCoordinator && (
             <LoanReviewPanel
               applications={loanApplicationsForPanel}
               onApprove={handleLoanApprove}
@@ -1985,14 +1740,6 @@ export default function Admin() {
                                     Add Members
                                   </DropdownMenuItem>
                                   <DropdownMenuItem
-                                    onClick={() =>
-                                      handleOpenGroupDetails(group)
-                                    }
-                                  >
-                                    <Eye className="mr-2 w-4 h-4" />
-                                    View Details
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem
                                     onClick={() => handleOpenEditGroup(group)}
                                   >
                                     <Pencil className="mr-2 w-4 h-4" />
@@ -2003,8 +1750,8 @@ export default function Admin() {
                                       handleOpenGroupSettings(group)
                                     }
                                   >
-                                    <Settings className="mr-2 w-4 h-4" />
-                                    Settings
+                                    <Eye className="mr-2 w-4 h-4" />
+                                    View Details
                                   </DropdownMenuItem>
                                   {canDeleteGroup && (
                                     <DropdownMenuItem
@@ -2385,7 +2132,9 @@ export default function Admin() {
             </div>
           )}
 
-          {activeTab === "withdrawals" && <WithdrawalApprovalPanel />}
+          {activeTab === "withdrawals" && isCoordinator && (
+            <WithdrawalApprovalPanel />
+          )}
 
           {activeTab === "sms" && (
             <div className="space-y-6">
@@ -2680,24 +2429,6 @@ export default function Admin() {
         onSubmit={handleUpdateGroup}
         mode="edit"
         initialValues={editGroupDefaults}
-      />
-
-      {/* Group Details Modal */}
-      <GroupDetailsModal
-        isOpen={showGroupDetailsModal}
-        onClose={() => setShowGroupDetailsModal(false)}
-        group={selectedGroupDetails}
-        members={membersForDetails as unknown as Member[]}
-        meetings={meetingsForDetails}
-        contributions={contributionsForDetails}
-        loans={loansForDetails}
-        membersLoading={groupMembersQuery.isLoading}
-        meetingsLoading={groupMeetingsQuery.isLoading}
-        contributionsLoading={groupContributionsQuery.isLoading}
-        loansLoading={groupLoansQuery.isLoading}
-        isMember
-        onJoinRequest={() => {}}
-        onOpenChat={() => {}}
       />
 
       {/* Group Management Panel */}

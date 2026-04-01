@@ -5,7 +5,7 @@ export function useCreateWithdrawalMutation() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async (input: { amount: number; bankAccountId: string; reason?: string | null }) =>
+    mutationFn: async (input: Parameters<typeof createWithdrawalRequest>[0]) =>
       createWithdrawalRequest(input),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["withdrawals", "me"] });
@@ -13,4 +13,3 @@ export function useCreateWithdrawalMutation() {
     },
   });
 }
-

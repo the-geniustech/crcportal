@@ -38,6 +38,8 @@ export type BackendGroupMembership = {
   status: string;
   joinedAt: string;
   totalContributed: number;
+  memberNumber?: number | null;
+  memberSerial?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -171,6 +173,8 @@ export type BackendGroupMember = {
   status: string;
   joinedAt: string;
   totalContributed: number;
+  memberNumber?: number | null;
+  memberSerial?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -441,8 +445,55 @@ export type BackendGroupVote = {
   yesVotes: number;
   noVotes: number;
   totalVoters?: number;
+  myChoice?: "yes" | "no" | null;
+  myVote?: {
+    choice: "yes" | "no";
+    respondedAt?: string | null;
+  } | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type BackendGroupVoteResponse = {
+  _id: string;
+  groupId: string;
+  voteId: string;
+  userId: string;
+  choice: "yes" | "no";
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type BackendGroupVoteParticipant = {
+  userId: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  avatarUrl?: string | null;
+  memberSerial?: string | null;
+  role?: string | null;
+  status: "voted" | "pending";
+  choice?: "yes" | "no" | null;
+  respondedAt?: string | null;
+};
+
+export type BackendVoteNotificationChannel = {
+  requested: boolean;
+  attempted: number;
+  sent: number;
+  failed: number;
+  skipped: number;
+};
+
+export type BackendVoteNotificationResult = {
+  totalRecipients: number;
+  target?: "pending" | "all";
+  channels?: {
+    email?: BackendVoteNotificationChannel;
+    sms?: BackendVoteNotificationChannel;
+    notification?: BackendVoteNotificationChannel;
+  };
+  failures?: Array<{ channel: string; to?: string; error?: string }>;
 };
 
 export async function listGroupVotes(
@@ -472,6 +523,82 @@ export async function createGroupVote(
   try {
     const res = await api.post(`/groups/${groupId}/votes`, payload);
     return res.data?.data?.vote as BackendGroupVote;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function respondToGroupVote(
+  groupId: string,
+  voteId: string,
+  payload: { choice: "yes" | "no" },
+): Promise<{ vote: BackendGroupVote; response: BackendGroupVoteResponse }> {
+  try {
+    const res = await api.post(
+      `/groups/${groupId}/votes/${voteId}/respond`,
+      payload,
+    );
+    return (res.data?.data ?? {}) as {
+      vote: BackendGroupVote;
+      response: BackendGroupVoteResponse;
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function deleteGroupVote(
+  groupId: string,
+  voteId: string,
+): Promise<{ voteId: string }> {
+  try {
+    const res = await api.delete(`/groups/${groupId}/votes/${voteId}`);
+    return (res.data?.data ?? {}) as { voteId: string };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function listGroupVoteParticipants(
+  groupId: string,
+  voteId: string,
+): Promise<{
+  vote: BackendGroupVote;
+  participants: BackendGroupVoteParticipant[];
+  totalMembers: number;
+  votedCount: number;
+  pendingCount: number;
+}> {
+  try {
+    const res = await api.get(`/groups/${groupId}/votes/${voteId}/participants`);
+    return (res.data?.data ?? {}) as {
+      vote: BackendGroupVote;
+      participants: BackendGroupVoteParticipant[];
+      totalMembers: number;
+      votedCount: number;
+      pendingCount: number;
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function notifyGroupVoteMembers(
+  groupId: string,
+  voteId: string,
+  payload: {
+    sendEmail?: boolean;
+    sendSMS?: boolean;
+    sendNotification?: boolean;
+    target?: "pending" | "all";
+  },
+): Promise<BackendVoteNotificationResult> {
+  try {
+    const res = await api.post(
+      `/groups/${groupId}/votes/${voteId}/notify`,
+      payload,
+    );
+    return (res.data?.data ?? {}) as BackendVoteNotificationResult;
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
@@ -564,7 +691,7 @@ export async function getGroupContributionTargets(
 
 export async function downloadGroupContributionLedgerPdf(
   groupId: string,
-  params: { year?: number; contributionType?: string } = {},
+  params: { year?: number; contributionType?: string; interestType?: string } = {},
 ): Promise<Blob> {
   try {
     const res = await api.get(`/groups/${groupId}/contributions/ledger`, {

@@ -1,4 +1,19 @@
-import { Users, CreditCard, AlertTriangle, CheckCircle, TrendingUp, Calendar } from 'lucide-react';
+import {
+  Users,
+  CreditCard,
+  AlertTriangle,
+  CheckCircle,
+  TrendingUp,
+  Calendar,
+} from "lucide-react";
+
+type AdminStatKey =
+  | "totalMembers"
+  | "pendingApprovals"
+  | "activeLoans"
+  | "totalContributions"
+  | "defaulters"
+  | "attendanceRate";
 
 interface AdminStatsProps {
   stats: {
@@ -11,57 +26,69 @@ interface AdminStatsProps {
     upcomingMeetings: number;
     attendanceRate: number;
   };
+  visibleCards?: AdminStatKey[];
 }
 
-export default function AdminStats({ stats }: AdminStatsProps) {
+export default function AdminStats({ stats, visibleCards }: AdminStatsProps) {
   const statCards = [
     {
-      title: 'Total Members',
+      id: "totalMembers",
+      title: "Total Members",
       value: stats.totalMembers.toLocaleString(),
       icon: Users,
-      color: 'bg-blue-500',
-      change: '+12 this month'
+      color: "bg-blue-500",
+      change: "+12 this month",
     },
     {
-      title: 'Pending Approvals',
+      id: "pendingApprovals",
+      title: "Pending Approvals",
       value: stats.pendingApprovals,
       icon: CheckCircle,
-      color: 'bg-amber-500',
-      change: 'Requires attention'
+      color: "bg-amber-500",
+      change: "Requires attention",
     },
     {
-      title: 'Active Loans',
+      id: "activeLoans",
+      title: "Active Loans",
       value: stats.activeLoans,
       icon: CreditCard,
-      color: 'bg-emerald-500',
-      change: `${stats.pendingLoans} pending review`
+      color: "bg-emerald-500",
+      change: `${stats.pendingLoans} pending review`,
     },
     {
-      title: 'Total Contributions',
+      id: "totalContributions",
+      title: "Total Contributions",
       value: `₦${(stats.totalContributions / 1000000).toFixed(1)}M`,
       icon: TrendingUp,
-      color: 'bg-purple-500',
-      change: '+8.2% this month'
+      color: "bg-purple-500",
+      change: "+8.2% this month",
     },
     {
-      title: 'Defaulters',
+      id: "defaulters",
+      title: "Defaulters",
       value: stats.defaulters,
       icon: AlertTriangle,
-      color: 'bg-red-500',
-      change: 'Action required'
+      color: "bg-red-500",
+      change: "Action required",
     },
     {
-      title: 'Attendance Rate',
+      id: "attendanceRate",
+      title: "Attendance Rate",
       value: `${stats.attendanceRate}%`,
       icon: Calendar,
-      color: 'bg-cyan-500',
-      change: `${stats.upcomingMeetings} meetings scheduled`
-    }
+      color: "bg-cyan-500",
+      change: `${stats.upcomingMeetings} meetings scheduled`,
+    },
   ];
+
+  const visibleSet = visibleCards ? new Set(visibleCards) : null;
+  const visibleStats = visibleSet
+    ? statCards.filter((stat) => visibleSet.has(stat.id as AdminStatKey))
+    : statCards;
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-      {statCards.map((stat, index) => (
+      {visibleStats.map((stat, index) => (
         <div
           key={index}
           className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow"

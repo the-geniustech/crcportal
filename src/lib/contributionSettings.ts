@@ -5,9 +5,16 @@ export type ContributionSettingsWindow = {
   endMonth: number;
 };
 
+export type PlannedContributionType = "revolving" | "endwell" | "festive";
+
+export type ContributionSettingsUnits = Record<
+  PlannedContributionType,
+  number | null
+>;
+
 export type ContributionSettings = {
   year: number;
-  units: number | null;
+  units: ContributionSettingsUnits;
   updatedAt?: string | null;
   canEdit: boolean;
   window: ContributionSettingsWindow;
@@ -23,7 +30,7 @@ export async function getContributionSettings() {
 }
 
 export async function updateContributionSettings(payload: {
-  units: number;
+  units: Partial<ContributionSettingsUnits>;
   year?: number;
 }) {
   try {

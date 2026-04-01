@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Download,
   Search,
+  SlidersHorizontal,
   TrendingUp,
   Users,
   X,
@@ -18,14 +19,15 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useGroupContributionTargetsQuery } from "@/hooks/groups/useGroupContributionTargetsQuery";
+import { useContributionSettingsQuery } from "@/hooks/profile/useContributionSettingsQuery";
 import {
   ContributionTypeConfig,
   ContributionTypeOptions,
   CONTRIBUTION_INTEREST_PER_UNIT,
+  CONTRIBUTION_UNIT_BASE,
   calculateContributionInterest,
   calculateContributionInterestForType,
   calculateContributionUnits,
-  isContributionInterestEligible,
   normalizeContributionType,
   type ContributionTypeCanonical,
 } from "@/lib/contributionPolicy";
@@ -36,7 +38,13 @@ interface GroupMember {
   name: string;
   avatar: string;
   totalContributed: number;
-  contributionUnits?: number | null;
+  memberSerial?: string | null;
+  memberNumber?: number | null;
+  contributionUnitsByType?: {
+    revolving?: number | null;
+    endwell?: number | null;
+    festive?: number | null;
+  } | null;
 }
 
 interface GroupContribution {
@@ -98,7 +106,7 @@ const INTEREST_META = {
   value: "interest",
   label: "Interest Earned",
   description:
-    "Interest accrued at NGN 35 per NGN 1,000 from revolving contributions.",
+    "Interest accrued at NGN 35 per NGN 1,000 across contribution types.",
 } as const;
 
 const DASHBOARD_TYPES: Array<{
@@ -136,6 +144,8 @@ const GroupContributionDashboardModal: React.FC<
   const { toast } = useToast();
   const [selectedType, setSelectedType] =
     useState<DashboardContributionType>("revolving");
+  const [selectedInterestType, setSelectedInterestType] =
+    useState<ContributionTypeCanonical>("revolving");
   const [searchQuery, setSearchQuery] = useState("");
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [isExportingCsv, setIsExportingCsv] = useState(false);
@@ -143,6 +153,7 @@ const GroupContributionDashboardModal: React.FC<
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth() + 1;
   const targetsQuery = useGroupContributionTargetsQuery(group?.id);
+  const contributionSettingsQuery = useContributionSettingsQuery();
   const targets = targetsQuery.data?.monthlyTargets ?? null;
   const unitAmounts = targetsQuery.data?.unitAmounts ?? null;
 
@@ -154,6 +165,10 @@ const GroupContributionDashboardModal: React.FC<
           contribution.contributionType,
         );
         const resolvedType = normalizedType || "revolving";
+        const computedInterest = calculateContributionInterestForType(
+          contribution.contributionType,
+          amount,
+        );
         return {
           memberId: contribution.memberId,
           month: Number(contribution.month),
@@ -164,15 +179,10 @@ const GroupContributionDashboardModal: React.FC<
               ? contribution.units
               : calculateContributionUnits(amount),
           interestAmount:
-            typeof contribution.interestAmount === "number"
+            typeof contribution.interestAmount === "number" &&
+            contribution.interestAmount > 0
               ? contribution.interestAmount
-              : calculateContributionInterestForType(
-                  contribution.contributionType,
-                  amount,
-                ),
-          interestEligible: isContributionInterestEligible(
-            contribution.contributionType,
-          ),
+              : computedInterest,
           status: contribution.status,
           type: resolvedType,
         };
@@ -223,6 +233,7 @@ const GroupContributionDashboardModal: React.FC<
     if (!isOpen) {
       setSearchQuery("");
       setSelectedType("revolving");
+      setSelectedInterestType("revolving");
     }
   }, [isOpen]);
 
@@ -237,6 +248,8 @@ const GroupContributionDashboardModal: React.FC<
   const monthsToDate = selectedYear === currentYear ? currentMonth : 12;
   const totalMembers =
     members.length > 0 ? members.length : Number(group?.memberCount ?? 0);
+  const effectiveType: ContributionTypeCanonical =
+    selectedType === "interest" ? selectedInterestType : selectedType;
 
   const getExpectedMonthlyBase = (type: ContributionTypeCanonical) => {
     const target = targets?.[type];
@@ -248,34 +261,37 @@ const GroupContributionDashboardModal: React.FC<
     return ContributionTypeConfig[type]?.minAmount ?? 0;
   };
 
-  const getExpectedMonthly = (type: DashboardContributionType) => {
-    if (type === "interest") {
-      return calculateContributionInterest(getExpectedMonthlyBase("revolving"));
-    }
-    return getExpectedMonthlyBase(type);
-  };
-
-  const expectedMonthly = getExpectedMonthly(selectedType);
+  const expectedMonthlyBase = getExpectedMonthlyBase(effectiveType);
+  const expectedMonthly =
+    selectedType === "interest"
+      ? calculateContributionInterest(expectedMonthlyBase)
+      : expectedMonthlyBase;
+  const unitAmountForType =
+    unitAmounts?.[effectiveType] ??
+    ContributionTypeConfig[effectiveType]?.unitAmount ??
+    CONTRIBUTION_UNIT_BASE;
   const resolvedUnitAmount =
     selectedType === "interest"
       ? CONTRIBUTION_INTEREST_PER_UNIT
-      : (unitAmounts?.[selectedType] ??
-        ContributionTypeConfig[selectedType]?.unitAmount);
+      : unitAmountForType;
 
-  const resolveMemberUnits = (member: GroupMember) => {
+  const resolveMemberUnits = (
+    member: GroupMember,
+    type: ContributionTypeCanonical,
+  ) => {
     if (selectedYear !== currentYear) return null;
-    const raw = Number(member.contributionUnits ?? NaN);
+    if (!member.contributionUnitsByType) return null;
+    const raw = Number(member.contributionUnitsByType[type] ?? NaN);
     if (!Number.isFinite(raw) || raw <= 0) return null;
     return raw;
   };
 
-  const resolveMemberExpectedMonthly = (member: GroupMember) => {
-    const units = resolveMemberUnits(member);
-    if (
-      units &&
-      resolvedUnitAmount &&
-      (selectedType === "revolving" || selectedType === "interest")
-    ) {
+  const resolveMemberExpectedMonthly = (
+    member: GroupMember,
+    type: ContributionTypeCanonical,
+  ) => {
+    const units = resolveMemberUnits(member, type);
+    if (units && resolvedUnitAmount) {
       return units * resolvedUnitAmount;
     }
     return expectedMonthly;
@@ -286,13 +302,11 @@ const GroupContributionDashboardModal: React.FC<
       normalizedContributions.filter(
         (contribution) =>
           contribution.year === selectedYear &&
-          (selectedType === "interest"
-            ? contribution.interestEligible
-            : contribution.type === selectedType) &&
+          contribution.type === effectiveType &&
           contribution.month >= 1 &&
           contribution.month <= 12,
       ),
-    [normalizedContributions, selectedYear, selectedType],
+    [normalizedContributions, selectedYear, effectiveType],
   );
 
   const memberMonthMap = useMemo(() => {
@@ -340,8 +354,11 @@ const GroupContributionDashboardModal: React.FC<
       const ytdTotal = monthAmounts
         .slice(0, monthsToDate)
         .reduce((sum, month) => sum + month.amount, 0);
-      const units = resolveMemberUnits(member);
-      const expectedMonthlyForMember = resolveMemberExpectedMonthly(member);
+      const units = resolveMemberUnits(member, effectiveType);
+      const expectedMonthlyForMember = resolveMemberExpectedMonthly(
+        member,
+        effectiveType,
+      );
       const expectedYtd = expectedMonthlyForMember * monthsToDate;
       const arrears = Math.max(expectedYtd - ytdTotal, 0);
       return {
@@ -368,7 +385,10 @@ const GroupContributionDashboardModal: React.FC<
     if (!searchQuery) return allMemberRows;
     const query = searchQuery.toLowerCase();
     return allMemberRows.filter((row) =>
-      row.member.name.toLowerCase().includes(query),
+      row.member.name.toLowerCase().includes(query) ||
+      (row.member.memberSerial
+        ? row.member.memberSerial.toLowerCase().includes(query)
+        : false),
     );
   }, [allMemberRows, searchQuery]);
 
@@ -498,11 +518,32 @@ const GroupContributionDashboardModal: React.FC<
 
   const selectedTypeMeta =
     selectedType === "interest"
-      ? INTEREST_META
+      ? {
+          ...INTEREST_META,
+          label: `Interest Earned \u00b7 ${
+            ContributionTypeConfig[selectedInterestType]?.label ?? "Contribution"
+          }`,
+          description: `Interest accrued at NGN 35 per NGN 1,000 for ${
+            ContributionTypeConfig[selectedInterestType]?.label ?? "contributions"
+          }.`,
+        }
       : ContributionTypeConfig[selectedType];
   const isSummaryLoading =
     membersLoading || contributionsLoading || targetsQuery.isLoading;
+  const isSettingsLoading = contributionSettingsQuery.isLoading;
   const isTableLoading = membersLoading || contributionsLoading;
+  const settingsUnits = contributionSettingsQuery.data?.units ?? null;
+  const settingsYear = contributionSettingsQuery.data?.year ?? currentYear;
+  const formatUnitsLabel = (value: number | null | undefined) => {
+    if (isSettingsLoading) return "-";
+    const num = Number(value ?? NaN);
+    if (!Number.isFinite(num) || num <= 0) return "-";
+    return `${num} units`;
+  };
+  const settingsSummaryLabel =
+    settingsYear === selectedYear
+      ? `Planned units for ${settingsYear}`
+      : `Planned units (current year ${settingsYear})`;
 
   const csvEscape = (value: string | number) => {
     const raw = String(value ?? "");
@@ -519,6 +560,7 @@ const GroupContributionDashboardModal: React.FC<
     try {
       const headers = [
         "S/N",
+        "Member Serial",
         "Member Name",
         "Units",
         ...MONTHS.map((month) => month.label),
@@ -530,6 +572,7 @@ const GroupContributionDashboardModal: React.FC<
 
       const rows = visibleRows.map((row, index) => [
         index + 1,
+        row.member.memberSerial ?? "-",
         row.member.name,
         row.units ?? "-",
         ...row.monthAmounts.map((month) =>
@@ -543,6 +586,7 @@ const GroupContributionDashboardModal: React.FC<
 
       const totals = [
         "Totals",
+        "-",
         `${visibleRows.length} members`,
         tableTotals.unitsTotal > 0 ? tableTotals.unitsTotal : "-",
         ...tableTotals.monthTotals.map((total) =>
@@ -563,8 +607,12 @@ const GroupContributionDashboardModal: React.FC<
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       const safeName = group.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const typeLabel =
+        selectedType === "interest"
+          ? `interest-${selectedInterestType}`
+          : selectedType;
       link.href = url;
-      link.download = `contribution-ledger-${safeName}-${selectedType}-${selectedYear}.csv`;
+      link.download = `contribution-ledger-${safeName}-${typeLabel}-${selectedYear}.csv`;
       link.click();
       URL.revokeObjectURL(url);
     } finally {
@@ -579,12 +627,17 @@ const GroupContributionDashboardModal: React.FC<
       const blob = await downloadGroupContributionLedgerPdf(group.id, {
         year: selectedYear,
         contributionType: selectedType,
+        interestType: selectedType === "interest" ? selectedInterestType : undefined,
       });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       const safeName = group.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const typeLabel =
+        selectedType === "interest"
+          ? `interest-${selectedInterestType}`
+          : selectedType;
       link.href = url;
-      link.download = `contribution-ledger-${safeName}-${selectedType}-${selectedYear}.pdf`;
+      link.download = `contribution-ledger-${safeName}-${typeLabel}-${selectedYear}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -678,7 +731,27 @@ const GroupContributionDashboardModal: React.FC<
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-3 w-full max-w-lg">
+              <div className="flex flex-wrap items-center gap-3 w-full max-w-2xl">
+                {selectedType === "interest" && (
+                  <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-2 text-xs font-semibold text-gray-600">
+                    <span>Interest for</span>
+                    <select
+                      value={selectedInterestType}
+                      onChange={(event) =>
+                        setSelectedInterestType(
+                          event.target.value as ContributionTypeCanonical,
+                        )
+                      }
+                      className="bg-transparent focus:outline-none font-semibold text-gray-800"
+                    >
+                      {ContributionTypeOptions.map((type) => (
+                        <option key={type.value} value={type.value}>
+                          {type.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 <div className="relative w-full max-w-xs">
                   <Search className="top-1/2 left-3 absolute w-4 h-4 text-gray-400 -translate-y-1/2" />
                   <Input
@@ -719,7 +792,7 @@ const GroupContributionDashboardModal: React.FC<
               </div>
             </div>
 
-            <div className="gap-4 grid md:grid-cols-2 xl:grid-cols-4">
+            <div className="gap-4 grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
                 <div className="flex justify-between items-center">
                   <p className="text-gray-500 text-xs uppercase tracking-wide">
@@ -784,6 +857,37 @@ const GroupContributionDashboardModal: React.FC<
                 </p>
                 <p className="text-gray-500 text-xs">
                   {selectedTypeMeta?.description || "Expected monthly target"}
+                </p>
+              </div>
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
+                    Settings Summary
+                  </p>
+                  <SlidersHorizontal className="w-4 h-4 text-slate-500" />
+                </div>
+                <div className="space-y-1 mt-2 text-xs text-gray-500">
+                  <div className="flex justify-between">
+                    <span>Revolving</span>
+                    <span className="font-semibold text-gray-900">
+                      {formatUnitsLabel(settingsUnits?.revolving)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Endwell</span>
+                    <span className="font-semibold text-gray-900">
+                      {formatUnitsLabel(settingsUnits?.endwell)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Festival</span>
+                    <span className="font-semibold text-gray-900">
+                      {formatUnitsLabel(settingsUnits?.festive)}
+                    </span>
+                  </div>
+                </div>
+                <p className="mt-2 text-[11px] text-gray-400">
+                  {settingsSummaryLabel}
                 </p>
               </div>
             </div>
@@ -890,7 +994,7 @@ const GroupContributionDashboardModal: React.FC<
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[1400px] text-sm">
+                  <table className="w-full min-w-[1500px] text-sm">
                     <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
                       <tr>
                         <th className="px-4 py-3 font-semibold text-left">
@@ -898,6 +1002,9 @@ const GroupContributionDashboardModal: React.FC<
                         </th>
                         <th className="px-4 py-3 font-semibold text-left">
                           Member Name
+                        </th>
+                        <th className="px-4 py-3 font-semibold text-left">
+                          Serial
                         </th>
                         <th className="px-4 py-3 font-semibold text-left">
                           Units
@@ -945,6 +1052,9 @@ const GroupContributionDashboardModal: React.FC<
                               </span>
                             </div>
                           </td>
+                          <td className="px-4 py-3 text-gray-500 text-sm">
+                            {row.member.memberSerial ?? "-"}
+                          </td>
                           <td className="px-4 py-3 text-gray-600">
                             {row.units ?? "-"}
                           </td>
@@ -988,6 +1098,9 @@ const GroupContributionDashboardModal: React.FC<
                         </td>
                         <td className="px-4 py-3 font-semibold text-gray-700 text-sm">
                           {visibleRows.length} members
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 text-sm">
+                          -
                         </td>
                         <td className="px-4 py-3 text-gray-600 text-sm">
                           {tableTotals.unitsTotal > 0

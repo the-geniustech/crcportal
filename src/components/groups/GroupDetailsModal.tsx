@@ -25,7 +25,13 @@ export interface Member {
   role: "admin" | "treasurer" | "secretary" | "member";
   joinedDate: string;
   totalContributed: number;
-  contributionUnits?: number | null;
+  memberSerial?: string | null;
+  memberNumber?: number | null;
+  contributionUnitsByType?: {
+    revolving?: number | null;
+    endwell?: number | null;
+    festive?: number | null;
+  } | null;
 }
 
 export interface Contribution {
@@ -509,16 +515,21 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
                           className="rounded-full w-12 h-12 object-cover"
                         />
                         <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-gray-900">
-                              {member.name}
-                            </p>
-                            <RoleIcon
-                              className={`w-4 h-4 ${roleColors[member.role]}`}
-                            />
-                          </div>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-gray-900">
+                            {member.name}
+                          </p>
+                          <RoleIcon
+                            className={`w-4 h-4 ${roleColors[member.role]}`}
+                          />
+                        </div>
                           <p className="text-gray-500 text-sm capitalize">
                             {member.role}
+                            {member.memberSerial ? (
+                              <span className="ml-2 text-xs text-gray-400">
+                                Serial: {member.memberSerial}
+                              </span>
+                            ) : null}
                           </p>
                         </div>
                         <div className="text-right">

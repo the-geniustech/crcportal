@@ -129,6 +129,9 @@ export type BackendWithdrawalRequest = {
   userId: string;
   amount: number;
   bankAccountId?: string | null;
+  groupId?: string | null;
+  groupName?: string | null;
+  contributionType?: string | null;
   bankName: string;
   accountNumber: string;
   accountName: string;
@@ -138,6 +141,8 @@ export type BackendWithdrawalRequest = {
   rejectionReason?: string | null;
   approvedAt?: string | null;
   completedAt?: string | null;
+  payoutReference?: string | null;
+  payoutGateway?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -154,6 +159,8 @@ export async function listMyWithdrawals(): Promise<BackendWithdrawalRequest[]> {
 export async function createWithdrawalRequest(input: {
   amount: number;
   bankAccountId: string;
+  contributionType: string;
+  groupId?: string | null;
   reason?: string | null;
 }): Promise<BackendWithdrawalRequest> {
   try {

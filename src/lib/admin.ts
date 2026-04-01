@@ -61,6 +61,7 @@ export type AdminContributionTrackerRecord = {
   userId: string;
   groupId: string;
   memberName: string;
+  memberSerial?: string | null;
   groupName: string;
   expectedAmount: number;
   paidAmount: number;
@@ -76,6 +77,43 @@ export async function listContributionTracker(
     const res = await api.get("/admin/contributions/tracker", { params });
     return (res.data?.data?.contributions ??
       []) as AdminContributionTrackerRecord[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type ContributionReminderRecipient = {
+  userId: string;
+  groupId: string;
+};
+
+export type ContributionReminderResponse = {
+  totalRecipients: number;
+  channels: {
+    email: { requested: boolean; attempted: number; sent: number; failed: number; skipped: number };
+    sms: { requested: boolean; attempted: number; sent: number; failed: number; skipped: number };
+    notification: {
+      requested: boolean;
+      attempted: number;
+      sent: number;
+      failed: number;
+      skipped: number;
+    };
+  };
+  failures?: { channel: "email" | "sms" | "notification"; to?: string; error: string }[];
+};
+
+export async function sendContributionReminders(payload: {
+  year: number;
+  month: number;
+  recipients: ContributionReminderRecipient[];
+  sendEmail?: boolean;
+  sendSMS?: boolean;
+  sendNotification?: boolean;
+}): Promise<ContributionReminderResponse> {
+  try {
+    const res = await api.post("/admin/contributions/remind", payload);
+    return res.data?.data as ContributionReminderResponse;
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }

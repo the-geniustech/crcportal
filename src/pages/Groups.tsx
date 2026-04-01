@@ -5,11 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import GroupCard from "@/components/groups/GroupCard";
 import GroupFilters from "@/components/groups/GroupFilters";
-import GroupDetailsModal, {
-  Member,
-  Contribution,
-  Loan,
-} from "@/components/groups/GroupDetailsModal";
+import GroupManagementPanel from "@/components/groups/GroupManagementPanel";
 import GroupContributionDashboardModal from "@/components/groups/GroupContributionDashboardModal";
 import GroupLoanDashboardModal from "@/components/groups/GroupLoanDashboardModal";
 import GroupChat from "@/components/groups/GroupChat";
@@ -38,6 +34,56 @@ type GroupUI = {
   isOpen: boolean;
   createdAt: string;
   rules?: string;
+};
+
+type Member = {
+  id: string;
+  name: string;
+  avatar: string;
+  role?: string;
+  joinedDate?: string;
+  totalContributed?: number;
+  memberSerial?: string | null;
+  memberNumber?: number | null;
+  contributionUnitsByType?: {
+    revolving?: number | null;
+    endwell?: number | null;
+    festive?: number | null;
+  } | null;
+};
+
+type Contribution = {
+  memberId: string;
+  month: number;
+  year: number;
+  amount: number;
+  units?: number;
+  interestAmount?: number;
+  status: "pending" | "completed" | "verified" | "overdue";
+  contributionType?: string | null;
+  paidDate?: string;
+};
+
+type Loan = {
+  id: string;
+  loanCode?: string | null;
+  loanType?: string | null;
+  loanAmount: number;
+  groupName?: string | null;
+  borrowerName?: string | null;
+  borrowerEmail?: string | null;
+  borrowerPhone?: string | null;
+  approvedAmount?: number | null;
+  approvedInterestRate?: number | null;
+  interestRate?: number | null;
+  interestRateType?: "annual" | "monthly" | "total" | null;
+  totalRepayable?: number | null;
+  remainingBalance?: number | null;
+  repaymentToDate?: number | null;
+  status: string;
+  createdAt?: string;
+  disbursedAt?: string | null;
+  updatedAt?: string;
 };
 
 const sampleChatMessages = [
@@ -128,7 +174,7 @@ const GroupsContent: React.FC = () => {
   const [selectedLocation, setSelectedLocation] = useState("All Locations");
   const [sortBy, setSortBy] = useState("popular");
   const [selectedGroup, setSelectedGroup] = useState<GroupUI | null>(null);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showGroupPanel, setShowGroupPanel] = useState(false);
   const [showContributionDashboard, setShowContributionDashboard] =
     useState(false);
   const [showLoanDashboard, setShowLoanDashboard] = useState(false);
@@ -151,6 +197,63 @@ const GroupsContent: React.FC = () => {
     currentYear,
   );
   const groupLoansQuery = useGroupLoansQuery(selectedGroupId);
+
+  const groupManagementSummary = useMemo(() => {
+    if (!selectedGroup) return null;
+    return {
+      id: selectedGroup.id,
+      name: selectedGroup.name,
+      monthlyContribution: Number(selectedGroup.monthlyContribution || 0),
+      memberCount: Number(selectedGroup.memberCount || 0),
+      totalSavings: Number(selectedGroup.totalSavings || 0),
+    };
+  }, [selectedGroup]);
+
+  const membersForManagement = useMemo(() => {
+    const raw = groupMembersQuery.data ?? [];
+    if (raw.length === 0) return [];
+
+    return raw.map((m) => {
+      const userObj =
+        typeof m.userId === "object" && m.userId
+          ? (m.userId as Record<string, unknown>)
+          : null;
+
+      const id =
+        userObj &&
+        (typeof userObj._id === "string" || typeof userObj.id === "string")
+          ? String((userObj._id || userObj.id) as string)
+          : m._id;
+
+      const name =
+        userObj && typeof userObj.fullName === "string"
+          ? userObj.fullName
+          : "Member";
+
+      const avatarObj =
+        userObj && typeof userObj.avatar === "object" && userObj.avatar
+          ? (userObj.avatar as Record<string, unknown>)
+          : null;
+      const avatar =
+        avatarObj && typeof avatarObj.url === "string"
+          ? avatarObj.url
+          : "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png";
+
+      const contributionSettings =
+        userObj && typeof userObj.contributionSettings === "object"
+          ? (userObj.contributionSettings as Record<string, unknown>)
+          : null;
+
+      return {
+        id,
+        name,
+        avatar,
+        memberSerial:
+          typeof m.memberSerial === "string" ? m.memberSerial : null,
+        contributionSettings,
+      };
+    });
+  }, [groupMembersQuery.data]);
 
   const membersForDetails: Member[] = useMemo(() => {
     const raw = groupMembersQuery.data ?? [];
@@ -193,14 +296,31 @@ const GroupsContent: React.FC = () => {
           : typeof yearRaw === "string"
             ? Number(yearRaw)
             : null;
-      const units =
-        typeof unitsRaw === "number"
-          ? unitsRaw
-          : typeof unitsRaw === "string"
-            ? Number(unitsRaw)
-            : null;
       const isCurrentYearSetting =
         settingsYear === null ? true : settingsYear === currentYear;
+      const parseUnitsValue = (value: unknown) => {
+        const num =
+          typeof value === "number"
+            ? value
+            : typeof value === "string"
+              ? Number(value)
+              : null;
+        return Number.isFinite(num) ? Number(num) : null;
+      };
+      const unitsByType = {
+        revolving: null as number | null,
+        endwell: null as number | null,
+        festive: null as number | null,
+      };
+
+      if (typeof unitsRaw === "number" || typeof unitsRaw === "string") {
+        unitsByType.revolving = parseUnitsValue(unitsRaw);
+      } else if (unitsRaw && typeof unitsRaw === "object") {
+        const unitObj = unitsRaw as Record<string, unknown>;
+        unitsByType.revolving = parseUnitsValue(unitObj.revolving);
+        unitsByType.endwell = parseUnitsValue(unitObj.endwell);
+        unitsByType.festive = parseUnitsValue(unitObj.festive);
+      }
 
       const profileId =
         userObj &&
@@ -219,12 +339,11 @@ const GroupsContent: React.FC = () => {
           ? String(m.joinedAt).slice(0, 10)
           : new Date().toISOString().slice(0, 10),
         totalContributed: m.totalContributed ?? 0,
-        contributionUnits:
-          units !== null &&
-          Number.isFinite(units) &&
-          isCurrentYearSetting
-            ? Number(units)
-            : null,
+        memberSerial:
+          typeof m.memberSerial === "string" ? m.memberSerial : null,
+        memberNumber:
+          typeof m.memberNumber === "number" ? m.memberNumber : null,
+        contributionUnitsByType: isCurrentYearSetting ? unitsByType : null,
       };
     });
   }, [groupMembersQuery.data, currentYear]);
@@ -300,6 +419,38 @@ const GroupsContent: React.FC = () => {
           c.interestAmount === null || c.interestAmount === undefined
             ? undefined
             : Number(c.interestAmount),
+        status: c.status,
+        contributionType: c.contributionType,
+        paidDate:
+          c.status === "pending" || c.status === "overdue"
+            ? undefined
+            : c.updatedAt || c.createdAt,
+      };
+    });
+  }, [groupCurrentYearContributionsQuery.data]);
+
+  const contributionsForManagement = useMemo(() => {
+    const raw = groupCurrentYearContributionsQuery.data ?? [];
+    if (raw.length === 0) return [];
+
+    return raw.map((c) => {
+      const userObj =
+        typeof c.userId === "object" && c.userId
+          ? (c.userId as Record<string, unknown>)
+          : null;
+      const memberId =
+        userObj &&
+        (typeof userObj._id === "string" || typeof userObj.id === "string")
+          ? String((userObj._id || userObj.id) as string)
+          : typeof c.userId === "string"
+            ? c.userId
+            : "";
+
+      return {
+        memberId,
+        month: c.month,
+        year: c.year,
+        amount: Number(c.amount ?? 0),
         status: c.status,
         contributionType: c.contributionType,
         paidDate:
@@ -558,7 +709,7 @@ const GroupsContent: React.FC = () => {
     const group = groupsData.find((g) => g.id === groupId);
     if (group) {
       setSelectedGroup(group);
-      setShowDetailsModal(true);
+      setShowGroupPanel(true);
     }
   };
 
@@ -566,7 +717,7 @@ const GroupsContent: React.FC = () => {
     const group = groupsData.find((g) => g.id === groupId);
     if (group) {
       setSelectedGroup(group);
-      setShowDetailsModal(false);
+      setShowGroupPanel(false);
       setShowLoanDashboard(false);
       setShowContributionDashboard(true);
     }
@@ -576,7 +727,7 @@ const GroupsContent: React.FC = () => {
     const group = groupsData.find((g) => g.id === groupId);
     if (group) {
       setSelectedGroup(group);
-      setShowDetailsModal(false);
+      setShowGroupPanel(false);
       setShowContributionDashboard(false);
       setShowLoanDashboard(true);
     }
@@ -629,7 +780,7 @@ const GroupsContent: React.FC = () => {
   };
 
   const handleOpenChat = () => {
-    setShowDetailsModal(false);
+    setShowGroupPanel(false);
     setShowChat(true);
   };
 
@@ -672,7 +823,6 @@ const GroupsContent: React.FC = () => {
   const totalMembers = groupsData.reduce((acc, g) => acc + g.memberCount, 0);
   const totalSavings = groupsData.reduce((acc, g) => acc + g.totalSavings, 0);
   const myGroups = myGroupIdSet.size;
-  const selectedJoinBlockReason = getJoinBlockReason(selectedGroup);
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -807,28 +957,23 @@ const GroupsContent: React.FC = () => {
       </main>
 
       {/* Modals */}
-      <GroupDetailsModal
-        isOpen={showDetailsModal}
-        onClose={() => setShowDetailsModal(false)}
-        group={selectedGroup}
-        members={membersForDetails}
+      <GroupManagementPanel
+        open={showGroupPanel}
+        group={groupManagementSummary}
+        members={membersForManagement}
+        contributions={contributionsForManagement}
         meetings={meetingsForDetails}
-        contributions={contributionsForDetails}
-        loans={loansForDetails}
         membersLoading={groupMembersQuery.isLoading}
-        meetingsLoading={groupMeetingsQuery.isLoading}
         contributionsLoading={groupCurrentYearContributionsQuery.isLoading}
-        loansLoading={groupLoansQuery.isLoading}
-        isMember={selectedGroup ? myGroupIdSet.has(selectedGroup.id) : false}
-        joinDisabled={Boolean(selectedJoinBlockReason)}
-        joinDisabledReason={selectedJoinBlockReason || undefined}
-        onJoinRequest={() => {
-          if (selectedGroup) {
-            handleJoinRequest(selectedGroup.id);
-            setShowDetailsModal(false);
-          }
+        meetingsLoading={groupMeetingsQuery.isLoading}
+        onClose={() => setShowGroupPanel(false)}
+        onInviteMembers={() => {
+          toast({
+            title: "Invite not available",
+            description: "Only coordinators can invite new members.",
+            variant: "destructive",
+          });
         }}
-        onOpenChat={handleOpenChat}
       />
 
       <GroupChat

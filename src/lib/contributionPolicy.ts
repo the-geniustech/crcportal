@@ -44,8 +44,8 @@ export const ContributionTypeConfig: Record<
   special: {
     label: "Special Contribution",
     description:
-      "Flexible savings with NGN 1,000 per unit. Minimum NGN 5,000 per contribution.",
-    minAmount: 5_000,
+      "Flexible savings with NGN 1,000 per unit. Minimum NGN 1,000,000 per contribution.",
+    minAmount: 1_000_000,
     unitAmount: 1_000,
     stepAmount: 5_000,
   },
@@ -142,19 +142,13 @@ export function calculateContributionInterest(amount: number) {
 }
 
 export function isContributionInterestEligible(value?: string | null) {
-  const normalized = normalizeContributionType(value);
-  if (normalized) return normalized === "revolving";
-  if (value === null || typeof value === "undefined") return true;
-  const raw = String(value || "").trim();
-  if (!raw) return true;
-  return false;
+  return true;
 }
 
 export function calculateContributionInterestForType(
   value: string | null | undefined,
   amount: number,
 ) {
-  if (!isContributionInterestEligible(value)) return 0;
   return calculateContributionInterest(amount);
 }
 

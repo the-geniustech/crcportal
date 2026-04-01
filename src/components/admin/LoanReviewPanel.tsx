@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import {
   CreditCard,
   Clock,
@@ -7,9 +7,17 @@ import {
   Eye,
   FileText,
   User,
+  Download,
+  Printer,
+  Calendar,
+  Mail,
+  Phone,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import {
   Dialog,
@@ -25,24 +33,64 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
 import { calculateLoanSummary } from "@/lib/loanMath";
 import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
+import {
+  downloadAdminLoanApplicationPdf,
+  emailAdminLoanApplicationPdf,
+} from "@/lib/adminLoans";
+
+interface LoanDocument {
+  name: string;
+  type: string;
+  size: number;
+  status: string;
+  url?: string | null;
+}
+
+interface LoanGuarantor {
+  type: "member" | "external";
+  profileId?: string | null;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  relationship?: string | null;
+  occupation?: string | null;
+  address?: string | null;
+  memberSince?: string | null;
+  savingsBalance?: number | null;
+  liabilityPercentage?: number | null;
+}
 
 interface LoanApplication {
   id: string;
   applicantName: string;
   applicantEmail: string;
+  applicantPhone?: string;
   groupName: string;
+  loanCode?: string | null;
+  loanNumber?: number | null;
   loanType?: string | null;
   loanAmount: number;
   loanPurpose: string;
+  purposeDescription?: string | null;
   repaymentPeriod: number;
   interestRate?: number | null;
   interestRateType?: "annual" | "monthly" | "total" | null;
+  approvedAmount?: number | null;
   approvedInterestRate?: number | null;
+  approvedAt?: string | null;
+  disbursedAt?: string | null;
+  repaymentStartDate?: string | null;
+  monthlyPayment?: number | null;
+  totalRepayable?: number | null;
+  remainingBalance?: number | null;
   monthlyIncome: number;
   guarantorName: string;
   guarantorPhone: string;
+  guarantors?: LoanGuarantor[];
+  documents?: LoanDocument[];
   status: "pending" | "under_review" | "approved" | "rejected" | "disbursed";
   createdAt: string;
   reviewNotes?: string;
@@ -67,6 +115,7 @@ export default function LoanReviewPanel({
   onStartReview,
   onDisburse,
 }: LoanReviewPanelProps) {
+  const { toast } = useToast();
   const [selectedLoan, setSelectedLoan] = useState<LoanApplication | null>(
     null,
   );
@@ -80,6 +129,14 @@ export default function LoanReviewPanel({
   const [statusFilter, setStatusFilter] = useState("all");
   const [repaymentStartDate, setRepaymentStartDate] = useState("");
   const [approvedRateInput, setApprovedRateInput] = useState("");
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isPrintingPdf, setIsPrintingPdf] = useState(false);
+  const [isEmailingPdf, setIsEmailingPdf] = useState(false);
+  const [recipientOptions, setRecipientOptions] = useState({
+    sendApplicant: true,
+    sendGuarantors: true,
+    extraEmails: "",
+  });
 
   const pendingCount = applications.filter(
     (a) => a.status === "pending",
@@ -157,15 +214,26 @@ export default function LoanReviewPanel({
   };
 
   const selectedRateInfo = selectedLoan ? resolveRateInfo(selectedLoan) : null;
-  const selectedMonthlyPayment =
+  const selectedPrincipal = selectedLoan
+    ? Number(selectedLoan.approvedAmount ?? selectedLoan.loanAmount ?? 0)
+    : 0;
+  const selectedLoanSummary =
     selectedLoan && selectedRateInfo
       ? calculateLoanSummary({
-          principal: selectedLoan.loanAmount,
+          principal: selectedPrincipal,
           rate: selectedRateInfo.rate,
           rateType: selectedRateInfo.rateType,
           months: selectedLoan.repaymentPeriod,
-        }).monthlyPayment
-      : 0;
+        })
+      : null;
+  const selectedMonthlyPayment =
+    selectedLoan?.monthlyPayment ??
+    selectedLoanSummary?.monthlyPayment ??
+    0;
+  const selectedTotalRepayable =
+    selectedLoan?.totalRepayable ??
+    selectedLoanSummary?.totalPayment ??
+    selectedPrincipal;
   const selectedInterestLabel = selectedRateInfo
     ? formatInterestLabel(
         selectedRateInfo.rate,
@@ -174,23 +242,103 @@ export default function LoanReviewPanel({
       )
     : "";
 
-  const calculateMonthlyPayment = (
-    amount: number,
-    months: number,
-    rate: number,
-    rateType: "annual" | "monthly" | "total",
-  ) => {
-    return calculateLoanSummary({
-      principal: amount,
-      rate,
-      rateType,
-      months,
-    }).monthlyPayment;
+  const formatCurrency = (value?: number | null) => {
+    const safeValue = Number.isFinite(Number(value)) ? Number(value) : 0;
+    return new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(safeValue);
+  };
+
+  const formatCompactCurrency = (value?: number | null) => {
+    const safeValue = Number.isFinite(Number(value)) ? Number(value) : 0;
+    return new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(safeValue);
+  };
+
+  const formatDate = (value?: string | null) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleDateString("en-NG", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
+  const formatFileSize = (value?: number | null) => {
+    const size = Number(value || 0);
+    if (!Number.isFinite(size) || size <= 0) return "-";
+    if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+    if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${size} B`;
+  };
+
+  const parseExtraEmails = (value: string) =>
+    value
+      .split(/[,\n;]/g)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+  const extraRecipientEmails = parseExtraEmails(recipientOptions.extraEmails);
+  const hasEmailRecipients =
+    (recipientOptions.sendApplicant && Boolean(selectedLoan?.applicantEmail)) ||
+    (recipientOptions.sendGuarantors &&
+      Array.isArray(selectedLoan?.guarantors) &&
+      selectedLoan?.guarantors?.some((g) => Boolean(g.email))) ||
+    extraRecipientEmails.length > 0;
+
+  const getLoanLabel = (loan: LoanApplication) =>
+    loan.loanCode ||
+    (loan.loanNumber ? `LN-${loan.loanNumber}` : null) ||
+    `LN-${String(loan.id).slice(-6).toUpperCase()}`;
+
+  const getDocumentStatusTone = (status?: string | null) => {
+    const normalized = String(status || "").toLowerCase();
+    if (normalized.includes("approved") || normalized.includes("verified")) {
+      return "bg-emerald-100 text-emerald-700";
+    }
+    if (normalized.includes("pending")) {
+      return "bg-amber-100 text-amber-700";
+    }
+    if (normalized.includes("rejected") || normalized.includes("failed")) {
+      return "bg-red-100 text-red-700";
+    }
+    return "bg-gray-100 text-gray-600";
+  };
+
+  const getRiskTone = (dtiValue: number | null) => {
+    if (dtiValue == null || Number.isNaN(dtiValue)) {
+      return { label: "Risk Unknown", classes: "bg-gray-100 text-gray-600" };
+    }
+    if (dtiValue > 45) {
+      return { label: "High Risk", classes: "bg-red-100 text-red-700" };
+    }
+    if (dtiValue > 35) {
+      return { label: "Watchlist", classes: "bg-amber-100 text-amber-700" };
+    }
+    return { label: "Healthy", classes: "bg-emerald-100 text-emerald-700" };
   };
 
   const handleViewDetails = (loan: LoanApplication) => {
     setSelectedLoan(loan);
     setShowDetailModal(true);
+    const applicantHasEmail = Boolean(loan.applicantEmail);
+    const guarantorHasEmail =
+      Array.isArray(loan.guarantors) &&
+      loan.guarantors.some((g) => Boolean(g.email));
+    setRecipientOptions({
+      sendApplicant: applicantHasEmail,
+      sendGuarantors: guarantorHasEmail,
+      extraEmails: "",
+    });
   };
 
   const handleReview = (
@@ -215,6 +363,107 @@ export default function LoanReviewPanel({
     setSelectedLoan(loan);
     setRepaymentStartDate("");
     setShowDisburseModal(true);
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!selectedLoan) return;
+    setIsDownloadingPdf(true);
+    try {
+      const blob = await downloadAdminLoanApplicationPdf(selectedLoan.id);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const label = getLoanLabel(selectedLoan)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-");
+      link.href = url;
+      link.download = `loan-application-${label}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Download ready",
+        description: "Loan application PDF downloaded.",
+      });
+    } catch (error: unknown) {
+      toast({
+        title: "Download failed",
+        description:
+          (error as Error).message ||
+          "Unable to download the loan application PDF.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloadingPdf(false);
+    }
+  };
+
+  const handleEmailPdf = async () => {
+    if (!selectedLoan) return;
+    if (!hasEmailRecipients) {
+      toast({
+        title: "Select recipients",
+        description: "Choose at least one recipient to email this PDF.",
+      });
+      return;
+    }
+    setIsEmailingPdf(true);
+    try {
+      const response = await emailAdminLoanApplicationPdf(selectedLoan.id, {
+        sendApplicant: recipientOptions.sendApplicant,
+        sendGuarantors: recipientOptions.sendGuarantors,
+        extraEmails: extraRecipientEmails,
+      });
+      const count = response.recipients.length;
+      toast({
+        title: "Email queued",
+        description:
+          count > 0
+            ? `Loan summary sent to ${count} recipient${count > 1 ? "s" : ""}.`
+            : "No valid recipient emails were found.",
+      });
+    } catch (error: unknown) {
+      toast({
+        title: "Email failed",
+        description:
+          (error as Error).message ||
+          "Unable to email the loan application summary.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsEmailingPdf(false);
+    }
+  };
+
+  const handlePrintLoan = async () => {
+    if (!selectedLoan) return;
+    setIsPrintingPdf(true);
+    try {
+      const blob = await downloadAdminLoanApplicationPdf(selectedLoan.id);
+      const url = URL.createObjectURL(blob);
+      const printWindow = window.open(url, "_blank");
+      if (!printWindow) {
+        throw new Error("Popup blocked");
+      }
+      const timer = setInterval(() => {
+        if (printWindow.document.readyState === "complete") {
+          clearInterval(timer);
+          printWindow.focus();
+          printWindow.print();
+        }
+      }, 400);
+      setTimeout(() => {
+        URL.revokeObjectURL(url);
+      }, 20000);
+    } catch (error: unknown) {
+      toast({
+        title: "Print failed",
+        description:
+          (error as Error).message ||
+          "Unable to open the print preview for this loan.",
+        variant: "destructive",
+      });
+    } finally {
+      setTimeout(() => setIsPrintingPdf(false), 1200);
+    }
   };
 
   const confirmReview = () => {
@@ -292,7 +541,7 @@ export default function LoanReviewPanel({
             </div>
             <div>
               <p className="font-bold text-gray-900 text-2xl">
-                ₦{(totalRequested / 1000000).toFixed(1)}M
+                {formatCompactCurrency(totalRequested)}
               </p>
               <p className="text-gray-500 text-sm">Total Requested</p>
             </div>
@@ -350,7 +599,7 @@ export default function LoanReviewPanel({
                       </p>
                       <div className="flex items-center gap-4 mt-1 text-gray-500 text-sm">
                         <span className="font-medium text-gray-900">
-                          ₦{loan.loanAmount.toLocaleString()}
+                          {formatCurrency(loan.loanAmount)}
                         </span>
                         <span>{loan.repaymentPeriod} months</span>
                         <span>{loan.loanPurpose}</span>
@@ -421,81 +670,482 @@ export default function LoanReviewPanel({
 
       {/* Detail Modal */}
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-5xl p-0 overflow-hidden">
+          <DialogHeader className="sr-only">
             <DialogTitle>Loan Application Details</DialogTitle>
           </DialogHeader>
-          {selectedLoan && (
-            <div className="space-y-4">
-              <div className="gap-4 grid grid-cols-2">
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-500 text-sm">Applicant</p>
-                  <p className="font-medium">{selectedLoan.applicantName}</p>
-                  <p className="text-gray-600 text-sm">
-                    {selectedLoan.applicantEmail}
-                  </p>
+          {selectedLoan && (() => {
+            const loanLabel = getLoanLabel(selectedLoan);
+            const facilityLabel =
+              selectedRateInfo?.facility?.name || "Loan Facility";
+            const repaymentProgress =
+              selectedLoan.remainingBalance != null && selectedTotalRepayable
+                ? Math.min(
+                    100,
+                    Math.max(
+                      0,
+                      ((selectedTotalRepayable -
+                        Number(selectedLoan.remainingBalance || 0)) /
+                        selectedTotalRepayable) *
+                        100,
+                    ),
+                  )
+                : null;
+            const monthlyIncome = Number(selectedLoan.monthlyIncome || 0);
+            const dtiValue =
+              monthlyIncome > 0
+                ? (selectedMonthlyPayment / monthlyIncome) * 100
+                : null;
+            const guarantors = Array.isArray(selectedLoan.guarantors)
+              ? selectedLoan.guarantors
+              : [];
+            const documents = Array.isArray(selectedLoan.documents)
+              ? selectedLoan.documents
+              : [];
+
+            return (
+              <div className="flex flex-col">
+                <div className="border-b bg-slate-50 px-6 py-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">
+                        Loan Application
+                      </p>
+                      <h2 className="mt-1 text-2xl font-semibold text-gray-900">
+                        {loanLabel}
+                      </h2>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Submitted {formatDate(selectedLoan.createdAt)} •{" "}
+                        {facilityLabel}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {getStatusBadge(selectedLoan.status)}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handlePrintLoan}
+                        disabled={isPrintingPdf}
+                        className="gap-2"
+                      >
+                        <Printer className="h-4 w-4" />
+                        {isPrintingPdf ? "Preparing..." : "Print"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleEmailPdf}
+                        disabled={isEmailingPdf || !hasEmailRecipients}
+                        className="gap-2"
+                      >
+                        <Mail className="h-4 w-4" />
+                        {isEmailingPdf ? "Emailing..." : "Email PDF"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleDownloadPdf}
+                        disabled={isDownloadingPdf}
+                        className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                      >
+                        <Download className="h-4 w-4" />
+                        {isDownloadingPdf ? "Downloading..." : "Download PDF"}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2 text-xs">
+                    {(() => {
+                      const risk = getRiskTone(dtiValue);
+                      const dtiLabel =
+                        dtiValue != null
+                          ? `DTI ${dtiValue.toFixed(1)}%`
+                          : "DTI —";
+                      return (
+                        <>
+                          <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">
+                            {dtiLabel}{" "}
+                            {dtiValue != null
+                              ? dtiValue > 35
+                                ? "(Above 35%)"
+                                : "(Below 35%)"
+                              : ""}
+                          </span>
+                          <span
+                            className={`rounded-full px-3 py-1 font-semibold ${risk.classes}`}
+                          >
+                            {risk.label}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">
+                            Guarantors {guarantors.length}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">
+                            Documents {documents.length}
+                          </span>
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Recipients
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Choose who receives the PDF.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+                        <label className="flex items-center gap-2">
+                          <Checkbox
+                            id="loan-recipient-applicant"
+                            checked={recipientOptions.sendApplicant}
+                            disabled={!selectedLoan.applicantEmail}
+                            onCheckedChange={(value) =>
+                              setRecipientOptions((prev) => ({
+                                ...prev,
+                                sendApplicant: Boolean(value),
+                              }))
+                            }
+                          />
+                          <span>
+                            Applicant
+                            {!selectedLoan.applicantEmail && " (no email)"}
+                          </span>
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <Checkbox
+                            id="loan-recipient-guarantors"
+                            checked={recipientOptions.sendGuarantors}
+                            disabled={
+                              guarantors.length === 0 ||
+                              !guarantors.some((g) => Boolean(g.email))
+                            }
+                            onCheckedChange={(value) =>
+                              setRecipientOptions((prev) => ({
+                                ...prev,
+                                sendGuarantors: Boolean(value),
+                              }))
+                            }
+                          />
+                          <span>
+                            Guarantors
+                            {guarantors.length === 0 ||
+                            !guarantors.some((g) => Boolean(g.email))
+                              ? " (no email)"
+                              : ""}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      <Input
+                        value={recipientOptions.extraEmails}
+                        onChange={(event) =>
+                          setRecipientOptions((prev) => ({
+                            ...prev,
+                            extraEmails: event.target.value,
+                          }))
+                        }
+                        placeholder="Add extra emails (comma or semicolon separated)"
+                      />
+                      <p className="mt-1 text-xs text-gray-400">
+                        Example: finance@company.com, auditor@company.com
+                      </p>
+                    </div>
+                  </div>
                 </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-500 text-sm">Group</p>
-                  <p className="font-medium">{selectedLoan.groupName}</p>
+
+                <div className="max-h-[75vh] space-y-6 overflow-y-auto px-6 py-6">
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        Requested
+                      </p>
+                      <p className="mt-2 text-xl font-semibold text-gray-900">
+                        {formatCurrency(selectedLoan.loanAmount)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {selectedLoan.repaymentPeriod} months
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        Approved Amount
+                      </p>
+                      <p className="mt-2 text-xl font-semibold text-emerald-600">
+                        {selectedLoan.approvedAmount != null
+                          ? formatCurrency(selectedLoan.approvedAmount)
+                          : "Pending"}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Interest {selectedInterestLabel || "—"}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        Monthly Payment
+                      </p>
+                      <p className="mt-2 text-xl font-semibold text-gray-900">
+                        {formatCurrency(selectedMonthlyPayment)}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Total repayable {formatCurrency(selectedTotalRepayable)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        Remaining Balance
+                      </p>
+                      <p className="mt-2 text-xl font-semibold text-gray-900">
+                        {selectedLoan.remainingBalance != null
+                          ? formatCurrency(selectedLoan.remainingBalance)
+                          : "—"}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        Repayment progress{" "}
+                        {repaymentProgress != null
+                          ? `${Math.round(repaymentProgress)}%`
+                          : "—"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                      <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
+                        <User className="h-4 w-4 text-emerald-500" />
+                        Applicant
+                      </div>
+                      <p className="mt-3 text-lg font-semibold text-gray-900">
+                        {selectedLoan.applicantName}
+                      </p>
+                      <div className="mt-3 space-y-2 text-sm text-gray-600">
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-4 w-4 text-gray-400" />
+                          <span>{selectedLoan.applicantEmail || "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Phone className="h-4 w-4 text-gray-400" />
+                          <span>{selectedLoan.applicantPhone || "—"}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Building2 className="h-4 w-4 text-gray-400" />
+                          <span>{selectedLoan.groupName || "—"}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                      <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
+                        <CreditCard className="h-4 w-4 text-emerald-500" />
+                        Loan Snapshot
+                      </div>
+                      <div className="mt-3 space-y-2 text-sm text-gray-600">
+                        <p className="text-base font-semibold text-gray-900">
+                          {selectedLoan.loanPurpose}
+                        </p>
+                        <p>
+                          {selectedLoan.purposeDescription ||
+                            "No additional description provided."}
+                        </p>
+                        <div className="flex flex-wrap gap-2 pt-2 text-xs text-gray-500">
+                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">
+                            {facilityLabel}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                            {selectedInterestLabel || "Interest TBD"}
+                          </span>
+                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
+                            {selectedLoan.repaymentPeriod} months
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        Approval Timeline
+                      </p>
+                      <div className="mt-3 space-y-2 text-sm text-gray-600">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-gray-400" />
+                          <span>
+                            Applied {formatDate(selectedLoan.createdAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-gray-400" />
+                          <span>
+                            Approved {formatDate(selectedLoan.approvedAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-gray-400" />
+                          <span>
+                            Disbursed {formatDate(selectedLoan.disbursedAt)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Calendar className="h-4 w-4 text-gray-400" />
+                          <span>
+                            Repayment Start{" "}
+                            {formatDate(selectedLoan.repaymentStartDate)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        Affordability
+                      </p>
+                      <div className="mt-3">
+                        <p className="text-xl font-semibold text-gray-900">
+                          {monthlyIncome
+                            ? formatCurrency(monthlyIncome)
+                            : "—"}
+                        </p>
+                        <p className="text-xs text-gray-500">Monthly Income</p>
+                      </div>
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between text-xs text-gray-500">
+                          <span>Debt-to-Income</span>
+                          <span>
+                            {dtiValue != null
+                              ? `${dtiValue.toFixed(1)}%`
+                              : "—"}
+                          </span>
+                        </div>
+                        <Progress
+                          className="mt-2 h-2"
+                          value={
+                            dtiValue != null
+                              ? Math.min(100, Math.max(0, dtiValue))
+                              : 0
+                          }
+                        />
+                      </div>
+                    </div>
+                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+                      <p className="text-xs uppercase tracking-wide text-gray-500">
+                        Review Notes
+                      </p>
+                      <p className="mt-3 text-sm text-gray-600">
+                        {selectedLoan.reviewNotes ||
+                          "No review notes recorded."}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                    <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
+                      <User className="h-4 w-4 text-emerald-500" />
+                      Guarantors
+                    </div>
+                    {guarantors.length === 0 ? (
+                      <p className="mt-3 text-sm text-gray-500">
+                        No guarantors submitted for this application.
+                      </p>
+                    ) : (
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {guarantors.map((g, index) => (
+                          <div
+                            key={`${g.name}-${index}`}
+                            className="rounded-lg border border-gray-100 bg-gray-50 p-3"
+                          >
+                            <p className="font-semibold text-gray-900">
+                              {g.name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {g.relationship || g.type || "Guarantor"}
+                            </p>
+                            <p className="mt-2 text-xs text-gray-600">
+                              {g.phone || g.email || "—"}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
+                              {g.liabilityPercentage != null && (
+                                <span className="rounded-full bg-white px-2 py-1 text-gray-600">
+                                  Liability {g.liabilityPercentage}%
+                                </span>
+                              )}
+                              {g.savingsBalance != null && (
+                                <span className="rounded-full bg-white px-2 py-1 text-gray-600">
+                                  Savings {formatCurrency(g.savingsBalance)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+                    <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
+                      <FileText className="h-4 w-4 text-emerald-500" />
+                      Documents
+                    </div>
+                    {documents.length === 0 ? (
+                      <p className="mt-3 text-sm text-gray-500">
+                        No documents have been uploaded yet.
+                      </p>
+                    ) : (
+                      <div className="mt-4 divide-y divide-gray-100">
+                        {documents.map((doc, index) => (
+                          <div
+                            key={`${doc.name}-${index}`}
+                            className="flex flex-wrap items-center justify-between gap-3 py-3"
+                          >
+                            <div>
+                              <p className="font-medium text-gray-900">
+                                {doc.name}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {doc.type} • {formatFileSize(doc.size)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getDocumentStatusTone(
+                                  doc.status,
+                                )}`}
+                              >
+                                {doc.status || "Uploaded"}
+                              </span>
+                              {doc.url ? (
+                                <a
+                                  href={doc.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-sm font-medium text-emerald-600 hover:text-emerald-700"
+                                >
+                                  View
+                                </a>
+                              ) : (
+                                <span className="text-xs text-gray-400">
+                                  File pending
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="bg-emerald-50 p-4 rounded-lg">
-                  <p className="text-gray-500 text-sm">Loan Amount</p>
-                  <p className="font-bold text-emerald-600 text-2xl">
-                    ₦{selectedLoan.loanAmount.toLocaleString()}
-                  </p>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-500 text-sm">Repayment Period</p>
-                  <p className="font-medium">
-                    {selectedLoan.repaymentPeriod} months
-                  </p>
-                  <p className="text-emerald-600 text-sm">
-                    ₦{selectedMonthlyPayment.toLocaleString()}/month
-                  </p>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-500 text-sm">Interest</p>
-                  <p className="font-medium">{selectedInterestLabel}</p>
-                </div>
-                <div className="col-span-2 bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-500 text-sm">Purpose</p>
-                  <p className="font-medium">{selectedLoan.loanPurpose}</p>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-500 text-sm">Monthly Income</p>
-                  <p className="font-medium">
-                    ₦{selectedLoan.monthlyIncome.toLocaleString()}
-                  </p>
-                </div>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-500 text-sm">Debt-to-Income Ratio</p>
-                  <p className="font-medium">
-                    {(
-                      (selectedMonthlyPayment / selectedLoan.monthlyIncome) *
-                      100
-                    ).toFixed(1)}
-                    %
-                  </p>
-                </div>
-                <div className="col-span-2 bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-500 text-sm">Guarantor</p>
-                  <p className="font-medium">{selectedLoan.guarantorName}</p>
-                  <p className="text-gray-600 text-sm">
-                    {selectedLoan.guarantorPhone}
-                  </p>
+
+                <div className="flex justify-end gap-2 border-t bg-white px-6 py-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowDetailModal(false)}
+                  >
+                    Close
+                  </Button>
                 </div>
               </div>
-              <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowDetailModal(false)}
-                >
-                  Close
-                </Button>
-              </div>
-            </div>
-          )}
+            );
+          })()}
         </DialogContent>
       </Dialog>
 
@@ -514,7 +1164,7 @@ export default function LoanReviewPanel({
               <div className="bg-gray-50 p-4 rounded-lg">
                 <p className="font-medium">{selectedLoan.applicantName}</p>
                 <p className="font-bold text-emerald-600 text-lg">
-                  ₦{selectedLoan.loanAmount.toLocaleString()}
+                  {formatCurrency(selectedLoan.loanAmount)}
                 </p>
                 <p className="text-gray-600 text-sm">
                   {selectedLoan.loanPurpose}
@@ -597,7 +1247,7 @@ export default function LoanReviewPanel({
               <div className="bg-gray-50 p-4 rounded-lg">
                 <p className="font-medium">{selectedLoan.applicantName}</p>
                 <p className="font-bold text-purple-600 text-lg">
-                  ₦{selectedLoan.loanAmount.toLocaleString()}
+                  {formatCurrency(selectedLoan.loanAmount)}
                 </p>
                 <p className="text-gray-600 text-sm">
                   {selectedLoan.loanPurpose}
@@ -640,3 +1290,5 @@ export default function LoanReviewPanel({
     </div>
   );
 }
+
+

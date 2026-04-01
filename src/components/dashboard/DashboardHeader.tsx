@@ -90,7 +90,7 @@ const DashboardHeader: React.FC = () => {
 
   const navItems = [
     // { name: 'Dashboard', path: '/dashboard' },
-    // { name: "Groups", path: "/groups" },
+    { name: "Groups", path: "/groups" },
     // { name: "Contribution Groups", path: "/contribution-groups" },
     { name: "Loans", path: "/loans" },
     // { name: "Payments", path: "/payments" },
@@ -386,7 +386,7 @@ const DashboardHeader: React.FC = () => {
                       </svg>
                       Payments
                     </button>
-                    <button
+                    {/* <button
                       onClick={() => navigate("/groups")}
                       className="flex items-center gap-3 hover:bg-gray-50 px-4 py-2 w-full text-gray-700 text-left"
                     >
@@ -404,7 +404,7 @@ const DashboardHeader: React.FC = () => {
                         />
                       </svg>
                       My Groups
-                    </button>
+                    </button> */}
                     {user?.role === "group_coordinator" ||
                     user?.role === "admin" ? (
                       <button

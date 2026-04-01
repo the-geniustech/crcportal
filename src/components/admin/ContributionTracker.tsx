@@ -1,96 +1,306 @@
-import { useState } from 'react';
-import { AlertTriangle, CheckCircle, Clock, TrendingUp, Search, Filter, Download } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
+import { useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  TrendingUp,
+  Search,
+  Filter,
+  Download,
+  MoreHorizontal,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { sendContributionReminders } from "@/lib/admin";
 
 interface ContributionRecord {
   id: string;
+  userId: string;
+  groupId: string;
   memberName: string;
+  memberSerial?: string | null;
   groupName: string;
   expectedAmount: number;
   paidAmount: number;
   dueDate: string;
-  status: 'paid' | 'partial' | 'pending' | 'defaulted';
+  status: "paid" | "partial" | "pending" | "defaulted";
   monthsDefaulted: number;
 }
 
 interface ContributionTrackerProps {
   contributions: ContributionRecord[];
-  onSendReminder: (memberId: string) => void;
   onMarkPaid: (memberId: string) => void;
+  year: number;
+  month: number;
 }
 
-export default function ContributionTracker({ contributions, onSendReminder, onMarkPaid }: ContributionTrackerProps) {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [groupFilter, setGroupFilter] = useState('all');
+export default function ContributionTracker({
+  contributions,
+  onMarkPaid,
+  year,
+  month,
+}: ContributionTrackerProps) {
+  const { toast } = useToast();
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [reminderOpen, setReminderOpen] = useState(false);
+  const [reminderTargets, setReminderTargets] = useState<ContributionRecord[]>(
+    [],
+  );
+  const [reminderChannels, setReminderChannels] = useState({
+    email: false,
+    sms: false,
+    notification: true,
+  });
+  const [sendingReminder, setSendingReminder] = useState(false);
 
-  const groups = [...new Set(contributions.map(c => c.groupName))];
+  const groups = [...new Set(contributions.map((c) => c.groupName))];
 
-  const filteredContributions = contributions.filter(c => {
-    const matchesSearch = c.memberName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         c.groupName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
-    const matchesGroup = groupFilter === 'all' || c.groupName === groupFilter;
+  const filteredContributions = contributions.filter((c) => {
+    const query = searchQuery.toLowerCase();
+    const matchesSearch =
+      c.memberName.toLowerCase().includes(query) ||
+      c.groupName.toLowerCase().includes(query) ||
+      (c.memberSerial ? c.memberSerial.toLowerCase().includes(query) : false);
+    const matchesStatus = statusFilter === "all" || c.status === statusFilter;
+    const matchesGroup = groupFilter === "all" || c.groupName === groupFilter;
     return matchesSearch && matchesStatus && matchesGroup;
   });
 
-  const defaulters = contributions.filter(c => c.status === 'defaulted');
-  const totalExpected = contributions.reduce((sum, c) => sum + c.expectedAmount, 0);
+  const defaulters = contributions.filter((c) => c.status === "defaulted");
+  const exportCsv = () => {
+    const headers = [
+      "Member Serial",
+      "Member Name",
+      "Group",
+      "Expected",
+      "Paid",
+      "Due Date",
+      "Status",
+      "Months Defaulted",
+    ];
+
+    const rows = filteredContributions.map((record) => [
+      record.memberSerial ?? "-",
+      record.memberName,
+      record.groupName,
+      record.expectedAmount,
+      record.paidAmount,
+      record.dueDate,
+      record.status,
+      record.monthsDefaulted,
+    ]);
+
+    const csvEscape = (value: string | number) => {
+      const raw = String(value ?? "");
+      if (/[",\n]/.test(raw)) {
+        return `"${raw.replace(/"/g, '""')}"`;
+      }
+      return raw;
+    };
+
+    const csvBody = [headers, ...rows]
+      .map((row) => row.map((value) => csvEscape(value)).join(","))
+      .join("\n");
+    const csv = `\uFEFF${csvBody}`;
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "contribution-tracker-export.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const totalExpected = contributions.reduce(
+    (sum, c) => sum + c.expectedAmount,
+    0,
+  );
   const totalPaid = contributions.reduce((sum, c) => sum + c.paidAmount, 0);
-  const collectionRate = totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 0;
+  const collectionRate =
+    totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 0;
 
   const getStatusBadge = (status: string, monthsDefaulted: number) => {
     switch (status) {
-      case 'paid':
-        return <Badge className="bg-emerald-100 text-emerald-700"><CheckCircle className="w-3 h-3 mr-1" />Paid</Badge>;
-      case 'partial':
-        return <Badge className="bg-blue-100 text-blue-700"><Clock className="w-3 h-3 mr-1" />Partial</Badge>;
-      case 'pending':
-        return <Badge className="bg-amber-100 text-amber-700"><Clock className="w-3 h-3 mr-1" />Pending</Badge>;
-      case 'defaulted':
-        return <Badge className="bg-red-100 text-red-700"><AlertTriangle className="w-3 h-3 mr-1" />{monthsDefaulted}mo Defaulted</Badge>;
+      case "paid":
+        return (
+          <Badge className="bg-emerald-100 text-emerald-700">
+            <CheckCircle className="mr-1 w-3 h-3" />
+            Paid
+          </Badge>
+        );
+      case "partial":
+        return (
+          <Badge className="bg-blue-100 text-blue-700">
+            <Clock className="mr-1 w-3 h-3" />
+            Partial
+          </Badge>
+        );
+      case "pending":
+        return (
+          <Badge className="bg-amber-100 text-amber-700">
+            <Clock className="mr-1 w-3 h-3" />
+            Pending
+          </Badge>
+        );
+      case "defaulted":
+        return (
+          <Badge className="bg-red-100 text-red-700">
+            <AlertTriangle className="mr-1 w-3 h-3" />
+            {monthsDefaulted}mo Defaulted
+          </Badge>
+        );
       default:
         return null;
+    }
+  };
+
+  const openReminderModal = (targets: ContributionRecord[]) => {
+    if (targets.length === 0) {
+      toast({
+        title: "No recipients",
+        description: "There are no members to remind for the current selection.",
+      });
+      return;
+    }
+    setReminderTargets(targets);
+    setReminderOpen(true);
+  };
+
+  const reminderSummary = useMemo(() => {
+    if (reminderTargets.length === 0) return "No recipients selected";
+    if (reminderTargets.length === 1) {
+      return `Send reminder to ${reminderTargets[0].memberName}`;
+    }
+    return `Send reminders to ${reminderTargets.length} members`;
+  }, [reminderTargets]);
+
+  const canSendReminder =
+    reminderChannels.email ||
+    reminderChannels.sms ||
+    reminderChannels.notification;
+
+  const buildChannelSummary = (
+    label: string,
+    channel?: {
+      requested: boolean;
+      sent: number;
+      failed: number;
+      skipped: number;
+    },
+  ) => {
+    if (!channel || !channel.requested) return null;
+    const segments = [`${label}: ${channel.sent} sent`];
+    if (channel.failed > 0) segments.push(`${channel.failed} failed`);
+    if (channel.skipped > 0) segments.push(`${channel.skipped} skipped`);
+    return segments.join(", ");
+  };
+
+  const handleSendReminder = async () => {
+    if (!canSendReminder || reminderTargets.length === 0) return;
+    setSendingReminder(true);
+    try {
+      const recipients = reminderTargets.map((target) => ({
+        userId: target.userId,
+        groupId: target.groupId,
+      }));
+      const response = await sendContributionReminders({
+        year,
+        month,
+        recipients,
+        sendEmail: reminderChannels.email,
+        sendSMS: reminderChannels.sms,
+        sendNotification: reminderChannels.notification,
+      });
+      const channelSummaries = [
+        buildChannelSummary("Email", response.channels?.email),
+        buildChannelSummary("SMS", response.channels?.sms),
+        buildChannelSummary("In-app", response.channels?.notification),
+      ].filter(Boolean);
+      const summary =
+        channelSummaries.length > 0
+          ? channelSummaries.join(" | ")
+          : "Delivery queued.";
+      const recipientLabel =
+        reminderTargets.length === 1 ? "member" : "members";
+      toast({
+        title: `Reminders sent to ${reminderTargets.length} ${recipientLabel}`,
+        description: summary,
+      });
+      setReminderOpen(false);
+    } catch (error: unknown) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String((error as { message?: string }).message)
+          : "Unable to send reminders.";
+      toast({ title: "Reminder failed", description: message, variant: "destructive" });
+    } finally {
+      setSendingReminder(false);
     }
   };
 
   return (
     <div className="space-y-4">
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between">
+      <div className="gap-4 grid grid-cols-1 md:grid-cols-4">
+        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+          <div className="flex justify-between items-center">
             <div>
-              <p className="text-sm text-gray-500">Collection Rate</p>
-              <p className="text-2xl font-bold text-emerald-600">{collectionRate.toFixed(1)}%</p>
+              <p className="text-gray-500 text-sm">Collection Rate</p>
+              <p className="font-bold text-emerald-600 text-2xl">
+                {collectionRate.toFixed(1)}%
+              </p>
             </div>
             <TrendingUp className="w-8 h-8 text-emerald-500" />
           </div>
           <Progress value={collectionRate} className="mt-2 h-2" />
         </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
-          <p className="text-sm text-gray-500">Total Expected</p>
-          <p className="text-2xl font-bold text-gray-900">₦{totalExpected.toLocaleString()}</p>
+        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+          <p className="text-gray-500 text-sm">Total Expected</p>
+          <p className="font-bold text-gray-900 text-2xl">
+            ₦{totalExpected.toLocaleString()}
+          </p>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
-          <p className="text-sm text-gray-500">Total Collected</p>
-          <p className="text-2xl font-bold text-emerald-600">₦{totalPaid.toLocaleString()}</p>
+        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+          <p className="text-gray-500 text-sm">Total Collected</p>
+          <p className="font-bold text-emerald-600 text-2xl">
+            ₦{totalPaid.toLocaleString()}
+          </p>
         </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
-          <div className="flex items-center justify-between">
+        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+          <div className="flex justify-between items-center">
             <div>
-              <p className="text-sm text-gray-500">Defaulters</p>
-              <p className="text-2xl font-bold text-red-600">{defaulters.length}</p>
+              <p className="text-gray-500 text-sm">Defaulters</p>
+              <p className="font-bold text-red-600 text-2xl">
+                {defaulters.length}
+              </p>
             </div>
             <AlertTriangle className="w-8 h-8 text-red-500" />
           </div>
@@ -99,41 +309,54 @@ export default function ContributionTracker({ contributions, onSendReminder, onM
 
       {/* Defaulter Alert */}
       {defaulters.length > 0 && (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-red-600 mt-0.5" />
-            <div className="flex-1">
+        <div className="bg-red-50 p-4 border border-red-200 rounded-xl">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="mt-0.5 w-5 h-5 text-red-600" />
+          <div className="flex-1">
               <h4 className="font-medium text-red-800">Defaulter Alert</h4>
-              <p className="text-sm text-red-600 mt-1">
-                {defaulters.length} member(s) have outstanding contributions. 
-                {defaulters.filter(d => d.monthsDefaulted >= 3).length > 0 && 
-                  ` ${defaulters.filter(d => d.monthsDefaulted >= 3).length} have been defaulting for 3+ months.`}
+              <p className="mt-1 text-red-600 text-sm">
+                {defaulters.length} member(s) have outstanding contributions.
+                {defaulters.filter((d) => d.monthsDefaulted >= 3).length > 0 &&
+                  ` ${defaulters.filter((d) => d.monthsDefaulted >= 3).length} have been defaulting for 3+ months.`}
               </p>
               <div className="flex flex-wrap gap-2 mt-2">
-                {defaulters.slice(0, 5).map(d => (
-                  <Badge key={d.id} variant="outline" className="bg-white text-red-700 border-red-300">
-                    {d.memberName} ({d.monthsDefaulted}mo)
+                {defaulters.slice(0, 5).map((d) => (
+                  <Badge
+                    key={d.id}
+                    variant="outline"
+                    className="bg-white border-red-300 text-red-700"
+                  >
+                    {d.memberName}
+                    {d.memberSerial ? ` · ${d.memberSerial}` : ""} (
+                    {d.monthsDefaulted}mo)
                   </Badge>
                 ))}
                 {defaulters.length > 5 && (
-                  <Badge variant="outline" className="bg-white text-red-700 border-red-300">
+                  <Badge
+                    variant="outline"
+                    className="bg-white border-red-300 text-red-700"
+                  >
                     +{defaulters.length - 5} more
                   </Badge>
                 )}
-              </div>
             </div>
-            <Button size="sm" className="bg-red-600 hover:bg-red-700">
-              Send Reminders
-            </Button>
           </div>
+          <Button
+            size="sm"
+            className="bg-red-600 hover:bg-red-700"
+            onClick={() => openReminderModal(defaulters)}
+          >
+            Send Reminders
+          </Button>
         </div>
-      )}
+      </div>
+    )}
 
       {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+      <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+        <div className="flex md:flex-row flex-col gap-4">
+          <div className="relative flex-1">
+            <Search className="top-1/2 left-3 absolute w-4 h-4 text-gray-400 -translate-y-1/2 transform" />
             <Input
               placeholder="Search members..."
               value={searchQuery}
@@ -159,12 +382,14 @@ export default function ContributionTracker({ contributions, onSendReminder, onM
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All Groups</SelectItem>
-              {groups.map(group => (
-                <SelectItem key={group} value={group}>{group}</SelectItem>
+              {groups.map((group) => (
+                <SelectItem key={group} value={group}>
+                  {group}
+                </SelectItem>
               ))}
             </SelectContent>
           </Select>
-          <Button variant="outline" className="gap-2">
+          <Button variant="outline" className="gap-2" onClick={exportCsv}>
             <Download className="w-4 h-4" />
             Export
           </Button>
@@ -172,61 +397,96 @@ export default function ContributionTracker({ contributions, onSendReminder, onM
       </div>
 
       {/* Contribution Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white shadow-sm border border-gray-100 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-100">
+            <thead className="bg-gray-50 border-gray-100 border-b">
               <tr>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Member</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Group</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Expected</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Paid</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Due Date</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Status</th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">Actions</th>
-              </tr>
-            </thead>
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                  Member
+                </th>
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                  Group
+                </th>
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                  Expected
+                </th>
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                  Paid
+                </th>
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                  Due Date
+                </th>
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                  Status
+                </th>
+              <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                Actions
+              </th>
+            </tr>
+          </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredContributions.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
-                    <p className="font-medium text-gray-900">{record.memberName}</p>
+                    <div>
+                      <p className="font-medium text-gray-900">
+                        {record.memberName}
+                      </p>
+                      {record.memberSerial && (
+                        <p className="text-gray-400 text-xs">
+                          {record.memberSerial}
+                        </p>
+                      )}
+                    </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{record.groupName}</td>
-                  <td className="px-4 py-3 text-sm font-medium">₦{record.expectedAmount.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-gray-600 text-sm">
+                    {record.groupName}
+                  </td>
+                  <td className="px-4 py-3 font-medium text-sm">
+                    ₦{record.expectedAmount.toLocaleString()}
+                  </td>
                   <td className="px-4 py-3 text-sm">
-                    <span className={record.paidAmount >= record.expectedAmount ? 'text-emerald-600' : 'text-amber-600'}>
+                    <span
+                      className={
+                        record.paidAmount >= record.expectedAmount
+                          ? "text-emerald-600"
+                          : "text-amber-600"
+                      }
+                    >
                       ₦{record.paidAmount.toLocaleString()}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {new Date(record.dueDate).toLocaleDateString()}
+                  <td className="px-4 py-3 text-gray-600 text-sm">
+                    <div className="space-y-1">
+                      <div>{new Date(record.dueDate).toLocaleDateString()}</div>
+                      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                        Open: 27th–4th
+                      </span>
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     {getStatusBadge(record.status, record.monthsDefaulted)}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-2">
-                      {record.status !== 'paid' && (
-                        <>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            className="text-xs"
-                            onClick={() => onSendReminder(record.id)}
-                          >
-                            Remind
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            className="text-xs bg-emerald-600 hover:bg-emerald-700"
-                            onClick={() => onMarkPaid(record.id)}
-                          >
-                            Mark Paid
-                          </Button>
-                        </>
-                      )}
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => openReminderModal([record])}>
+                          Remind
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => onMarkPaid(record.id)}
+                          disabled={record.status === "paid"}
+                        >
+                          Mark Paid
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </td>
                 </tr>
               ))}
@@ -234,6 +494,78 @@ export default function ContributionTracker({ contributions, onSendReminder, onM
           </table>
         </div>
       </div>
+
+      <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Send Contribution Reminder</DialogTitle>
+            <DialogDescription>{reminderSummary}</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="reminder-email"
+                  checked={reminderChannels.email}
+                  onCheckedChange={(value) =>
+                    setReminderChannels((prev) => ({
+                      ...prev,
+                      email: Boolean(value),
+                    }))
+                  }
+                />
+                <Label htmlFor="reminder-email">Email</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="reminder-sms"
+                  checked={reminderChannels.sms}
+                  onCheckedChange={(value) =>
+                    setReminderChannels((prev) => ({
+                      ...prev,
+                      sms: Boolean(value),
+                    }))
+                  }
+                />
+                <Label htmlFor="reminder-sms">SMS</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="reminder-notification"
+                  checked={reminderChannels.notification}
+                  onCheckedChange={(value) =>
+                    setReminderChannels((prev) => ({
+                      ...prev,
+                      notification: Boolean(value),
+                    }))
+                  }
+                />
+                <Label htmlFor="reminder-notification">In-app notification</Label>
+              </div>
+            </div>
+
+            {!canSendReminder && (
+              <p className="text-sm text-rose-500">
+                Select at least one channel to send reminders.
+              </p>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setReminderOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              disabled={!canSendReminder || sendingReminder}
+              onClick={handleSendReminder}
+            >
+              {sendingReminder ? "Sending..." : "Send Reminder"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
