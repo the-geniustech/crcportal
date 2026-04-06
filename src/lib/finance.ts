@@ -1,3 +1,4 @@
+import axios from "axios";
 import { api, getApiErrorMessage } from "./api/client";
 
 export type BackendSavingsSummary = {
@@ -13,6 +14,28 @@ export async function getMySavingsSummary(): Promise<BackendSavingsSummary> {
   try {
     const res = await api.get("/savings/me/summary");
     return res.data?.data as BackendSavingsSummary;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type BackendWithdrawalBalance = {
+  ledgerBalance: number;
+  availableBalance: number;
+  reservedBalance: number;
+  totalContributions?: number;
+  totalWithdrawals?: number;
+  groupId?: string | null;
+  contributionType?: string | null;
+};
+
+export async function getMyWithdrawalBalance(params: {
+  groupId?: string | null;
+  contributionType?: string | null;
+} = {}): Promise<BackendWithdrawalBalance> {
+  try {
+    const res = await api.get("/withdrawals/me/balance", { params });
+    return res.data?.data as BackendWithdrawalBalance;
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
@@ -124,6 +147,34 @@ export async function downloadMyTransactionReceiptPdf(transactionId: string): Pr
   }
 }
 
+export async function downloadMyStatement(params: {
+  format: "pdf" | "csv";
+  type?: string;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const res = await api.get("/transactions/me/statement", {
+      params,
+      responseType: "blob",
+    });
+    const filename =
+      extractFilename(res.headers?.["content-disposition"]) ||
+      `statement.${params.format}`;
+    return { blob: res.data as Blob, filename };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+function extractFilename(value: unknown): string | null {
+  if (!value) return null;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  const match = /filename="?([^"]+)"?/i.exec(String(raw));
+  return match?.[1] || null;
+}
+
 export type BackendWithdrawalRequest = {
   _id: string;
   userId: string;
@@ -133,6 +184,7 @@ export type BackendWithdrawalRequest = {
   groupName?: string | null;
   contributionType?: string | null;
   bankName: string;
+  bankCode?: string | null;
   accountNumber: string;
   accountName: string;
   reason?: string | null;
@@ -143,8 +195,16 @@ export type BackendWithdrawalRequest = {
   completedAt?: string | null;
   payoutReference?: string | null;
   payoutGateway?: string | null;
+  payoutTransferCode?: string | null;
+  payoutStatus?: string | null;
+  payoutOtpResentAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type BackendWithdrawalListResponse = {
+  withdrawals: BackendWithdrawalRequest[];
+  otpResendCooldownSeconds: number;
 };
 
 export async function listMyWithdrawals(): Promise<BackendWithdrawalRequest[]> {
@@ -171,10 +231,18 @@ export async function createWithdrawalRequest(input: {
   }
 }
 
-export async function listWithdrawals(params: { status?: string; userId?: string } = {}) {
+export async function listWithdrawals(
+  params: { status?: string; userId?: string } = {},
+): Promise<BackendWithdrawalListResponse> {
   try {
     const res = await api.get("/withdrawals", { params });
-    return (res.data?.data?.withdrawals ?? []) as BackendWithdrawalRequest[];
+    return {
+      withdrawals: (res.data?.data?.withdrawals ?? []) as BackendWithdrawalRequest[],
+      otpResendCooldownSeconds: Math.max(
+        0,
+        Number(res.data?.data?.otpResendCooldownSeconds) || 0,
+      ),
+    };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
@@ -219,10 +287,75 @@ export async function completeWithdrawal(id: string, input: { reference?: string
   }
 }
 
+export async function finalizeWithdrawalOtp(
+  id: string,
+  input: { transferCode: string; otp: string },
+) {
+  try {
+    const res = await api.patch(`/withdrawals/${id}/finalize-otp`, {
+      transferCode: input.transferCode,
+      otp: input.otp,
+    });
+    return res.data?.data as { withdrawal: BackendWithdrawalRequest; transaction?: BackendTransaction };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function resendWithdrawalOtp(
+  id: string,
+  input: { transferCode: string; reason?: string },
+) {
+  try {
+    const res = await api.patch(`/withdrawals/${id}/resend-otp`, {
+      transferCode: input.transferCode,
+      reason: input.reason,
+    });
+    const retryAfter = parseRetryAfterSeconds(res.headers?.["retry-after"]);
+    return {
+      withdrawal: res.data?.data?.withdrawal as BackendWithdrawalRequest,
+      retryAfter,
+    };
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      const retryAfter = parseRetryAfterSeconds(
+        err.response?.headers?.["retry-after"],
+      );
+      const wrapped = new Error(getApiErrorMessage(err)) as Error & {
+        retryAfter?: number;
+        status?: number;
+      };
+      if (retryAfter) wrapped.retryAfter = retryAfter;
+      if (err.response?.status) wrapped.status = err.response.status;
+      throw wrapped;
+    }
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+function parseRetryAfterSeconds(value: unknown): number | undefined {
+  if (!value) return undefined;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw == null) return undefined;
+  const rawText = String(raw).trim();
+  if (!rawText) return undefined;
+  const asNumber = Number(rawText);
+  if (Number.isFinite(asNumber) && asNumber > 0) {
+    return Math.ceil(asNumber);
+  }
+  const parsedDate = Date.parse(rawText);
+  if (Number.isFinite(parsedDate)) {
+    const seconds = Math.ceil((parsedDate - Date.now()) / 1000);
+    return seconds > 0 ? seconds : undefined;
+  }
+  return undefined;
+}
+
 export type BackendBankAccount = {
   _id: string;
   userId: string;
   bankName: string;
+  bankCode?: string | null;
   accountNumber: string;
   accountName: string;
   isPrimary: boolean;
@@ -239,8 +372,29 @@ export async function listMyBankAccounts(): Promise<BackendBankAccount[]> {
   }
 }
 
+export type PaystackBank = {
+  name: string;
+  code: string;
+  slug?: string;
+  active?: boolean;
+  is_deleted?: boolean;
+  country?: string;
+  currency?: string;
+  type?: string;
+};
+
+export async function listPaystackBanks(params: { country?: string } = {}): Promise<PaystackBank[]> {
+  try {
+    const res = await api.get("/bank-accounts/banks", { params });
+    return (res.data?.data?.banks ?? []) as PaystackBank[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
 export async function createMyBankAccount(input: {
   bankName: string;
+  bankCode: string;
   accountNumber: string;
   accountName: string;
   isPrimary?: boolean;

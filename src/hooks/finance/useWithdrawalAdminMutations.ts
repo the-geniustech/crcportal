@@ -2,8 +2,10 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   approveWithdrawal,
   completeWithdrawal,
+  finalizeWithdrawalOtp,
   markWithdrawalProcessing,
   rejectWithdrawal,
+  resendWithdrawalOtp,
 } from "@/lib/finance";
 
 export function useApproveWithdrawalMutation() {
@@ -46,7 +48,31 @@ export function useCompleteWithdrawalMutation() {
       await qc.invalidateQueries({ queryKey: ["withdrawals", "admin"] });
       await qc.invalidateQueries({ queryKey: ["transactions", "me"] });
       await qc.invalidateQueries({ queryKey: ["savings", "me", "summary"] });
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "balance"] });
     },
   });
 }
 
+export function useFinalizeWithdrawalOtpMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; transferCode: string; otp: string }) =>
+      finalizeWithdrawalOtp(input.id, { transferCode: input.transferCode, otp: input.otp }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "admin"] });
+      await qc.invalidateQueries({ queryKey: ["transactions", "me"] });
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "balance"] });
+    },
+  });
+}
+
+export function useResendWithdrawalOtpMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; transferCode: string; reason?: string }) =>
+      resendWithdrawalOtp(input.id, { transferCode: input.transferCode, reason: input.reason }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "admin"] });
+    },
+  });
+}

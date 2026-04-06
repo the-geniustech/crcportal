@@ -4,13 +4,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { useWithdrawalsAdminQuery } from "@/hooks/finance/useWithdrawalsAdminQuery";
 import {
   useApproveWithdrawalMutation,
   useCompleteWithdrawalMutation,
+  useFinalizeWithdrawalOtpMutation,
   useMarkWithdrawalProcessingMutation,
   useRejectWithdrawalMutation,
+  useResendWithdrawalOtpMutation,
 } from "@/hooks/finance/useWithdrawalAdminMutations";
 import { getContributionTypeLabel } from "@/lib/contributionPolicy";
 import {
@@ -24,9 +31,8 @@ import {
   User,
   Calendar,
   Search,
-  Filter,
-  MessageSquare,
   Send,
+  Info,
 } from "lucide-react";
 
 interface WithdrawalRequest {
@@ -48,9 +54,20 @@ interface WithdrawalRequest {
   completed_at: string | null;
   payout_reference: string | null;
   payout_gateway: string | null;
+  payout_transfer_code: string | null;
+  payout_status: string | null;
+  payout_otp_resent_at: string | null;
 }
 
-export default function WithdrawalApprovalPanel() {
+interface WithdrawalApprovalPanelProps {
+  canCompletePayout?: boolean;
+  canFinalizeOtp?: boolean;
+}
+
+export default function WithdrawalApprovalPanel({
+  canCompletePayout = true,
+  canFinalizeOtp = true,
+}: WithdrawalApprovalPanelProps) {
   const { toast } = useToast();
   const [withdrawals, setWithdrawals] = useState<WithdrawalRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,6 +81,11 @@ export default function WithdrawalApprovalPanel() {
   const [completionTarget, setCompletionTarget] =
     useState<WithdrawalRequest | null>(null);
   const [payoutReference, setPayoutReference] = useState("");
+  const [otpTarget, setOtpTarget] = useState<WithdrawalRequest | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [transferCode, setTransferCode] = useState("");
+  const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0);
+  const [otpResendCooldownSeconds, setOtpResendCooldownSeconds] = useState(0);
 
   const withdrawalsQuery = useWithdrawalsAdminQuery({
     status: filter === "all" ? undefined : filter,
@@ -72,9 +94,11 @@ export default function WithdrawalApprovalPanel() {
   const rejectMutation = useRejectWithdrawalMutation();
   const markProcessingMutation = useMarkWithdrawalProcessingMutation();
   const completeMutation = useCompleteWithdrawalMutation();
+  const finalizeOtpMutation = useFinalizeWithdrawalOtpMutation();
+  const resendOtpMutation = useResendWithdrawalOtpMutation();
 
   useEffect(() => {
-    const data = (withdrawalsQuery.data ?? []).map((w: unknown) => ({
+    const data = (withdrawalsQuery.data?.withdrawals ?? []).map((w: unknown) => ({
       id: String(w._id),
       user_id: String(w.userId),
       amount: Number(w.amount || 0),
@@ -93,11 +117,51 @@ export default function WithdrawalApprovalPanel() {
       completed_at: w.completedAt ? String(w.completedAt) : null,
       payout_reference: w.payoutReference ? String(w.payoutReference) : null,
       payout_gateway: w.payoutGateway ? String(w.payoutGateway) : null,
+      payout_transfer_code: w.payoutTransferCode ? String(w.payoutTransferCode) : null,
+      payout_status: w.payoutStatus ? String(w.payoutStatus) : null,
+      payout_otp_resent_at: w.payoutOtpResentAt ? String(w.payoutOtpResentAt) : null,
     }));
 
     setWithdrawals(data);
     setLoading(withdrawalsQuery.isLoading);
-  }, [withdrawalsQuery.data, withdrawalsQuery.isLoading]);
+  }, [withdrawalsQuery.data?.withdrawals, withdrawalsQuery.isLoading]);
+
+  useEffect(() => {
+    const cooldown = withdrawalsQuery.data?.otpResendCooldownSeconds;
+    if (typeof cooldown === "number") {
+      setOtpResendCooldownSeconds(Math.max(0, cooldown));
+    }
+  }, [withdrawalsQuery.data?.otpResendCooldownSeconds]);
+
+  useEffect(() => {
+    if (resendCooldownSeconds <= 0) return undefined;
+    const timer = setTimeout(() => {
+      setResendCooldownSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldownSeconds]);
+
+  useEffect(() => {
+    if (!otpTarget) {
+      setResendCooldownSeconds(0);
+      return;
+    }
+    if (!otpTarget.payout_otp_resent_at || !otpResendCooldownSeconds) {
+      setResendCooldownSeconds(0);
+      return;
+    }
+    const lastResentAt = Date.parse(otpTarget.payout_otp_resent_at);
+    if (!Number.isFinite(lastResentAt)) {
+      setResendCooldownSeconds(0);
+      return;
+    }
+    const elapsedSeconds = Math.floor((Date.now() - lastResentAt) / 1000);
+    const remainingSeconds = Math.max(
+      otpResendCooldownSeconds - elapsedSeconds,
+      0,
+    );
+    setResendCooldownSeconds(remainingSeconds);
+  }, [otpTarget, otpResendCooldownSeconds]);
 
   const handleApprove = async (withdrawal: WithdrawalRequest) => {
     setProcessingId(withdrawal.id);
@@ -165,18 +229,43 @@ export default function WithdrawalApprovalPanel() {
   };
 
   const handleMarkComplete = async (withdrawal: WithdrawalRequest) => {
+    if (!canCompletePayout) return;
     setProcessingId(withdrawal.id);
     try {
-      await completeMutation.mutateAsync({
+      const result = await completeMutation.mutateAsync({
         id: withdrawal.id,
         reference: payoutReference || undefined,
         gateway: "paystack",
       });
 
-      toast({
-        title: "Withdrawal Completed",
-        description: `Withdrawal of ₦${withdrawal.amount.toLocaleString()} marked as completed`,
-      });
+      const payoutStatus = result?.withdrawal?.payoutStatus;
+      if (payoutStatus === "otp") {
+        toast({
+          title: "OTP Required",
+          description:
+            "Paystack requested OTP authorization. Finalize the transfer to complete this payout.",
+        });
+        const updatedWithdrawal = {
+          ...withdrawal,
+          status: "processing",
+          payout_reference:
+            result?.withdrawal?.payoutReference ?? withdrawal.payout_reference,
+          payout_gateway:
+            result?.withdrawal?.payoutGateway ?? withdrawal.payout_gateway,
+          payout_transfer_code:
+            result?.withdrawal?.payoutTransferCode ??
+            withdrawal.payout_transfer_code,
+          payout_status: "otp",
+        };
+        setOtpTarget(updatedWithdrawal);
+        setTransferCode(updatedWithdrawal.payout_transfer_code || "");
+        setOtpCode("");
+      } else {
+        toast({
+          title: "Withdrawal Completed",
+          description: `Withdrawal of ₦${withdrawal.amount.toLocaleString()} marked as completed`,
+        });
+      }
 
       await withdrawalsQuery.refetch();
       setCompletionTarget(null);
@@ -193,6 +282,111 @@ export default function WithdrawalApprovalPanel() {
     }
   };
 
+  const handleFinalizeOtp = async (withdrawal: WithdrawalRequest) => {
+    if (!canFinalizeOtp) return;
+    if (!otpCode.trim()) {
+      toast({
+        title: "OTP Required",
+        description: "Enter the OTP sent by Paystack to finalize this transfer.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!transferCode.trim()) {
+      toast({
+        title: "Transfer Code Required",
+        description: "Enter the transfer code for this payout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setProcessingId(withdrawal.id);
+    try {
+      await finalizeOtpMutation.mutateAsync({
+        id: withdrawal.id,
+        transferCode: transferCode.trim(),
+        otp: otpCode.trim(),
+      });
+
+      toast({
+        title: "Transfer Finalized",
+        description: "OTP verified. The payout is now processing.",
+      });
+
+      await withdrawalsQuery.refetch();
+      setOtpTarget(null);
+      setOtpCode("");
+      setTransferCode("");
+    } catch (error: unknown) {
+      toast({
+        title: "Finalize Failed",
+        description:
+          (error as Error).message || "Failed to finalize transfer",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
+
+  const handleResendOtp = async (withdrawal: WithdrawalRequest) => {
+    if (!canFinalizeOtp) return;
+    if (!transferCode.trim()) {
+      toast({
+        title: "Transfer Code Required",
+        description: "Enter the transfer code to resend OTP.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setProcessingId(withdrawal.id);
+    try {
+      const result = await resendOtpMutation.mutateAsync({
+        id: withdrawal.id,
+        transferCode: transferCode.trim(),
+      });
+
+      toast({
+        title: "OTP Resent",
+        description: "A new OTP has been sent to your Paystack contact.",
+      });
+
+      const retryAfter = result?.retryAfter;
+      const cooldown =
+        typeof retryAfter === "number" && retryAfter > 0
+          ? retryAfter
+          : otpResendCooldownSeconds;
+      if (cooldown > 0) {
+        setResendCooldownSeconds(cooldown);
+        setOtpResendCooldownSeconds(cooldown);
+      }
+
+      await withdrawalsQuery.refetch();
+    } catch (error: unknown) {
+      const retryAfter = (error as Error & { retryAfter?: number }).retryAfter;
+      const cooldown =
+        typeof retryAfter === "number" && retryAfter > 0
+          ? retryAfter
+          : otpResendCooldownSeconds;
+      if (cooldown > 0) {
+        setResendCooldownSeconds(cooldown);
+        setOtpResendCooldownSeconds(cooldown);
+      }
+      toast({
+        title: "Resend Failed",
+        description:
+          (error as Error).message || "Failed to resend OTP",
+        variant: "destructive",
+      });
+    } finally {
+      setProcessingId(null);
+    }
+  };
+  
   const handleMarkProcessing = async (withdrawal: WithdrawalRequest) => {
     setProcessingId(withdrawal.id);
     try {
@@ -206,14 +400,23 @@ export default function WithdrawalApprovalPanel() {
       toast({
         title: "Error",
         description:
-          (error as Error).message ||
-          "Failed to mark withdrawal as processing",
+          (error as Error).message || "Failed to mark withdrawal as processing",
         variant: "destructive",
       });
     } finally {
       setProcessingId(null);
     }
   };
+
+  const resendDisabled =
+    !otpTarget ||
+    processingId === otpTarget.id ||
+    resendCooldownSeconds > 0;
+
+  const resendLabel =
+    resendCooldownSeconds > 0
+      ? `Resend OTP (${resendCooldownSeconds}s)`
+      : "Resend OTP";
 
   const filteredWithdrawals = withdrawals.filter((w) => {
     const matchesSearch =
@@ -450,6 +653,15 @@ export default function WithdrawalApprovalPanel() {
                             : "Gateway"}{" "}
                           · {withdrawal.payout_reference}
                         </p>
+                      )}                      {withdrawal.payout_status && (
+                        <p className="mt-1 text-amber-600 text-xs">
+                          Payout Status: {withdrawal.payout_status.toUpperCase()}
+                        </p>
+                      )}
+                      {withdrawal.payout_transfer_code && (
+                        <p className="mt-1 text-gray-500 text-xs">
+                          Transfer Code: {withdrawal.payout_transfer_code}
+                        </p>
                       )}
                     </div>
                   </div>
@@ -483,35 +695,107 @@ export default function WithdrawalApprovalPanel() {
                         )}
                         Mark Processing
                       </Button>
-                      <Button
-                        size="sm"
-                        className="bg-purple-600 hover:bg-purple-700"
-                        onClick={() => {
-                          setCompletionTarget(withdrawal);
-                          setPayoutReference("");
-                        }}
-                        disabled={processingId === withdrawal.id}
-                      >
-                        <Send className="mr-1 w-4 h-4" />
-                        Complete Payout
-                      </Button>
+                      {canCompletePayout && (
+                        <Button
+                          size="sm"
+                          className="bg-purple-600 hover:bg-purple-700"
+                          onClick={() => {
+                            setCompletionTarget(withdrawal);
+                            setPayoutReference("");
+                          }}
+                          disabled={processingId === withdrawal.id}
+                        >
+                          <Send className="mr-1 w-4 h-4" />
+                          Complete Payout
+                        </Button>
+                      )}
+                      {!canCompletePayout && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 cursor-help"
+                              tabIndex={0}
+                            >
+                              Admin action required
+                              <Info className="h-3 w-3" />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Only admins can complete payouts.
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </div>
                   )}
 
                   {withdrawal.status === "processing" && (
                     <div className="flex gap-2 mt-4 pt-4 border-t">
-                      <Button
-                        size="sm"
-                        className="bg-purple-600 hover:bg-purple-700"
-                        onClick={() => {
-                          setCompletionTarget(withdrawal);
-                          setPayoutReference("");
-                        }}
-                        disabled={processingId === withdrawal.id}
-                      >
-                        <Send className="mr-1 w-4 h-4" />
-                        Complete Payout
-                      </Button>
+                      {withdrawal.payout_status === "otp" ? (
+                        canFinalizeOtp ? (
+                          <Button
+                            size="sm"
+                            className="bg-amber-600 hover:bg-amber-700"
+                            onClick={() => {
+                              setOtpTarget(withdrawal);
+                              setTransferCode(
+                                withdrawal.payout_transfer_code || "",
+                              );
+                              setOtpCode("");
+                            }}
+                            disabled={processingId === withdrawal.id}
+                          >
+                            <Send className="mr-1 w-4 h-4" />
+                            Finalize OTP
+                          </Button>
+                        ) : null
+                      ) : canCompletePayout ? (
+                        <Button
+                          size="sm"
+                          className="bg-purple-600 hover:bg-purple-700"
+                          onClick={() => {
+                            setCompletionTarget(withdrawal);
+                            setPayoutReference("");
+                          }}
+                          disabled={processingId === withdrawal.id}
+                        >
+                          <Send className="mr-1 w-4 h-4" />
+                          Complete Payout
+                        </Button>
+                      ) : null}
+                      {!canFinalizeOtp &&
+                        withdrawal.payout_status === "otp" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 cursor-help"
+                                tabIndex={0}
+                              >
+                                Admin action required
+                                <Info className="h-3 w-3" />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Only admins can finalize OTP transfers.
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      {!canCompletePayout &&
+                        withdrawal.payout_status !== "otp" && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 cursor-help"
+                                tabIndex={0}
+                              >
+                                Admin action required
+                                <Info className="h-3 w-3" />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              Only admins can complete payouts.
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
                     </div>
                   )}
                 </div>
@@ -630,7 +914,7 @@ export default function WithdrawalApprovalPanel() {
       )}
 
       {/* Complete Payout Modal */}
-      {completionTarget && (
+      {canCompletePayout && completionTarget && (
         <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/50 p-4">
           <Card className="w-full max-w-lg">
             <CardHeader>
@@ -640,14 +924,16 @@ export default function WithdrawalApprovalPanel() {
               <div className="bg-gray-50 p-4 rounded-lg">
                 <div className="flex justify-between items-center">
                   <div>
-                    <p className="font-medium">{completionTarget.account_name}</p>
+                    <p className="font-medium">
+                      {completionTarget.account_name}
+                    </p>
                     <p className="text-gray-500 text-sm">
                       {completionTarget.bank_name} -{" "}
                       {completionTarget.account_number}
                     </p>
                   </div>
                   <p className="font-bold text-xl">
-                    â‚¦{completionTarget.amount.toLocaleString()}
+                    ₦{completionTarget.amount.toLocaleString()}
                   </p>
                 </div>
               </div>
@@ -698,6 +984,101 @@ export default function WithdrawalApprovalPanel() {
           </Card>
         </div>
       )}
+    
+      {/* Finalize OTP Modal */}
+      {canFinalizeOtp && otpTarget && (
+        <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/50 p-4">
+          <Card className="w-full max-w-lg">
+            <CardHeader>
+              <CardTitle>Finalize Paystack OTP</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-amber-50 p-3 rounded-lg text-amber-800 text-sm">
+                Paystack requires OTP authorization to complete this transfer.
+              </div>
+
+              <div>
+                <label className="font-medium text-gray-700 text-sm">
+                  Transfer Code
+                </label>
+                <Input
+                  placeholder="e.g., TRF_ABC123"
+                  value={transferCode}
+                  onChange={(e) => setTransferCode(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <label className="font-medium text-gray-700 text-sm">
+                  OTP
+                </label>
+                <Input
+                  placeholder="Enter OTP"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className="mt-1"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setOtpTarget(null);
+                    setOtpCode("");
+                    setTransferCode("");
+                  }}
+                  disabled={processingId === otpTarget.id}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => handleResendOtp(otpTarget)}
+                  disabled={resendDisabled}
+                >
+                  {processingId === otpTarget.id ? (
+                    <Loader2 className="mr-1 w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1 w-4 h-4" />
+                  )}
+                  {resendLabel}
+                </Button>
+                <Button
+                  className="flex-1 bg-amber-600 hover:bg-amber-700"
+                  onClick={() => handleFinalizeOtp(otpTarget)}
+                  disabled={processingId === otpTarget.id}
+                >
+                  {processingId === otpTarget.id ? (
+                    <Loader2 className="mr-1 w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="mr-1 w-4 h-4" />
+                  )}
+                  Finalize OTP
+                </Button>
+              </div>
+              {resendCooldownSeconds > 0 && (
+                <p className="text-amber-700 text-xs">
+                  You can resend a new OTP in {resendCooldownSeconds}s.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
+
+
+
+
+
+
+
+

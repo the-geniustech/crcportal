@@ -17,6 +17,7 @@ interface GroupCardProps {
     memberCount: number;
     maxMembers: number;
     monthlyContribution: number;
+    expectedMonthlyContribution?: number;
     totalSavings: number;
     category: string;
     nextMeeting?: string;
@@ -43,6 +44,29 @@ const GroupCard: React.FC<GroupCardProps> = ({
   joinDisabledReason,
 }) => {
   const isJoinDisabled = Boolean(joinDisabled);
+  const formatCurrency = (value: number) => {
+    const safe = Number.isFinite(value) ? value : 0;
+    return new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      maximumFractionDigits: 0,
+    }).format(safe);
+  };
+  const formatCompactCurrency = (value: number) => {
+    const safe = Number.isFinite(value) ? value : 0;
+    return new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(safe);
+  };
+  const monthlyAmount = Number.isFinite(group.expectedMonthlyContribution)
+    ? (group.expectedMonthlyContribution as number)
+    : group.monthlyContribution;
+  const monthlyLabel = formatCompactCurrency(monthlyAmount);
+  const monthlyPrefix =
+    group.expectedMonthlyContribution !== undefined ? "Expected " : "";
   return (
     <div className="group bg-white shadow-sm hover:shadow-lg border border-gray-100 rounded-2xl overflow-hidden transition-all duration-300">
       {/* Group Image */}
@@ -117,7 +141,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
           </div>
           <div className="flex items-center gap-2 text-gray-600 text-sm">
             <TrendingUp className="w-4 h-4 text-emerald-500" />
-            <span>₦{(group.monthlyContribution / 1000).toFixed(0)}K/mo</span>
+            <span>
+              {monthlyPrefix}
+              {monthlyLabel}/mo
+            </span>
           </div>
           {group.nextMeeting && (
             <div className="flex items-center gap-2 text-gray-600 text-sm">
@@ -131,7 +158,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
         <div className="bg-emerald-50 mb-4 p-3 rounded-xl">
           <p className="mb-1 text-emerald-600 text-xs">Total Group Savings</p>
           <p className="font-bold text-emerald-700 text-lg">
-            ₦{group.totalSavings.toLocaleString()}
+            {formatCurrency(group.totalSavings)}
           </p>
         </div>
 

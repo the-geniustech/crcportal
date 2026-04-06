@@ -1,7 +1,13 @@
 import React, { useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useSavingsSummaryQuery } from '@/hooks/finance/useSavingsSummaryQuery';
 import { useMyLoanApplicationsQuery } from '@/hooks/loans/useMyLoanApplicationsQuery';
+import { useDashboardSummaryQuery } from '@/hooks/dashboard/useDashboardSummaryQuery';
+import { Info } from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface HeroSectionProps {
   onGetStartedClick: () => void;
@@ -11,27 +17,43 @@ interface HeroSectionProps {
 const HeroSection: React.FC<HeroSectionProps> = ({ onGetStartedClick, onLoginClick }) => {
   const { user, profile, loading } = useAuth();
   const isAuthenticated = Boolean(user && !loading);
-  const savingsSummaryQuery = useSavingsSummaryQuery({ enabled: isAuthenticated });
+  const dashboardSummaryQuery = useDashboardSummaryQuery({
+    enabled: isAuthenticated,
+  });
   const myLoansQuery = useMyLoanApplicationsQuery({ enabled: isAuthenticated });
 
-  const totalSavings = Number(savingsSummaryQuery.data?.ledgerBalance ?? 0);
+  const totalContributions = Number(
+    dashboardSummaryQuery.data?.totalContributions ?? 0,
+  );
+  const formatCompactNaira = (amount: number) => {
+    if (!Number.isFinite(amount)) return '₦0';
+    const label = new Intl.NumberFormat('en-NG', {
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(amount);
+    return `₦${label}`;
+  };
   const activeLoans = (myLoansQuery.data ?? []).filter(
     (loan) => loan.status === 'disbursed' || loan.status === 'defaulted',
   ).length;
   const isStatsLoading =
-    savingsSummaryQuery.isLoading || myLoansQuery.isLoading;
+    dashboardSummaryQuery.isLoading || myLoansQuery.isLoading;
   const hasStatsError =
-    savingsSummaryQuery.isError || myLoansQuery.isError;
+    dashboardSummaryQuery.isError || myLoansQuery.isError;
   const showStatsPlaceholder = isStatsLoading || hasStatsError;
+  const totalContributionsLabel = showStatsPlaceholder
+    ? "\u2014"
+    : formatCompactNaira(totalContributions);
+  const totalContributionsFull = `₦${totalContributions.toLocaleString()}`;
 
   useEffect(() => {
     if (hasStatsError) {
       console.error("Failed to load hero stats", {
-        savingsError: savingsSummaryQuery.error,
+        dashboardSummaryError: dashboardSummaryQuery.error,
         loansError: myLoansQuery.error,
       });
     }
-  }, [hasStatsError, savingsSummaryQuery.error, myLoansQuery.error]);
+  }, [hasStatsError, dashboardSummaryQuery.error, myLoansQuery.error]);
 
   return (
     <section className="relative min-h-[calc(100vh-8rem)] flex items-center justify-center overflow-hidden">
@@ -95,10 +117,29 @@ const HeroSection: React.FC<HeroSectionProps> = ({ onGetStartedClick, onLoginCli
                   className="bg-white/10 backdrop-blur-sm rounded-xl p-4"
                   title={hasStatsError ? "Stats unavailable" : undefined}
                 >
-                  <p className="text-2xl font-bold text-white">
-                    {showStatsPlaceholder ? "\u2014" : `\u20A6${totalSavings.toLocaleString()}`}
+                  <p
+                    className="text-2xl font-bold text-white"
+                    title={showStatsPlaceholder ? undefined : totalContributionsFull}
+                  >
+                    {totalContributionsLabel}
                   </p>
-                  <p className="text-sm text-emerald-200">Total Savings</p>
+                  <div className="flex items-center justify-center gap-1 text-sm text-emerald-200">
+                    <span>Total Contribution</span>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="rounded-full p-0.5 text-emerald-200 transition hover:text-white focus:outline-none focus:ring-2 focus:ring-white/60"
+                        >
+                          <Info className="h-3.5 w-3.5" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        Includes all verified contribution deposits and group
+                        contributions across your membership.
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
                 </div>
                 <div
                   className="bg-white/10 backdrop-blur-sm rounded-xl p-4"

@@ -9,6 +9,9 @@ export type NotificationPreferences = {
   loanUpdates: boolean;
   meetingReminders: boolean;
   marketingEmails: boolean;
+  loanPdfSendApplicant?: boolean;
+  loanPdfSendGuarantors?: boolean;
+  loanPdfExtraEmails?: string[];
 };
 
 export async function getNotificationPreferences() {
@@ -20,7 +23,9 @@ export async function getNotificationPreferences() {
   }
 }
 
-export async function updateNotificationPreferences(payload: NotificationPreferences) {
+export async function updateNotificationPreferences(
+  payload: Partial<NotificationPreferences>,
+) {
   try {
     const res = await api.put("/users/me/notification-preferences", payload);
     return res.data?.data?.preferences as NotificationPreferences;
@@ -28,4 +33,3 @@ export async function updateNotificationPreferences(payload: NotificationPrefere
     throw new Error(getApiErrorMessage(err));
   }
 }
-

@@ -118,6 +118,20 @@ const MONTHS = [
   "December",
 ];
 
+const getEffectiveContributionPeriod = (date = new Date()) => {
+  const day = date.getDate();
+  let year = date.getFullYear();
+  let month = date.getMonth() + 1;
+  if (day <= 4) {
+    month -= 1;
+    if (month <= 0) {
+      month = 12;
+      year -= 1;
+    }
+  }
+  return { year, month };
+};
+
 const CONTRIBUTION_TYPE_COLORS: Record<ContributionTypeCanonical, string> = {
   revolving: "bg-emerald-100 text-emerald-700",
   special: "bg-amber-100 text-amber-700",
@@ -202,11 +216,17 @@ const ContributionGroupsContent: React.FC = () => {
   const [showRemoveCoordinator, setShowRemoveCoordinator] = useState(false);
   const [showContributionModal, setShowContributionModal] = useState(false);
   const [activeTab, setActiveTab] = useState("all-groups");
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+  const defaultPeriod = useMemo(() => getEffectiveContributionPeriod(), []);
+  const [selectedYear, setSelectedYear] = useState(defaultPeriod.year);
+  const [selectedMonth, setSelectedMonth] = useState(defaultPeriod.month);
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [contributionType, setContributionType] =
     useState<ContributionTypeCanonical>("revolving");
+
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 8 }, (_, idx) => currentYear - idx);
+  }, []);
 
   // Coordinator assignment form
   const [coordinatorSearch, setCoordinatorSearch] = useState("");
@@ -240,6 +260,7 @@ const ContributionGroupsContent: React.FC = () => {
   });
   const contributionTrackingQuery = useAdminContributionTrackingQuery({
     year: selectedYear,
+    month: selectedMonth,
     contributionType,
   });
 
@@ -705,6 +726,47 @@ const ContributionGroupsContent: React.FC = () => {
           </div> */}
         </div>
 
+        <div className="bg-white shadow-sm mb-6 p-4 border border-gray-100 rounded-xl">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-medium text-gray-700 text-sm">
+              Contribution Period
+            </span>
+            <Select
+              value={selectedYear.toString()}
+              onValueChange={(v) => setSelectedYear(parseInt(v))}
+            >
+              <SelectTrigger className="w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {yearOptions.map((year) => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={selectedMonth.toString()}
+              onValueChange={(v) => setSelectedMonth(parseInt(v))}
+            >
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {MONTHS.map((month, idx) => (
+                  <SelectItem key={month} value={(idx + 1).toString()}>
+                    {month}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="text-gray-500 text-xs">
+              Window: 27th - 4th (next month)
+            </span>
+          </div>
+        </div>
+
         {/* Stats Cards */}
         <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mb-8">
           <div className="bg-white shadow-sm p-5 border border-gray-100 rounded-xl">
@@ -753,7 +815,7 @@ const ContributionGroupsContent: React.FC = () => {
               </div>
               <div>
                 <p className="font-bold text-gray-900 text-2xl">
-                  ₦{(stats.totalSavings / 1000000).toFixed(1)}M
+                  ?{(stats.totalSavings / 1000000).toFixed(1)}M
                 </p>
                 <p className="text-gray-500 text-sm">Total Savings</p>
               </div>
@@ -904,7 +966,7 @@ const ContributionGroupsContent: React.FC = () => {
                         <div>
                           <p className="text-gray-500 text-xs">Monthly</p>
                           <p className="font-semibold text-gray-900">
-                            ₦{group.monthly_contribution.toLocaleString()}
+                            ?{group.monthly_contribution.toLocaleString()}
                           </p>
                         </div>
                       </div>
@@ -962,7 +1024,7 @@ const ContributionGroupsContent: React.FC = () => {
                               {type.label}
                             </h3>
                             <p className="font-bold text-3xl">
-                              ₦{(totalCollected / 1000000).toFixed(1)}M
+                              ?{(totalCollected / 1000000).toFixed(1)}M
                             </p>
                             <p className="mt-1 text-purple-200 text-sm">
                               Total collected
@@ -1052,9 +1114,11 @@ const ContributionGroupsContent: React.FC = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="2024">2024</SelectItem>
-                      <SelectItem value="2025">2025</SelectItem>
-                      <SelectItem value="2026">2026</SelectItem>
+                      {yearOptions.map((year) => (
+                        <SelectItem key={year} value={year.toString()}>
+                          {year}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                   <Select
@@ -1145,7 +1209,7 @@ const ContributionGroupsContent: React.FC = () => {
                             );
                           })}
                           <td className="px-4 py-3 font-medium text-gray-900 text-right">
-                            ₦
+                            ?
                             {(
                               trackingByGroupId.get(group.id)?.totalPaid ?? 0
                             ).toLocaleString()}
@@ -1244,13 +1308,13 @@ const ContributionGroupsContent: React.FC = () => {
                     <div>
                       <p className="text-gray-500 text-sm">Monthly</p>
                       <p className="font-bold text-gray-900 text-xl">
-                        ₦{selectedGroup.monthly_contribution.toLocaleString()}
+                        ?{selectedGroup.monthly_contribution.toLocaleString()}
                       </p>
                     </div>
                     <div>
                       <p className="text-gray-500 text-sm">Total Savings</p>
                       <p className="font-bold text-emerald-600 text-xl">
-                        ₦{selectedGroup.total_savings.toLocaleString()}
+                        ?{selectedGroup.total_savings.toLocaleString()}
                       </p>
                     </div>
                     <div>
@@ -1326,7 +1390,7 @@ const ContributionGroupsContent: React.FC = () => {
                               </div>
                             </td>
                             <td className="px-4 py-3 font-medium text-gray-900">
-                              ₦{contribution.amount.toLocaleString()}
+                              ?{contribution.amount.toLocaleString()}
                             </td>
                             <td className="px-4 py-3">
                               <Badge
@@ -1537,3 +1601,4 @@ const ContributionGroups: React.FC = () => {
 };
 
 export default ContributionGroups;
+

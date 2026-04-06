@@ -21,6 +21,14 @@ export type BackendLoanGuarantorInfo = {
   savingsBalance?: number | null;
   liabilityPercentage?: number | null;
   requestMessage?: string | null;
+  signature?: {
+    method?: "text" | "draw" | "upload" | null;
+    text?: string | null;
+    font?: string | null;
+    imageUrl?: string | null;
+    imagePublicId?: string | null;
+    signedAt?: string | null;
+  } | null;
 };
 
 export type BackendLoanApplication = {
@@ -38,9 +46,16 @@ export type BackendLoanApplication = {
   interestRate?: number | null;
   interestRateType?: "annual" | "monthly" | "total" | null;
   monthlyIncome?: number | null;
+  disbursementBankAccountId?: string | null;
+  disbursementBankName?: string | null;
+  disbursementBankCode?: string | null;
+  disbursementAccountNumber?: string | null;
+  disbursementAccountName?: string | null;
   documents?: BackendLoanDocument[];
   guarantors?: BackendLoanGuarantorInfo[];
   status: string;
+  draftStep?: number | null;
+  draftLastSavedAt?: string | null;
   approvedAmount?: number | null;
   approvedInterestRate?: number | null;
   approvedAt?: string | null;
@@ -165,6 +180,7 @@ export async function getLoanEligibility(): Promise<BackendLoanEligibility> {
 }
 
 export type CreateLoanApplicationInput = {
+  draftId?: string | null;
   groupId?: string | null;
   groupName?: string | null;
   loanType: string;
@@ -175,6 +191,7 @@ export type CreateLoanApplicationInput = {
   interestRate?: number | null;
   interestRateType?: "annual" | "monthly" | "total" | null;
   monthlyIncome?: number | null;
+  bankAccountId?: string | null;
   documents?: BackendLoanDocument[];
   guarantors?: BackendLoanGuarantorInfo[];
 };
@@ -210,6 +227,79 @@ export async function uploadLoanDocuments(
       },
     });
     return (res.data?.data?.documents ?? []) as BackendLoanDocument[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type LoanSignatureUpload = {
+  url: string;
+  publicId?: string | null;
+  width?: number | null;
+  height?: number | null;
+  format?: string | null;
+  bytes?: number | null;
+  originalFilename?: string | null;
+  resourceType?: string | null;
+};
+
+export async function uploadLoanSignature(
+  file: File,
+  opts?: { onProgress?: (percent: number) => void },
+): Promise<LoanSignatureUpload> {
+  try {
+    const formData = new FormData();
+    formData.append("signature", file);
+    const res = await api.post("/loans/signatures", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress: (event) => {
+        if (!opts?.onProgress) return;
+        const total = event.total ?? 0;
+        if (!total) return;
+        const pct = Math.min(100, Math.round((event.loaded / total) * 100));
+        opts.onProgress(pct);
+      },
+    });
+    return res.data?.data?.signature as LoanSignatureUpload;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type LoanDraftInput = Partial<CreateLoanApplicationInput> & {
+  draftStep?: number;
+};
+
+export async function createLoanDraft(
+  input: LoanDraftInput,
+): Promise<{ application: BackendLoanApplication }> {
+  try {
+    const res = await api.post("/loans/applications/draft", input);
+    return {
+      application: res.data?.data?.application as BackendLoanApplication,
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function updateLoanDraft(
+  applicationId: string,
+  input: LoanDraftInput,
+): Promise<{ application: BackendLoanApplication }> {
+  try {
+    const res = await api.patch(`/loans/applications/${applicationId}/draft`, input);
+    return {
+      application: res.data?.data?.application as BackendLoanApplication,
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function deleteLoanDraft(applicationId: string): Promise<void> {
+  try {
+    await api.delete(`/loans/applications/${applicationId}/draft`);
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }

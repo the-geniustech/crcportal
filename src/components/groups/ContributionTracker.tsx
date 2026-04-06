@@ -49,6 +49,7 @@ interface ContributionTrackerProps {
   groupId?: string;
   selectedType?: ContributionTypeCanonical;
   onSelectedTypeChange?: (type: ContributionTypeCanonical) => void;
+  showScopedHint?: boolean;
 }
 
 const ContributionTracker: React.FC<ContributionTrackerProps> = ({
@@ -59,6 +60,7 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
   groupId,
   selectedType,
   onSelectedTypeChange,
+  showScopedHint = false,
 }) => {
   const { toast } = useToast();
   const [internalType, setInternalType] =
@@ -407,6 +409,11 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
           {ContributionTypeConfig?.[activeType]?.description ?? ""}
         </p>
       </div>
+      {showScopedHint && (
+        <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+          Showing your data only
+        </div>
+      )}
 
       {/* Stats Cards */}
       <div className="gap-4 grid grid-cols-2 md:grid-cols-4">

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { generateMyFinancialReport } from "@/lib/reports";
@@ -72,20 +72,50 @@ const FinancialReportExport: React.FC<FinancialReportExportProps> = ({
 }) => {
   const { toast } = useToast();
   const [selectedReport, setSelectedReport] = useState<ReportType | null>(null);
-  const [selectedPeriod, setSelectedPeriod] = useState<string>("2025");
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  const [selectedPeriod, setSelectedPeriod] = useState<
+    "year" | "5years" | "10years" | "custom"
+  >("year");
+  const [customRange, setCustomRange] = useState({ start: "", end: "" });
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedReports, setGeneratedReports] = useState<Set<ReportType>>(
     new Set(),
   );
 
+  const yearOptions = useMemo(() => {
+    const startYear = 2024;
+    const years = [];
+    for (let y = currentYear; y >= startYear; y -= 1) {
+      years.push(y);
+    }
+    return years;
+  }, [currentYear]);
+
   const handleGenerateReport = async (type: ReportType) => {
+    if (selectedPeriod === "custom") {
+      if (!customRange.start || !customRange.end) {
+        toast({
+          title: "Select a date range",
+          description: "Please choose both a start and end date.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
+
     setIsGenerating(true);
     setSelectedReport(type);
 
     try {
       const response = await generateMyFinancialReport({
         type,
-        period: selectedPeriod,
+        period: {
+          type: selectedPeriod,
+          year: selectedYear,
+          startDate: customRange.start || undefined,
+          endDate: customRange.end || undefined,
+        },
         memberName,
         memberId,
       });
@@ -96,7 +126,9 @@ const FinancialReportExport: React.FC<FinancialReportExportProps> = ({
         bytes[i] = binary.charCodeAt(i);
       }
 
-      const blob = new Blob([bytes], { type: response.mimeType || "application/pdf" });
+      const blob = new Blob([bytes], {
+        type: response.mimeType || "application/pdf",
+      });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -186,25 +218,84 @@ const FinancialReportExport: React.FC<FinancialReportExportProps> = ({
       </div>
 
       {/* Period Selection */}
-      <div className="bg-gray-50 p-4 rounded-xl">
-        <label className="block mb-2 font-medium text-gray-700 text-sm">
+      <div className="bg-gray-50 p-4 rounded-xl space-y-4">
+        <label className="block font-medium text-gray-700 text-sm">
           Select Report Period
         </label>
-        <div className="flex gap-2">
-          {["2025", "2024", "2023", "All Time"].map((period) => (
-            <button
-              key={period}
-              onClick={() => setSelectedPeriod(period)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                selectedPeriod === period
-                  ? "bg-emerald-600 text-white"
-                  : "bg-white text-gray-700 hover:bg-gray-100 border"
-              }`}
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="block mb-1 text-xs font-medium text-gray-600">
+              Year
+            </label>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(Number(e.target.value))}
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500"
             >
-              {period}
-            </button>
-          ))}
+              {yearOptions.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block mb-1 text-xs font-medium text-gray-600">
+              Period
+            </label>
+            <select
+              value={selectedPeriod}
+              onChange={(e) =>
+                setSelectedPeriod(
+                  e.target.value as "year" | "5years" | "10years" | "custom",
+                )
+              }
+              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="year">Selected Year</option>
+              <option value="5years">Last 5 Years</option>
+              <option value="10years">Last 10 Years</option>
+              <option value="custom">Custom Range</option>
+            </select>
+          </div>
         </div>
+
+        {selectedPeriod === "custom" && (
+          <div className="grid gap-4 md:grid-cols-2">
+            <div>
+              <label className="block mb-1 text-xs font-medium text-gray-600">
+                Start Date
+              </label>
+              <input
+                type="date"
+                value={customRange.start}
+                onChange={(e) =>
+                  setCustomRange((prev) => ({
+                    ...prev,
+                    start: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+            <div>
+              <label className="block mb-1 text-xs font-medium text-gray-600">
+                End Date
+              </label>
+              <input
+                type="date"
+                value={customRange.end}
+                onChange={(e) =>
+                  setCustomRange((prev) => ({
+                    ...prev,
+                    end: e.target.value,
+                  }))
+                }
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Report Options */}

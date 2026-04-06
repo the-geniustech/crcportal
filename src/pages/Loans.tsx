@@ -1,16 +1,21 @@
-import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { AuthProvider } from '@/contexts/AuthContext';
-import { useToast } from '@/hooks/use-toast';
-import DashboardHeader from '@/components/dashboard/DashboardHeader';
-import LoanRepaymentTracker from '@/components/loans/LoanRepaymentTracker';
-import LoanCalculator from '@/components/loans/LoanCalculator';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import DashboardHeader from "@/components/dashboard/DashboardHeader";
+import LoanRepaymentTracker from "@/components/loans/LoanRepaymentTracker";
+import LoanCalculator from "@/components/loans/LoanCalculator";
+import LoanFaqModal from "@/components/loans/LoanFaqModal";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMyLoanApplicationsQuery } from "@/hooks/loans/useMyLoanApplicationsQuery";
 import { useLoanScheduleQuery } from "@/hooks/loans/useLoanScheduleQuery";
-import type { BackendLoanApplication, BackendLoanScheduleItem } from "@/lib/loans";
+import type {
+  BackendLoanApplication,
+  BackendLoanScheduleItem,
+} from "@/lib/loans";
 import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
+import { goToContactSupport } from "@/lib/support";
 import {
   ArrowLeft,
   CreditCard,
@@ -23,7 +28,10 @@ import {
   Calendar,
   Calculator,
   Award,
-} from 'lucide-react';
+  Edit2,
+  Trash2,
+} from "lucide-react";
+import { useDeleteLoanDraftMutation } from "@/hooks/loans/useDeleteLoanDraftMutation";
 
 type LoanScheduleVM = {
   id: string;
@@ -70,11 +78,16 @@ function addMonths(date: Date, months: number): Date {
   return d;
 }
 
-function mapLoanVm(app: BackendLoanApplication, schedule: BackendLoanScheduleItem[] | null): LoanScheduleVM {
+function mapLoanVm(
+  app: BackendLoanApplication,
+  schedule: BackendLoanScheduleItem[] | null,
+): LoanScheduleVM {
   const principal = Number(app.approvedAmount ?? app.loanAmount ?? 0);
   const totalPayment = Number(app.totalRepayable ?? principal);
   const remainingBalance = Number(app.remainingBalance ?? 0);
-  const interestRate = Number(app.approvedInterestRate ?? app.interestRate ?? 0);
+  const interestRate = Number(
+    app.approvedInterestRate ?? app.interestRate ?? 0,
+  );
   const interestRateType = (app.interestRateType ?? "annual") as
     | "annual"
     | "monthly"
@@ -82,16 +95,21 @@ function mapLoanVm(app: BackendLoanApplication, schedule: BackendLoanScheduleIte
   const termMonths = Number(app.repaymentPeriod ?? 0);
   const monthlyPayment = Number(app.monthlyPayment ?? 0);
 
-  const start = app.disbursedAt || app.repaymentStartDate || app.approvedAt || app.createdAt || null;
+  const start =
+    app.disbursedAt ||
+    app.repaymentStartDate ||
+    app.approvedAt ||
+    app.createdAt ||
+    null;
   const startDate = toYmd(start);
 
-  const scheduleEnd = schedule && schedule.length ? schedule[schedule.length - 1].dueDate : null;
-  const endDate =
-    scheduleEnd
-      ? toYmd(scheduleEnd)
-      : start
-        ? toYmd(addMonths(new Date(start), Math.max(0, termMonths - 1)))
-        : "";
+  const scheduleEnd =
+    schedule && schedule.length ? schedule[schedule.length - 1].dueDate : null;
+  const endDate = scheduleEnd
+    ? toYmd(scheduleEnd)
+    : start
+      ? toYmd(addMonths(new Date(start), Math.max(0, termMonths - 1)))
+      : "";
 
   const totalInterest = Math.max(0, totalPayment - principal);
   const status =
@@ -125,23 +143,35 @@ function LoansContent() {
   const location = useLocation();
   const { toast } = useToast();
   const myAppsQuery = useMyLoanApplicationsQuery();
-  
+  const deleteDraftMutation = useDeleteLoanDraftMutation();
+
   // Check if coming from quick actions with calculator tab
   const locationState = location.state as { tab?: string } | null;
-  const initialTab = locationState?.tab === 'calculator' ? 'calculator' : 'active';
-  
+  const initialTab =
+    locationState?.tab === "calculator" ? "calculator" : "active";
+
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedLoan, setSelectedLoan] = useState<LoanScheduleVM | null>(null);
+  const [showLoanFaq, setShowLoanFaq] = useState(false);
 
   const applications = myAppsQuery.data ?? [];
-  const activeLoanApps = applications.filter((a) => a.status === "disbursed" || a.status === "defaulted");
-  const completedLoanApps = applications.filter((a) => a.status === "completed");
+  const activeLoanApps = applications.filter(
+    (a) => a.status === "disbursed" || a.status === "defaulted",
+  );
+  const completedLoanApps = applications.filter(
+    (a) => a.status === "completed",
+  );
+  const draftApps = applications.filter((a) => String(a.status) === "draft");
   const pendingApps = applications.filter((a) =>
-    ["pending", "under_review", "approved", "rejected", "cancelled"].includes(String(a.status)),
+    ["pending", "under_review", "approved", "rejected", "cancelled"].includes(
+      String(a.status),
+    ),
   );
 
   const scheduleQuery = useLoanScheduleQuery(selectedLoan?.id);
-  const paymentSchedule: PaymentScheduleItemVM[] = (scheduleQuery.data ?? []).map((it) => ({
+  const paymentSchedule: PaymentScheduleItemVM[] = (
+    scheduleQuery.data ?? []
+  ).map((it) => ({
     id: it._id,
     dueDate: toYmd(it.dueDate),
     principalAmount: it.principalAmount,
@@ -151,8 +181,12 @@ function LoansContent() {
     paidDate: it.paidAt ? toYmd(it.paidAt) : undefined,
   }));
 
-  const selectedLoanApp = selectedLoan ? activeLoanApps.find((a) => a._id === selectedLoan.id) : null;
-  const selectedLoanVm = selectedLoanApp ? mapLoanVm(selectedLoanApp, scheduleQuery.data ?? null) : null;
+  const selectedLoanApp = selectedLoan
+    ? activeLoanApps.find((a) => a._id === selectedLoan.id)
+    : null;
+  const selectedLoanVm = selectedLoanApp
+    ? mapLoanVm(selectedLoanApp, scheduleQuery.data ?? null)
+    : null;
 
   // Update tab if navigated with state
   useEffect(() => {
@@ -168,14 +202,38 @@ function LoansContent() {
   }, [activeLoanApps, selectedLoan]);
 
   const handleMakePayment = (paymentId: string, amount: number) => {
-    navigate('/payments', { state: { loanPayment: { paymentId, amount } } });
+    navigate("/payments", { state: { loanPayment: { paymentId, amount } } });
   };
 
   const handleEarlyRepayment = () => {
     toast({
-      title: 'Early Repayment',
-      description: 'Early repayment request has been submitted',
+      title: "Early Repayment",
+      description: "Early repayment request has been submitted",
     });
+  };
+
+  const handleResumeDraft = (draftId: string) => {
+    navigate(`/loan-application?draft=${draftId}`);
+  };
+
+  const handleDeleteDraft = async (draftId: string) => {
+    const confirmDelete = window.confirm(
+      "Delete this draft? This action cannot be undone.",
+    );
+    if (!confirmDelete) return;
+    try {
+      await deleteDraftMutation.mutateAsync(draftId);
+      toast({
+        title: "Draft deleted",
+        description: "Your saved draft has been removed.",
+      });
+    } catch (error) {
+      toast({
+        title: "Unable to delete draft",
+        description: "Please try again in a moment.",
+        variant: "destructive",
+      });
+    }
   };
 
   return (
@@ -185,7 +243,7 @@ function LoansContent() {
       <main className="mx-auto px-4 sm:px-6 lg:px-8 py-8 max-w-7xl">
         {/* Back Button */}
         <button
-          onClick={() => navigate('/dashboard')}
+          onClick={() => navigate("/dashboard")}
           className="flex items-center gap-2 mb-6 text-gray-600 hover:text-gray-900 transition-colors"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -206,14 +264,14 @@ function LoansContent() {
           <div className="flex gap-3 mt-4 md:mt-0">
             <Button
               variant="outline"
-              onClick={() => navigate('/credit-score')}
+              onClick={() => navigate("/credit-score")}
               className="gap-2"
             >
               <Award className="w-4 h-4" />
               Credit Score
             </Button>
             <Button
-              onClick={() => navigate('/loan-application')}
+              onClick={() => navigate("/loan-application")}
               className="gap-2 bg-emerald-600 hover:bg-emerald-700"
             >
               <Plus className="w-4 h-4" />
@@ -230,7 +288,9 @@ function LoansContent() {
                 <CreditCard className="w-6 h-6 text-emerald-600" />
               </div>
               <div>
-                <p className="font-bold text-gray-900 text-2xl">{activeLoanApps.length}</p>
+                <p className="font-bold text-gray-900 text-2xl">
+                  {activeLoanApps.length}
+                </p>
                 <p className="text-gray-500 text-sm">Active Loans</p>
               </div>
             </div>
@@ -242,7 +302,14 @@ function LoansContent() {
               </div>
               <div>
                 <p className="font-bold text-gray-900 text-2xl">
-                  ₦{(activeLoanApps.reduce((sum, l) => sum + Number(l.remainingBalance || 0), 0) / 1000).toFixed(0)}K
+                  â‚¦
+                  {(
+                    activeLoanApps.reduce(
+                      (sum, l) => sum + Number(l.remainingBalance || 0),
+                      0,
+                    ) / 1000
+                  ).toFixed(0)}
+                  K
                 </p>
                 <p className="text-gray-500 text-sm">Total Outstanding</p>
               </div>
@@ -255,7 +322,12 @@ function LoansContent() {
               </div>
               <div>
                 <p className="font-bold text-gray-900 text-2xl">
-                  {paymentSchedule.find((p) => p.status === "pending" || p.status === "overdue" || p.status === "upcoming")?.dueDate || "—"}
+                  {paymentSchedule.find(
+                    (p) =>
+                      p.status === "pending" ||
+                      p.status === "overdue" ||
+                      p.status === "upcoming",
+                  )?.dueDate || "â€”"}
                 </p>
                 <p className="text-gray-500 text-sm">Next Payment</p>
               </div>
@@ -267,7 +339,9 @@ function LoansContent() {
                 <CheckCircle className="w-6 h-6 text-amber-600" />
               </div>
               <div>
-                <p className="font-bold text-gray-900 text-2xl">{completedLoanApps.length}</p>
+                <p className="font-bold text-gray-900 text-2xl">
+                  {completedLoanApps.length}
+                </p>
                 <p className="text-gray-500 text-sm">Completed Loans</p>
               </div>
             </div>
@@ -293,16 +367,24 @@ function LoansContent() {
               <FileText className="w-4 h-4" />
               Applications
             </TabsTrigger>
+            <TabsTrigger value="drafts" className="gap-2">
+              <Edit2 className="w-4 h-4" />
+              Drafts ({draftApps.length})
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="active">
             {activeLoanApps.length === 0 ? (
               <div className="bg-white p-12 border rounded-xl text-center">
                 <CreditCard className="mx-auto mb-4 w-16 h-16 text-gray-300" />
-                <h3 className="mb-2 font-semibold text-gray-900 text-xl">No Active Loans</h3>
-                <p className="mb-6 text-gray-500">You don't have any active loans at the moment</p>
+                <h3 className="mb-2 font-semibold text-gray-900 text-xl">
+                  No Active Loans
+                </h3>
+                <p className="mb-6 text-gray-500">
+                  You don't have any active loans at the moment
+                </p>
                 <Button
-                  onClick={() => navigate('/loan-application')}
+                  onClick={() => navigate("/loan-application")}
                   className="bg-emerald-600 hover:bg-emerald-700"
                 >
                   Apply for a Loan
@@ -316,18 +398,22 @@ function LoansContent() {
                     {activeLoanApps.map((app) => {
                       const vm = mapLoanVm(app, null);
                       return (
-                      <button
-                        key={vm.id}
-                        onClick={() => setSelectedLoan(vm)}
-                        className={`px-4 py-3 rounded-xl border-2 transition-all whitespace-nowrap ${
-                          (selectedLoanVm?.id || selectedLoan?.id) === vm.id
-                            ? 'border-emerald-500 bg-emerald-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <p className="font-medium text-gray-900">{vm.purpose}</p>
-                        <p className="text-gray-500 text-sm">₦{vm.loanAmount.toLocaleString()}</p>
-                      </button>
+                        <button
+                          key={vm.id}
+                          onClick={() => setSelectedLoan(vm)}
+                          className={`px-4 py-3 rounded-xl border-2 transition-all whitespace-nowrap ${
+                            (selectedLoanVm?.id || selectedLoan?.id) === vm.id
+                              ? "border-emerald-500 bg-emerald-50"
+                              : "border-gray-200 hover:border-gray-300"
+                          }`}
+                        >
+                          <p className="font-medium text-gray-900">
+                            {vm.purpose}
+                          </p>
+                          <p className="text-gray-500 text-sm">
+                            â‚¦{vm.loanAmount.toLocaleString()}
+                          </p>
+                        </button>
                       );
                     })}
                   </div>
@@ -340,6 +426,7 @@ function LoansContent() {
                     paymentSchedule={paymentSchedule}
                     onMakePayment={handleMakePayment}
                     onEarlyRepayment={handleEarlyRepayment}
+                    onOpenFaq={() => setShowLoanFaq(true)}
                   />
                 )}
               </div>
@@ -354,16 +441,26 @@ function LoansContent() {
             {completedLoanApps.length === 0 ? (
               <div className="bg-white p-12 border rounded-xl text-center">
                 <CheckCircle className="mx-auto mb-4 w-16 h-16 text-gray-300" />
-                <h3 className="mb-2 font-semibold text-gray-900 text-xl">No Completed Loans</h3>
-                <p className="text-gray-500">Your completed loans will appear here</p>
+                <h3 className="mb-2 font-semibold text-gray-900 text-xl">
+                  No Completed Loans
+                </h3>
+                <p className="text-gray-500">
+                  Your completed loans will appear here
+                </p>
               </div>
             ) : (
               <div className="space-y-4">
                 {completedLoanApps.map((app) => {
-                  const principal = Number(app.approvedAmount ?? app.loanAmount ?? 0);
-                  const totalRepayable = Number(app.totalRepayable ?? principal);
+                  const principal = Number(
+                    app.approvedAmount ?? app.loanAmount ?? 0,
+                  );
+                  const totalRepayable = Number(
+                    app.totalRepayable ?? principal,
+                  );
                   const totalPaid = totalRepayable;
-                  const rate = Number(app.approvedInterestRate ?? app.interestRate ?? 0);
+                  const rate = Number(
+                    app.approvedInterestRate ?? app.interestRate ?? 0,
+                  );
                   const facility = getLoanFacility(app.loanType ?? "");
                   const rateType = (app.interestRateType ??
                     facility?.interestRateType ??
@@ -373,51 +470,68 @@ function LoansContent() {
                     rateType,
                     facility?.interestRateRange,
                   );
-                  const completedDate = toYmd(app.updatedAt || app.disbursedAt || app.createdAt || "");
+                  const completedDate = toYmd(
+                    app.updatedAt || app.disbursedAt || app.createdAt || "",
+                  );
 
                   return (
-                  <div key={app._id} className="bg-white p-6 border rounded-xl">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-4">
-                        <div className="flex justify-center items-center bg-emerald-100 rounded-full w-14 h-14">
-                          <CheckCircle className="w-7 h-7 text-emerald-600" />
+                    <div
+                      key={app._id}
+                      className="bg-white p-6 border rounded-xl"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-4">
+                          <div className="flex justify-center items-center bg-emerald-100 rounded-full w-14 h-14">
+                            <CheckCircle className="w-7 h-7 text-emerald-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900">
+                              {app.loanPurpose}
+                            </h3>
+                            <p className="text-gray-500 text-sm">
+                              {app.groupName || "CRC Connect"}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-900">{app.loanPurpose}</h3>
-                          <p className="text-gray-500 text-sm">{app.groupName || "CRC Connect"}</p>
+                        <span className="bg-emerald-100 px-3 py-1 rounded-full font-medium text-emerald-700 text-sm">
+                          Completed
+                        </span>
+                      </div>
+
+                      <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Loan Amount</p>
+                          <p className="font-semibold text-gray-900">
+                            â‚¦{principal.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Repaid So Far</p>
+                          <p className="font-semibold text-emerald-600">
+                            â‚¦{totalPaid.toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Interest Rate</p>
+                          <p className="font-semibold text-gray-900">
+                            {interestLabel}
+                          </p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Completed</p>
+                          <p className="font-semibold text-gray-900">
+                            {completedDate}
+                          </p>
                         </div>
                       </div>
-                      <span className="bg-emerald-100 px-3 py-1 rounded-full font-medium text-emerald-700 text-sm">
-                        Completed
-                      </span>
-                    </div>
 
-                    <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-500 text-xs">Loan Amount</p>
-                        <p className="font-semibold text-gray-900">₦{principal.toLocaleString()}</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-500 text-xs">Repaid So Far</p>
-                        <p className="font-semibold text-emerald-600">₦{totalPaid.toLocaleString()}</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-500 text-xs">Interest Rate</p>
-                        <p className="font-semibold text-gray-900">{interestLabel}</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-500 text-xs">Completed</p>
-                        <p className="font-semibold text-gray-900">{completedDate}</p>
+                      <div className="flex gap-3 mt-4">
+                        <Button variant="outline" className="gap-2">
+                          <FileText className="w-4 h-4" />
+                          Download Statement
+                        </Button>
                       </div>
                     </div>
-
-                    <div className="flex gap-3 mt-4">
-                      <Button variant="outline" className="gap-2">
-                        <FileText className="w-4 h-4" />
-                        Download Statement
-                      </Button>
-                    </div>
-                  </div>
                   );
                 })}
               </div>
@@ -428,10 +542,14 @@ function LoansContent() {
             {pendingApps.length === 0 ? (
               <div className="bg-white p-12 border rounded-xl text-center">
                 <FileText className="mx-auto mb-4 w-16 h-16 text-gray-300" />
-                <h3 className="mb-2 font-semibold text-gray-900 text-xl">No Pending Applications</h3>
-                <p className="mb-6 text-gray-500">You don't have any pending loan applications</p>
+                <h3 className="mb-2 font-semibold text-gray-900 text-xl">
+                  No Pending Applications
+                </h3>
+                <p className="mb-6 text-gray-500">
+                  You don't have any pending loan applications
+                </p>
                 <Button
-                  onClick={() => navigate('/loan-application')}
+                  onClick={() => navigate("/loan-application")}
                   className="bg-emerald-600 hover:bg-emerald-700"
                 >
                   Apply for a Loan
@@ -441,7 +559,9 @@ function LoansContent() {
               <div className="space-y-4">
                 {pendingApps.map((app) => {
                   const facility = getLoanFacility(app.loanType ?? "");
-                  const rate = Number(app.approvedInterestRate ?? app.interestRate ?? 0);
+                  const rate = Number(
+                    app.approvedInterestRate ?? app.interestRate ?? 0,
+                  );
                   const rateType = (app.interestRateType ??
                     facility?.interestRateType ??
                     "annual") as "annual" | "monthly" | "total";
@@ -452,42 +572,168 @@ function LoansContent() {
                   );
 
                   return (
-                  <div key={app._id} className="bg-white p-6 border rounded-xl">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-4">
-                        <div className="flex justify-center items-center bg-blue-100 rounded-full w-14 h-14">
-                          <FileText className="w-7 h-7 text-blue-600" />
+                    <div
+                      key={app._id}
+                      className="bg-white p-6 border rounded-xl"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-4">
+                          <div className="flex justify-center items-center bg-blue-100 rounded-full w-14 h-14">
+                            <FileText className="w-7 h-7 text-blue-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900">
+                              {app.loanPurpose}
+                            </h3>
+                            <p className="text-gray-500 text-sm">
+                              {app.groupName || "CRC Connect"}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <h3 className="font-semibold text-gray-900">{app.loanPurpose}</h3>
-                          <p className="text-gray-500 text-sm">{app.groupName || "CRC Connect"}</p>
-                        </div>
+                        <span className="bg-gray-100 px-3 py-1 rounded-full font-medium text-gray-700 text-sm">
+                          {String(app.status).replace(/_/g, " ")}
+                        </span>
                       </div>
-                      <span className="bg-gray-100 px-3 py-1 rounded-full font-medium text-gray-700 text-sm">
-                        {String(app.status).replace(/_/g, " ")}
-                      </span>
-                    </div>
 
-                    <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-500 text-xs">Requested Amount</p>
-                        <p className="font-semibold text-gray-900">₦{Number(app.loanAmount || 0).toLocaleString()}</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-500 text-xs">Term</p>
-                        <p className="font-semibold text-gray-900">{app.repaymentPeriod} months</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-500 text-xs">Interest Rate</p>
-                        <p className="font-semibold text-gray-900">{interestLabel}</p>
-                      </div>
-                      <div className="bg-gray-50 p-3 rounded-lg">
-                        <p className="text-gray-500 text-xs">Submitted</p>
-                        <p className="font-semibold text-gray-900">{toYmd(app.createdAt || "")}</p>
+                      <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">
+                            Requested Amount
+                          </p>
+                          <p className="font-semibold text-gray-900">
+                            â‚¦{Number(app.loanAmount || 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Term</p>
+                          <p className="font-semibold text-gray-900">
+                            {app.repaymentPeriod} months
+                          </p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Interest Rate</p>
+                          <p className="font-semibold text-gray-900">
+                            {interestLabel}
+                          </p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Submitted</p>
+                          <p className="font-semibold text-gray-900">
+                            {toYmd(app.createdAt || "")}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                );
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="drafts">
+            {draftApps.length === 0 ? (
+              <div className="bg-white p-12 border rounded-xl text-center">
+                <Edit2 className="mx-auto mb-4 w-16 h-16 text-gray-300" />
+                <h3 className="mb-2 font-semibold text-gray-900 text-xl">
+                  No Saved Drafts
+                </h3>
+                <p className="mb-6 text-gray-500">
+                  Saved loan applications will appear here
+                </p>
+                <Button
+                  onClick={() => navigate("/loan-application")}
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                >
+                  Start a New Application
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {draftApps.map((app) => {
+                  const facility = getLoanFacility(app.loanType ?? "");
+                  const rate = Number(app.interestRate ?? 0);
+                  const rateType = (app.interestRateType ??
+                    facility?.interestRateType ??
+                    "annual") as "annual" | "monthly" | "total";
+                  const interestLabel = formatInterestLabel(
+                    rate,
+                    rateType,
+                    facility?.interestRateRange,
+                  );
+                  const draftStep = Number(app.draftStep ?? 0) + 1;
+                  const savedAt =
+                    app.draftLastSavedAt || app.updatedAt || app.createdAt;
+
+                  return (
+                    <div
+                      key={app._id}
+                      className="bg-white p-6 border rounded-xl"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-4">
+                          <div className="flex justify-center items-center bg-amber-100 rounded-full w-14 h-14">
+                            <Edit2 className="w-7 h-7 text-amber-600" />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-gray-900">
+                              {app.loanPurpose || "Untitled Draft"}
+                            </h3>
+                            <p className="text-gray-500 text-sm">
+                              {app.groupName || "Select a group"}
+                            </p>
+                          </div>
+                        </div>
+                        <span className="bg-amber-100 px-3 py-1 rounded-full font-medium text-amber-700 text-sm">
+                          Draft
+                        </span>
+                      </div>
+
+                      <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Amount</p>
+                          <p className="font-semibold text-gray-900">
+                            â‚¦{Number(app.loanAmount || 0).toLocaleString()}
+                          </p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Step</p>
+                          <p className="font-semibold text-gray-900">
+                            {draftStep} of 6
+                          </p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Interest</p>
+                          <p className="font-semibold text-gray-900">
+                            {interestLabel}
+                          </p>
+                        </div>
+                        <div className="bg-gray-50 p-3 rounded-lg">
+                          <p className="text-gray-500 text-xs">Last Saved</p>
+                          <p className="font-semibold text-gray-900">
+                            {savedAt ? toYmd(savedAt) : "â€”"}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3 mt-4">
+                        <Button
+                          className="gap-2 bg-emerald-600 hover:bg-emerald-700"
+                          onClick={() => handleResumeDraft(app._id)}
+                        >
+                          <Edit2 className="w-4 h-4" />
+                          Continue Draft
+                        </Button>
+                        <Button
+                          variant="outline"
+                          className="gap-2 border-red-200 text-red-600"
+                          onClick={() => handleDeleteDraft(app._id)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Delete Draft
+                        </Button>
+                      </div>
+                    </div>
+                  );
                 })}
               </div>
             )}
@@ -501,21 +747,32 @@ function LoansContent() {
               <AlertTriangle className="w-6 h-6" />
             </div>
             <div>
-              <h3 className="mb-1 font-semibold text-lg">Having Trouble with Repayments?</h3>
-              <p className="mb-4 text-blue-100 text-sm">
-                If you're facing financial difficulties, contact us early. We can help you restructure your loan or find alternative solutions.
+              <h3 className="mb-1 font-semibold text-lg">
+                Need Help with Repayments?
+              </h3>
+              <p className="mb-4 text-blue-100 text-sm leading-relaxed">
+                If you are facing difficulties, reach out early so we can help
+                you restructure your loan or find alternative solutions.
               </p>
               <div className="flex flex-wrap gap-3">
-                <button className="bg-white hover:bg-blue-50 px-4 py-2 rounded-lg font-medium text-blue-600 text-sm transition-colors">
+                <button
+                  onClick={goToContactSupport}
+                  className="bg-white hover:bg-blue-50 px-4 py-2 rounded-lg font-medium text-blue-600 text-sm transition-colors"
+                >
                   Contact Support
                 </button>
-                <button className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-medium text-white text-sm transition-colors">
+                <button
+                  onClick={() => setShowLoanFaq(true)}
+                  className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-medium text-white text-sm transition-colors"
+                >
                   View Loan FAQ
                 </button>
               </div>
             </div>
           </div>
         </div>
+
+        <LoanFaqModal open={showLoanFaq} onOpenChange={setShowLoanFaq} />
       </main>
     </div>
   );

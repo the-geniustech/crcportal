@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useResetPasswordMutation } from '@/hooks/auth/useResetPasswordMutation';
+import { CONTACT_SUPPORT_HREF } from "@/lib/support";
 
 const ResetPassword: React.FC = () => {
   const navigate = useNavigate();
@@ -113,7 +114,9 @@ const ResetPassword: React.FC = () => {
             </svg>
           </div>
           <h2 className="mb-2 font-semibold text-gray-900 text-xl">Validating Reset Link</h2>
-          <p className="text-gray-600">Please wait while we verify your password reset link...</p>
+          <p className="text-gray-600 leading-relaxed">
+            Please wait while we verify your password reset link...
+          </p>
         </div>
       </div>
     );
@@ -144,7 +147,7 @@ const ResetPassword: React.FC = () => {
             
             <h2 className="mb-4 font-bold text-gray-900 text-2xl">Link Expired or Invalid</h2>
             
-            <p className="mb-6 text-gray-600">
+            <p className="mb-6 text-gray-600 leading-relaxed">
               {error || 'This password reset link has expired or is invalid. Please request a new one.'}
             </p>
 
@@ -156,10 +159,14 @@ const ResetPassword: React.FC = () => {
             </button>
 
             <p className="mt-6 text-gray-500 text-sm">
-              Need help?{' '}
-              <a href="mailto:support@crcconnect.ng" className="text-emerald-600 hover:underline">
+              Need help?{" "}
+              <a
+                href={CONTACT_SUPPORT_HREF}
+                className="text-emerald-600 hover:underline"
+              >
                 Contact Support
               </a>
+              .
             </p>
           </div>
         </div>
@@ -191,7 +198,7 @@ const ResetPassword: React.FC = () => {
           
           <h2 className="mb-4 font-bold text-gray-900 text-2xl">Password Updated!</h2>
           
-          <p className="mb-6 text-gray-600">
+          <p className="mb-6 text-gray-600 leading-relaxed">
             Your password has been successfully updated. You will be redirected to your dashboard shortly.
           </p>
 
@@ -230,7 +237,7 @@ const ResetPassword: React.FC = () => {
             </svg>
           </div>
           <h2 className="mb-2 font-bold text-gray-900 text-2xl">Create New Password</h2>
-          <p className="text-gray-600">
+          <p className="text-gray-600 leading-relaxed">
             Enter a strong password for your account
           </p>
         </div>

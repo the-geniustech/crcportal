@@ -1,4 +1,4 @@
-﻿import { useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { signUp, type SignUpData } from "@/lib/auth";
 
 export function useSignupMutation() {

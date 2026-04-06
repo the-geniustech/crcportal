@@ -6,12 +6,14 @@ import DashboardHeader from "@/components/dashboard/DashboardHeader";
 import PersonalInfoForm from "@/components/profile/PersonalInfoForm";
 import ProfilePhotoUpload from "@/components/profile/ProfilePhotoUpload";
 import BankingDetails from "@/components/profile/BankingDetails";
+import ContactChangeDialog from "@/components/profile/ContactChangeDialog";
 import FinancialReportExport from "@/components/reports/FinancialReportExport";
 import { useUpdateProfileMutation } from "@/hooks/profile/useUpdateProfileMutation";
 import { useSavingsSummaryQuery } from "@/hooks/finance/useSavingsSummaryQuery";
 import { useMyTransactionsQuery } from "@/hooks/finance/useMyTransactionsQuery";
 import { useMyGroupMembershipsQuery } from "@/hooks/groups/useMyGroupMembershipsQuery";
 import { useMyBankAccountsQuery } from "@/hooks/finance/useMyBankAccountsQuery";
+import { downloadMyStatement } from "@/lib/finance";
 import {
   useCreateMyBankAccountMutation,
   useDeleteMyBankAccountMutation,
@@ -23,6 +25,8 @@ import {
   FileText,
   Download,
   Edit2,
+  Mail,
+  Phone,
   TrendingUp,
   Wallet,
   ArrowUpRight,
@@ -45,6 +49,7 @@ interface RawTransaction {
 interface RawBankAccount {
   _id: string;
   bankName: string;
+  bankCode?: string | null;
   accountNumber: string;
   accountName: string;
   isPrimary: boolean;
@@ -69,22 +74,41 @@ interface Transaction {
 interface BankAccount {
   id: string;
   bankName: string;
+  bankCode?: string | null;
   accountNumber: string;
   accountName: string;
   isPrimary: boolean;
 }
 
+const formatDateInputValue = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const ProfileContent: React.FC = () => {
   const navigate = useNavigate();
-  const { user, profile, loading, refreshProfile } = useAuth();
+  const { user, profile, loading, refreshProfile, refreshSession } = useAuth();
   const { toast } = useToast();
   const updateProfileMutation = useUpdateProfileMutation(user?.id);
   const [activeTab, setActiveTab] = useState("personal");
   const [isEditing, setIsEditing] = useState(false);
+  const [emailDialogOpen, setEmailDialogOpen] = useState(false);
+  const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const [transactionFilter, setTransactionFilter] = useState<
     TransactionType | "all"
   >("all");
-  const [dateRange, setDateRange] = useState({ start: "", end: "" });
+  const [dateRange, setDateRange] = useState(() => {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    return {
+      start: formatDateInputValue(startOfMonth),
+      end: formatDateInputValue(now),
+    };
+  });
+  const [statementFormat, setStatementFormat] = useState<"pdf" | "csv">("pdf");
+  const [isDownloadingStatement, setIsDownloadingStatement] = useState(false);
 
   const savingsSummaryQuery = useSavingsSummaryQuery();
   const myGroupsQuery = useMyGroupMembershipsQuery();
@@ -118,6 +142,7 @@ const ProfileContent: React.FC = () => {
     return list.map((a) => ({
       id: a._id,
       bankName: a.bankName,
+      bankCode: a.bankCode ?? null,
       accountNumber: a.accountNumber,
       accountName: a.accountName,
       isPrimary: Boolean(a.isPrimary),
@@ -164,7 +189,6 @@ const ProfileContent: React.FC = () => {
     try {
       await updateProfileMutation.mutateAsync({
         full_name: emptyToNull(data.fullName),
-        phone: emptyToNull(data.phone),
         date_of_birth: emptyToNull(data.dateOfBirth),
         address: emptyToNull(data.address),
         city: emptyToNull(data.city),
@@ -191,6 +215,11 @@ const ProfileContent: React.FC = () => {
     }
   };
 
+  const handleContactRefresh = async () => {
+    await refreshSession();
+    await refreshProfile();
+  };
+
   const handlePhotoUpdate = (url: string) => {
     refreshProfile();
   };
@@ -202,6 +231,7 @@ const ProfileContent: React.FC = () => {
       try {
         await createBankAccountMutation.mutateAsync({
           bankName: account.bankName,
+          bankCode: account.bankCode || "",
           accountNumber: account.accountNumber,
           accountName: account.accountName,
           isPrimary: Boolean(account.isPrimary),
@@ -232,6 +262,7 @@ const ProfileContent: React.FC = () => {
           id,
           patch: {
             bankName: updates.bankName,
+            bankCode: updates.bankCode,
             accountNumber: updates.accountNumber,
             accountName: updates.accountName,
             isPrimary: updates.isPrimary,
@@ -305,59 +336,47 @@ const ProfileContent: React.FC = () => {
       return false;
     if (dateRange.start && new Date(t.date) < new Date(dateRange.start))
       return false;
-    if (dateRange.end && new Date(t.date) > new Date(dateRange.end))
-      return false;
+    if (dateRange.end) {
+      const endDate = new Date(dateRange.end);
+      endDate.setHours(23, 59, 59, 999);
+      if (new Date(t.date) > endDate) return false;
+    }
     return true;
   });
 
-  const generateStatement = () => {
-    const content = `
-COOPERATIVE SOCIETY ACCOUNT STATEMENT
-=====================================
-Member: ${profile?.full_name || "Member"}
-Email: ${user.email}
-Generated: ${new Date().toLocaleDateString()}
+  const downloadStatement = async () => {
+    setIsDownloadingStatement(true);
+    try {
+      const { blob, filename } = await downloadMyStatement({
+        format: statementFormat,
+        type: transactionFilter === "all" ? undefined : transactionFilter,
+        startDate: dateRange.start || undefined,
+        endDate: dateRange.end || undefined,
+      });
 
-TRANSACTION HISTORY
--------------------
-${filteredTransactions
-  .map(
-    (t) =>
-      `${t.date} | ${t.type.toUpperCase()} | ₦${t.amount.toLocaleString()} | ${t.description} | ${t.reference}`,
-  )
-  .join("\n")}
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const fallbackName = `statement-${new Date().toISOString().split("T")[0]}.${statementFormat}`;
+      a.download = filename || fallbackName;
+      a.click();
+      URL.revokeObjectURL(url);
 
--------------------
-Total Deposits: ₦${filteredTransactions
-      .filter((t) => t.type === "deposit")
-      .reduce((sum, t) => sum + t.amount, 0)
-      .toLocaleString()}
-Total Withdrawals: ₦${filteredTransactions
-      .filter((t) => t.type === "withdrawal")
-      .reduce((sum, t) => sum + t.amount, 0)
-      .toLocaleString()}
-Total Contributions: ₦${filteredTransactions
-      .filter((t) => t.type === "contribution")
-      .reduce((sum, t) => sum + t.amount, 0)
-      .toLocaleString()}
-Total Loan Repayments: ₦${filteredTransactions
-      .filter((t) => t.type === "loan_repayment")
-      .reduce((sum, t) => sum + t.amount, 0)
-      .toLocaleString()}
-    `;
-
-    const blob = new Blob([content], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `statement-${new Date().toISOString().split("T")[0]}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    toast({
-      title: "Statement Downloaded",
-      description: "Your account statement has been downloaded.",
-    });
+      toast({
+        title: "Statement Downloaded",
+        description: `Your ${statementFormat.toUpperCase()} statement has been downloaded.`,
+      });
+    } catch (error: unknown) {
+      toast({
+        title: "Download Failed",
+        description:
+          (error as Error)?.message ||
+          "Unable to download statement. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloadingStatement(false);
+    }
   };
 
   const tabs = [
@@ -366,7 +385,7 @@ Total Loan Repayments: ₦${filteredTransactions
     { id: "transactions", label: "Transactions", icon: FileText },
     { id: "reports", label: "Reports", icon: Download },
   ];
-
+  //
   const getTransactionIcon = (type: TransactionType) => {
     switch (type) {
       case "deposit":
@@ -434,16 +453,47 @@ Total Loan Repayments: ₦${filteredTransactions
               </div>
             </div>
             {activeTab === "personal" && (
-              <button
-                onClick={() => setIsEditing(!isEditing)}
-                className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition-colors"
-              >
-                <Edit2 className="w-4 h-4" />
-                {isEditing ? "Cancel" : "Edit Profile"}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setIsEditing(!isEditing)}
+                  className="flex items-center gap-2 bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg transition-colors"
+                >
+                  <Edit2 className="w-4 h-4" />
+                  {isEditing ? "Cancel" : "Edit Profile"}
+                </button>
+                <button
+                  onClick={() => setEmailDialogOpen(true)}
+                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-colors"
+                >
+                  <Mail className="w-4 h-4" />
+                  Change Email
+                </button>
+                <button
+                  onClick={() => setPhoneDialogOpen(true)}
+                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg transition-colors"
+                >
+                  <Phone className="w-4 h-4" />
+                  Change Phone
+                </button>
+              </div>
             )}
           </div>
         </div>
+
+        <ContactChangeDialog
+          open={emailDialogOpen}
+          mode="email"
+          currentValue={user.email}
+          onOpenChange={setEmailDialogOpen}
+          onSuccess={handleContactRefresh}
+        />
+        <ContactChangeDialog
+          open={phoneDialogOpen}
+          mode="phone"
+          currentValue={profile?.phone || user.phone || ""}
+          onOpenChange={setPhoneDialogOpen}
+          onSuccess={handleContactRefresh}
+        />
 
         {/* Tabs */}
         <div className="flex gap-2 mb-6 pb-2 overflow-x-auto">
@@ -541,13 +591,29 @@ Total Loan Repayments: ₦${filteredTransactions
                       className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
                     />
                   </div>
+                  <div>
+                    <label className="block mb-1 font-medium text-gray-700 text-sm">
+                      Format
+                    </label>
+                    <select
+                      value={statementFormat}
+                      onChange={(e) =>
+                        setStatementFormat(e.target.value as "pdf" | "csv")
+                      }
+                      className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                    >
+                      <option value="pdf">PDF</option>
+                      <option value="csv">CSV</option>
+                    </select>
+                  </div>
                   <div className="flex items-end">
                     <button
-                      onClick={generateStatement}
+                      onClick={downloadStatement}
+                      disabled={isDownloadingStatement}
                       className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 px-4 py-2 rounded-lg text-white transition-colors"
                     >
                       <Download className="w-4 h-4" />
-                      Download Statement
+                      {isDownloadingStatement ? "Downloading..." : "Download Statement"}
                     </button>
                   </div>
                 </div>
@@ -628,7 +694,6 @@ Total Loan Repayments: ₦${filteredTransactions
               />
             </div>
           )}
-
         </div>
       </main>
     </div>
@@ -644,3 +709,4 @@ const Profile: React.FC = () => {
 };
 
 export default Profile;
+

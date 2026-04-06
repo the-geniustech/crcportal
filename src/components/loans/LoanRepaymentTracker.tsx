@@ -17,6 +17,7 @@ import {
   Download,
   Bell,
   ArrowRight,
+  HelpCircle,
 } from "lucide-react";
 
 interface LoanSchedule {
@@ -53,6 +54,7 @@ interface LoanRepaymentTrackerProps {
   paymentSchedule: PaymentScheduleItem[];
   onMakePayment: (paymentId: string, amount: number) => void;
   onEarlyRepayment: () => void;
+  onOpenFaq?: () => void;
 }
 
 export default function LoanRepaymentTracker({
@@ -60,6 +62,7 @@ export default function LoanRepaymentTracker({
   paymentSchedule,
   onMakePayment,
   onEarlyRepayment,
+  onOpenFaq,
 }: LoanRepaymentTrackerProps) {
   const { toast } = useToast();
   const [showEarlyRepaymentModal, setShowEarlyRepaymentModal] = useState(false);
@@ -277,6 +280,33 @@ export default function LoanRepaymentTracker({
           </div>
         </div>
       </div>
+
+      {onOpenFaq && (
+        <div className="bg-white border rounded-xl p-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100">
+                <HelpCircle className="h-5 w-5 text-indigo-600" />
+              </div>
+              <div>
+                <p className="font-medium text-gray-900">Loan FAQ</p>
+                <p className="text-sm text-gray-500">
+                  Need clarity on repayment rules or loan terms? Review the
+                  FAQ.
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onOpenFaq}
+              className="whitespace-nowrap"
+            >
+              View FAQ
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Next Payment Alert */}
       {nextPayment && (

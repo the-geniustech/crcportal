@@ -10,6 +10,7 @@ import { useGuarantorCommitmentsQuery } from "@/hooks/loans/useGuarantorCommitme
 import { useGuarantorNotificationsQuery } from "@/hooks/loans/useGuarantorNotificationsQuery";
 import { useRespondToGuarantorRequestMutation } from "@/hooks/loans/useRespondToGuarantorRequestMutation";
 import { useMarkGuarantorNotificationReadMutation } from "@/hooks/loans/useMarkGuarantorNotificationReadMutation";
+import { goToContactSupport } from "@/lib/support";
 import {
   ArrowLeft,
   Shield,
@@ -976,6 +977,7 @@ function GuarantorDashboardContent() {
                 <Button
                   variant="outline"
                   className="justify-start gap-3 w-full"
+                  onClick={goToContactSupport}
                 >
                   <MessageSquare className="w-4 h-4" />
                   Contact Support

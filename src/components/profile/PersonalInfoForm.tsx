@@ -90,10 +90,13 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
                   type="email"
                   name="email"
                   {...register("email")}
-                  disabled={!isEditing}
+                  disabled
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-gray-50 disabled:text-gray-600"
                 />
             </div>
+            <p className="mt-1 text-xs text-gray-500">
+              Use the Change Email button to update this field.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
@@ -103,10 +106,13 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
                   type="tel"
                   name="phone"
                   {...register("phone")}
-                  disabled={!isEditing}
+                  disabled
                   className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-gray-50 disabled:text-gray-600"
                 />
             </div>
+            <p className="mt-1 text-xs text-gray-500">
+              Use the Change Phone button to update this field.
+            </p>
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>

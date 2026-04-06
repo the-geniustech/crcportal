@@ -38,6 +38,7 @@ export type BackendGroupMembership = {
   status: string;
   joinedAt: string;
   totalContributed: number;
+  expectedMonthlyContribution?: number;
   memberNumber?: number | null;
   memberSerial?: string | null;
   createdAt?: string;
@@ -706,6 +707,7 @@ export async function downloadGroupContributionLedgerPdf(
 
 export type BackendGroupLoan = {
   _id: string;
+  userId?: unknown;
   groupId?: string | null;
   groupName?: string | null;
   loanCode?: string | null;

@@ -109,6 +109,7 @@ type GroupManagementPanelProps = {
   meetingsLoading?: boolean;
   onClose: () => void;
   onInviteMembers: () => void;
+  currentMemberRole?: string | null;
 };
 
 const DEFAULT_REMINDER_SETTINGS = {
@@ -145,8 +146,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
   meetingsLoading,
   onClose,
   onInviteMembers,
+  currentMemberRole,
 }) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const [managementTab, setManagementTab] = useState<
     "contributions" | "reports" | "meetings" | "votes" | "reminders"
@@ -210,6 +212,37 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     user?.role === "groupCoordinator" ||
     user?.role === "group_coordinator";
 
+  const normalizedMemberRole = String(currentMemberRole || "").toLowerCase();
+  const hasElevatedMembership = ["coordinator", "treasurer", "secretary", "admin"].includes(
+    normalizedMemberRole,
+  );
+  const canViewAll =
+    user?.role === "admin" ||
+    user?.role === "groupCoordinator" ||
+    user?.role === "group_coordinator" ||
+    hasElevatedMembership;
+  const canManageReminderSettings =
+    user?.role === "admin" ||
+    user?.role === "groupCoordinator" ||
+    user?.role === "group_coordinator" ||
+    ["coordinator", "admin"].includes(normalizedMemberRole);
+  const canSendReminders =
+    canManageReminderSettings || normalizedMemberRole === "treasurer";
+  const showRemindersTab = canSendReminders;
+  const scopedMemberId = profile?.id ? String(profile.id) : null;
+  const scopedMembers = useMemo(() => {
+    if (canViewAll) return members;
+    if (!scopedMemberId) return [];
+    return members.filter((member) => String(member.id) === scopedMemberId);
+  }, [members, canViewAll, scopedMemberId]);
+  const scopedContributions = useMemo(() => {
+    if (canViewAll) return contributions;
+    if (!scopedMemberId) return [];
+    return contributions.filter(
+      (contribution) => String(contribution.memberId) === scopedMemberId,
+    );
+  }, [contributions, canViewAll, scopedMemberId]);
+
   const formatCurrency = (value: number) => {
     const amount = Number.isFinite(Number(value)) ? Number(value) : 0;
     return `₦${amount.toLocaleString()}`;
@@ -241,6 +274,12 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     }
   }, [open]);
 
+  useEffect(() => {
+    if (!showRemindersTab && managementTab === "reminders") {
+      setManagementTab("contributions");
+    }
+  }, [showRemindersTab, managementTab]);
+
   const resolveContributionType = (value?: string | null) => {
     return normalizeContributionType(value) ?? "revolving";
   };
@@ -251,9 +290,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     type: ContributionTypeCanonical,
   ) => {
     if (!settings || typeof settings !== "object") return null;
-    const settingsYear = Number(
-      (settings as Record<string, unknown>).year,
-    );
+    const settingsYear = Number((settings as Record<string, unknown>).year);
     if (!Number.isFinite(settingsYear) || settingsYear !== year) return null;
     const rawUnits = (settings as Record<string, unknown>).units;
     if (typeof rawUnits === "number" || typeof rawUnits === "string") {
@@ -267,14 +304,15 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
   const expectedByMemberId = useMemo(() => {
     const unitAmount =
-      Number(ContributionTypeConfig?.[selectedContributionType]?.unitAmount ??
-        NaN) || CONTRIBUTION_UNIT_BASE;
+      Number(
+        ContributionTypeConfig?.[selectedContributionType]?.unitAmount ?? NaN,
+      ) || CONTRIBUTION_UNIT_BASE;
     const minAmount = Number(
       ContributionTypeConfig?.[selectedContributionType]?.minAmount ?? 0,
     );
     const fallbackAmount = Number(group?.monthlyContribution || 0);
     const map = new Map<string, number>();
-    members.forEach((member) => {
+    scopedMembers.forEach((member) => {
       const plannedUnits = resolvePlannedUnits(
         member.contributionSettings,
         nowInfo.year,
@@ -283,7 +321,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       let expectedAmount = 0;
       if (plannedUnits && unitAmount) {
         const computed = plannedUnits * unitAmount;
-        expectedAmount = minAmount > 0 ? Math.max(computed, minAmount) : computed;
+        expectedAmount =
+          minAmount > 0 ? Math.max(computed, minAmount) : computed;
       } else if (minAmount > 0) {
         expectedAmount = minAmount;
       } else if (Number.isFinite(fallbackAmount) && fallbackAmount > 0) {
@@ -292,15 +331,20 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       map.set(member.id, expectedAmount);
     });
     return map;
-  }, [members, nowInfo.year, selectedContributionType, group?.monthlyContribution]);
+  }, [
+    scopedMembers,
+    nowInfo.year,
+    selectedContributionType,
+    group?.monthlyContribution,
+  ]);
 
   const monthlyExpected = useMemo(
     () =>
-      members.reduce(
+      scopedMembers.reduce(
         (sum, member) => sum + Number(expectedByMemberId.get(member.id) || 0),
         0,
       ),
-    [members, expectedByMemberId],
+    [scopedMembers, expectedByMemberId],
   );
 
   const trendMonths = useMemo(() => {
@@ -317,7 +361,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
   const paidByMonth = useMemo(() => {
     const map = new Map<string, number>();
-    contributions.forEach((c) => {
+    scopedContributions.forEach((c) => {
       const resolvedType = resolveContributionType(c.contributionType);
       if (resolvedType !== selectedContributionType) return;
       if (!["completed", "verified"].includes(String(c.status))) return;
@@ -326,7 +370,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       map.set(key, total + Number(c.amount || 0));
     });
     return map;
-  }, [contributions, selectedContributionType]);
+  }, [scopedContributions, selectedContributionType]);
 
   const trendData = trendMonths.map((month) => {
     const collected = paidByMonth.get(month.key) ?? 0;
@@ -340,15 +384,17 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
   const monthlyCollected = paidByMonth.get(nowInfo.key) ?? 0;
   const totalCollected = useMemo(() => {
-    return contributions.reduce((sum, contribution) => {
-      const resolvedType = resolveContributionType(contribution.contributionType);
+    return scopedContributions.reduce((sum, contribution) => {
+      const resolvedType = resolveContributionType(
+        contribution.contributionType,
+      );
       if (resolvedType !== selectedContributionType) return sum;
       if (!["completed", "verified"].includes(String(contribution.status))) {
         return sum;
       }
       return sum + Number(contribution.amount || 0);
     }, 0);
-  }, [contributions, selectedContributionType]);
+  }, [scopedContributions, selectedContributionType]);
 
   const monthlyCollectionRate =
     monthlyExpected > 0
@@ -356,12 +402,33 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       : 0;
 
   const loans = groupLoansQuery.data ?? [];
+  const resolveLoanBorrowerId = (loan: { userId?: unknown }) => {
+    const userObj =
+      loan.userId && typeof loan.userId === "object"
+        ? (loan.userId as Record<string, unknown>)
+        : null;
+    if (
+      userObj &&
+      (typeof userObj._id === "string" || typeof userObj.id === "string")
+    ) {
+      return String((userObj._id || userObj.id) as string);
+    }
+    if (typeof loan.userId === "string") return loan.userId;
+    return null;
+  };
+  const scopedLoans = useMemo(() => {
+    if (canViewAll) return loans;
+    if (!scopedMemberId) return [];
+    return loans.filter(
+      (loan) => resolveLoanBorrowerId(loan) === scopedMemberId,
+    );
+  }, [loans, canViewAll, scopedMemberId]);
   const activeLoans = useMemo(
     () =>
-      loans.filter((loan) =>
+      scopedLoans.filter((loan) =>
         ["disbursed", "defaulted"].includes(String(loan.status)),
       ),
-    [loans],
+    [scopedLoans],
   );
   const activeLoanAmount = useMemo(
     () =>
@@ -562,7 +629,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     setShowVoteNotifyModal(true);
   };
 
-  const buildNotifySummary = (result?: BackendVoteNotificationResult | null) => {
+  const buildNotifySummary = (
+    result?: BackendVoteNotificationResult | null,
+  ) => {
     if (!result?.channels) return "";
     const parts = [];
     if (result.channels.email?.requested) {
@@ -598,7 +667,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     } catch (error: unknown) {
       toast({
         title: "Vote failed",
-        description: error instanceof Error ? error.message : "Unable to submit vote",
+        description:
+          error instanceof Error ? error.message : "Unable to submit vote",
         variant: "destructive",
       });
     }
@@ -621,7 +691,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     } catch (error: unknown) {
       toast({
         title: "Delete failed",
-        description: error instanceof Error ? error.message : "Unable to delete vote",
+        description:
+          error instanceof Error ? error.message : "Unable to delete vote",
         variant: "destructive",
       });
     } finally {
@@ -774,7 +845,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       description: values.description?.trim() || "",
       meetingType: values.meetingType,
       location:
-        values.meetingType === "physical" ? values.location?.trim() || "" : null,
+        values.meetingType === "physical"
+          ? values.location?.trim() || ""
+          : null,
       scheduledDate,
       durationMinutes: Number(values.durationMinutes || 60),
     };
@@ -798,7 +871,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     } catch (error: unknown) {
       toast({
         title: "Meeting update failed",
-        description: error instanceof Error ? error.message : "Please try again",
+        description:
+          error instanceof Error ? error.message : "Please try again",
         variant: "destructive",
       });
     }
@@ -819,7 +893,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     } catch (error: unknown) {
       toast({
         title: "Unable to cancel meeting",
-        description: error instanceof Error ? error.message : "Please try again",
+        description:
+          error instanceof Error ? error.message : "Please try again",
         variant: "destructive",
       });
     } finally {
@@ -844,7 +919,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     } catch (error: unknown) {
       toast({
         title: "Vote creation failed",
-        description: error instanceof Error ? error.message : "Please try again",
+        description:
+          error instanceof Error ? error.message : "Please try again",
         variant: "destructive",
       });
     }
@@ -902,7 +978,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                 icon: Calendar,
               },
               { id: "votes" as const, label: "Voting", icon: Vote },
-              { id: "reminders" as const, label: "Reminders", icon: Bell },
+              ...(showRemindersTab
+                ? [{ id: "reminders" as const, label: "Reminders", icon: Bell }]
+                : []),
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -930,13 +1008,14 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                 </div>
               ) : (
                 <ContributionTracker
-                  members={members}
-                  contributions={contributions}
+                  members={scopedMembers}
+                  contributions={scopedContributions}
                   monthlyAmount={group.monthlyContribution}
                   groupName={group.name}
                   groupId={group.id}
                   selectedType={selectedContributionType}
                   onSelectedTypeChange={setSelectedContributionType}
+                  showScopedHint={!canViewAll}
                 />
               )}
             </>
@@ -944,6 +1023,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
           {managementTab === "reports" && (
             <div className="space-y-6">
+              {!canViewAll && (
+                <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                  Showing your data only
+                </div>
+              )}
               <div className="space-y-2">
                 <div className="flex flex-wrap gap-2">
                   {ContributionTypeOptions.map((option) => {
@@ -952,7 +1036,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => setSelectedContributionType(option.value)}
+                        onClick={() =>
+                          setSelectedContributionType(option.value)
+                        }
                         className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors ${
                           isActive
                             ? "border-emerald-500 bg-emerald-50 text-emerald-700"
@@ -965,8 +1051,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                   })}
                 </div>
                 <p className="text-gray-500 text-xs">
-                  {ContributionTypeConfig?.[selectedContributionType]?.description ??
-                    ""}
+                  {ContributionTypeConfig?.[selectedContributionType]
+                    ?.description ?? ""}
                 </p>
               </div>
 
@@ -977,8 +1063,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                     {formatCurrency(totalCollected)}
                   </p>
                   <p className="mt-2 text-emerald-100 text-sm">
-                    {ContributionTypeConfig?.[selectedContributionType]?.label ??
-                      "Contribution"}
+                    {ContributionTypeConfig?.[selectedContributionType]
+                      ?.label ?? "Contribution"}
                   </p>
                 </div>
                 <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-xl text-white">
@@ -1037,7 +1123,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                   className="flex flex-1 justify-center items-center gap-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 px-4 py-3 rounded-lg text-white transition-colors"
                 >
                   <FileText className="w-4 h-4" />
-                  {isDownloadingReport ? "Downloading..." : "Download Full Report"}
+                  {isDownloadingReport
+                    ? "Downloading..."
+                    : "Download Full Report"}
                 </button>
                 <button
                   onClick={handleDownloadLedger}
@@ -1191,7 +1279,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                               </span>
                               <span
                                 className={`px-2 py-0.5 text-[11px] font-semibold rounded-full ${
-                                  (vote.myVote?.choice ?? vote.myChoice) === "yes"
+                                  (vote.myVote?.choice ?? vote.myChoice) ===
+                                  "yes"
                                     ? "bg-emerald-50 text-emerald-700"
                                     : (vote.myVote?.choice ?? vote.myChoice) ===
                                         "no"
@@ -1200,7 +1289,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                                 }`}
                               >
                                 {(() => {
-                                  const choice = vote.myVote?.choice ?? vote.myChoice;
+                                  const choice =
+                                    vote.myVote?.choice ?? vote.myChoice;
                                   if (!choice) return "My vote: Pending";
                                   const dateLabel = formatVoteDate(
                                     vote.myVote?.respondedAt,
@@ -1234,9 +1324,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                                 <Button
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8"
+                                  className="w-8 h-8"
                                 >
-                                  <MoreHorizontal className="h-4 w-4" />
+                                  <MoreHorizontal className="w-4 h-4" />
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
@@ -1310,8 +1400,13 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
             </div>
           )}
 
-          {managementTab === "reminders" && (
+          {managementTab === "reminders" && showRemindersTab && (
             <div className="space-y-6">
+              {!canManageReminderSettings && (
+                <div className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
+                  Only coordinators can update reminder settings
+                </div>
+              )}
               <div className="bg-white p-6 border border-gray-200 rounded-xl">
                 <h3 className="mb-4 font-semibold text-gray-900">
                   Contribution Reminder Settings
@@ -1329,8 +1424,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                     </div>
                     <button
                       type="button"
-                      disabled={remindersBusy}
+                      disabled={remindersBusy || !canManageReminderSettings}
                       onClick={() =>
+                        canManageReminderSettings &&
                         handleUpdateReminder({
                           autoReminders: !reminderSettings.autoReminders,
                         })
@@ -1339,7 +1435,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                         reminderSettings.autoReminders
                           ? "bg-emerald-500"
                           : "bg-gray-300"
-                      } ${remindersBusy ? "opacity-60 cursor-not-allowed" : ""}`}
+                      } ${
+                        remindersBusy || !canManageReminderSettings
+                          ? "opacity-60 cursor-not-allowed"
+                          : ""
+                      }`}
                     >
                       <span
                         className={`top-1 absolute bg-white rounded-full w-4 h-4 transition-all ${
@@ -1360,8 +1460,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                     </div>
                     <select
                       value={String(reminderSettings.daysBeforeDue ?? 3)}
-                      disabled={remindersBusy}
+                      disabled={remindersBusy || !canManageReminderSettings}
                       onChange={(e) =>
+                        canManageReminderSettings &&
                         handleUpdateReminder({
                           daysBeforeDue: Number(e.target.value),
                         })
@@ -1385,8 +1486,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                     </div>
                     <button
                       type="button"
-                      disabled={remindersBusy}
+                      disabled={remindersBusy || !canManageReminderSettings}
                       onClick={() =>
+                        canManageReminderSettings &&
                         handleUpdateReminder({
                           overdueReminders: !reminderSettings.overdueReminders,
                         })
@@ -1395,7 +1497,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                         reminderSettings.overdueReminders
                           ? "bg-emerald-500"
                           : "bg-gray-300"
-                      } ${remindersBusy ? "opacity-60 cursor-not-allowed" : ""}`}
+                      } ${
+                        remindersBusy || !canManageReminderSettings
+                          ? "opacity-60 cursor-not-allowed"
+                          : ""
+                      }`}
                     >
                       <span
                         className={`top-1 absolute bg-white rounded-full w-4 h-4 transition-all ${
@@ -1418,8 +1524,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                     </div>
                     <button
                       type="button"
-                      disabled={remindersBusy}
+                      disabled={remindersBusy || !canManageReminderSettings}
                       onClick={() =>
+                        canManageReminderSettings &&
                         handleUpdateReminder({
                           meetingReminders: !reminderSettings.meetingReminders,
                         })
@@ -1428,7 +1535,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                         reminderSettings.meetingReminders
                           ? "bg-emerald-500"
                           : "bg-gray-300"
-                      } ${remindersBusy ? "opacity-60 cursor-not-allowed" : ""}`}
+                      } ${
+                        remindersBusy || !canManageReminderSettings
+                          ? "opacity-60 cursor-not-allowed"
+                          : ""
+                      }`}
                     >
                       <span
                         className={`top-1 absolute bg-white rounded-full w-4 h-4 transition-all ${
@@ -1443,8 +1554,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
               </div>
 
               <button
-                disabled={sendReminderMutation.isPending}
-                onClick={handleSendReminders}
+                disabled={sendReminderMutation.isPending || !canSendReminders}
+                onClick={() => canSendReminders && handleSendReminders()}
                 className="flex justify-center items-center gap-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 px-4 py-3 rounded-lg w-full text-white transition-colors"
               >
                 <Bell className="w-4 h-4" />
@@ -1458,22 +1569,24 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       </div>
 
       {showMeetingModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="z-[60] fixed inset-0 flex justify-center items-center p-4">
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowMeetingModal(false)}
           />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <div className="relative bg-white shadow-xl rounded-2xl w-full max-w-lg overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-gray-200 border-b">
               <div>
                 <h3 className="font-semibold text-gray-900">
-                  {meetingModalMode === "edit" ? "Edit Meeting" : "Schedule Meeting"}
+                  {meetingModalMode === "edit"
+                    ? "Edit Meeting"
+                    : "Schedule Meeting"}
                 </h3>
-                <p className="text-sm text-gray-500">{group.name}</p>
+                <p className="text-gray-500 text-sm">{group.name}</p>
               </div>
               <button
                 onClick={() => setShowMeetingModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="hover:bg-gray-100 p-2 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -1481,35 +1594,35 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
             <form onSubmit={handleSubmitMeeting} className="space-y-4 p-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block mb-2 font-medium text-gray-700 text-sm">
                   Title *
                 </label>
                 <input
                   {...meetingForm.register("title", { required: true })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
                   placeholder="Monthly contribution meeting"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block mb-2 font-medium text-gray-700 text-sm">
                   Description
                 </label>
                 <textarea
                   {...meetingForm.register("description")}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 resize-none"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full resize-none"
                   placeholder="Meeting agenda summary"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block mb-2 font-medium text-gray-700 text-sm">
                   Meeting Type
                 </label>
                 <select
                   {...meetingForm.register("meetingType")}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
                 >
                   <option value="physical">Physical</option>
                   <option value="zoom">Zoom</option>
@@ -1519,49 +1632,55 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
               {meetingForm.watch("meetingType") === "physical" && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block mb-2 font-medium text-gray-700 text-sm">
                     Location
                   </label>
                   <input
                     {...meetingForm.register("location")}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
                     placeholder="Meeting venue"
                   />
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="gap-3 grid grid-cols-2">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block mb-2 font-medium text-gray-700 text-sm">
                     Date *
                   </label>
                   <input
                     type="date"
-                    {...meetingForm.register("scheduledDate", { required: true })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                    {...meetingForm.register("scheduledDate", {
+                      required: true,
+                    })}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                  <label className="block mb-2 font-medium text-gray-700 text-sm">
                     Time *
                   </label>
                   <input
                     type="time"
-                    {...meetingForm.register("scheduledTime", { required: true })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                    {...meetingForm.register("scheduledTime", {
+                      required: true,
+                    })}
+                    className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block mb-2 font-medium text-gray-700 text-sm">
                   Duration (minutes)
                 </label>
                 <input
                   type="number"
                   min={15}
-                  {...meetingForm.register("durationMinutes", { valueAsNumber: true })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                  {...meetingForm.register("durationMinutes", {
+                    valueAsNumber: true,
+                  })}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
                 />
               </div>
 
@@ -1569,7 +1688,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowMeetingModal(false)}
-                  className="flex-1 border border-gray-300 text-gray-700 font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex-1 hover:bg-gray-50 px-4 py-2.5 border border-gray-300 rounded-lg font-medium text-gray-700 transition-colors"
                 >
                   Cancel
                 </button>
@@ -1582,9 +1701,10 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                     !meetingForm.watch("scheduledDate") ||
                     !meetingForm.watch("scheduledTime")
                   }
-                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-medium px-4 py-2.5 rounded-lg transition-colors disabled:opacity-60"
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 px-4 py-2.5 rounded-lg font-medium text-white transition-colors"
                 >
-                  {createMeetingMutation.isPending || updateMeetingMutation.isPending
+                  {createMeetingMutation.isPending ||
+                  updateMeetingMutation.isPending
                     ? "Saving..."
                     : meetingModalMode === "edit"
                       ? "Update Meeting"
@@ -1597,20 +1717,20 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       )}
 
       {showVoteModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="z-[60] fixed inset-0 flex justify-center items-center p-4">
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowVoteModal(false)}
           />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <div className="relative bg-white shadow-xl rounded-2xl w-full max-w-lg overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-gray-200 border-b">
               <div>
                 <h3 className="font-semibold text-gray-900">Create Vote</h3>
-                <p className="text-sm text-gray-500">{group.name}</p>
+                <p className="text-gray-500 text-sm">{group.name}</p>
               </div>
               <button
                 onClick={() => setShowVoteModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="hover:bg-gray-100 p-2 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -1618,36 +1738,36 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
             <form onSubmit={handleCreateVote} className="space-y-4 p-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block mb-2 font-medium text-gray-700 text-sm">
                   Title *
                 </label>
                 <input
                   {...voteForm.register("title", { required: true })}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
                   placeholder="New group proposal"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block mb-2 font-medium text-gray-700 text-sm">
                   Description
                 </label>
                 <textarea
                   {...voteForm.register("description")}
                   rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 resize-none"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full resize-none"
                   placeholder="Provide details for the vote"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block mb-2 font-medium text-gray-700 text-sm">
                   End Date (optional)
                 </label>
                 <input
                   type="date"
                   {...voteForm.register("endsAt")}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
                 />
               </div>
 
@@ -1655,14 +1775,16 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowVoteModal(false)}
-                  className="flex-1 border border-gray-300 text-gray-700 font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex-1 hover:bg-gray-50 px-4 py-2.5 border border-gray-300 rounded-lg font-medium text-gray-700 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={createVoteMutation.isPending || !voteForm.watch("title")}
-                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-medium px-4 py-2.5 rounded-lg transition-colors disabled:opacity-60"
+                  disabled={
+                    createVoteMutation.isPending || !voteForm.watch("title")
+                  }
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 px-4 py-2.5 rounded-lg font-medium text-white transition-colors"
                 >
                   {createVoteMutation.isPending ? "Creating..." : "Create Vote"}
                 </button>
@@ -1673,20 +1795,20 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       )}
 
       {showVoteActionModal && activeVote && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="z-[60] fixed inset-0 flex justify-center items-center p-4">
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowVoteActionModal(false)}
           />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <div className="relative bg-white shadow-xl rounded-2xl w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-gray-200 border-b">
               <div>
                 <h3 className="font-semibold text-gray-900">Cast Vote</h3>
-                <p className="text-sm text-gray-500">{activeVote.title}</p>
+                <p className="text-gray-500 text-sm">{activeVote.title}</p>
               </div>
               <button
                 onClick={() => setShowVoteActionModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="hover:bg-gray-100 p-2 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -1694,11 +1816,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
             <div className="space-y-4 p-6">
               <div>
-                <p className="text-sm text-gray-600">
+                <p className="text-gray-600 text-sm">
                   Choose your response for this vote.
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="gap-3 grid grid-cols-2">
                 <button
                   type="button"
                   onClick={() => setVoteChoice("yes")}
@@ -1727,7 +1849,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowVoteActionModal(false)}
-                  className="flex-1 border border-gray-300 text-gray-700 font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex-1 hover:bg-gray-50 px-4 py-2.5 border border-gray-300 rounded-lg font-medium text-gray-700 transition-colors"
                 >
                   Cancel
                 </button>
@@ -1735,9 +1857,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                   type="button"
                   onClick={handleSubmitVote}
                   disabled={respondVoteMutation.isPending}
-                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-medium px-4 py-2.5 rounded-lg transition-colors disabled:opacity-60"
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 px-4 py-2.5 rounded-lg font-medium text-white transition-colors"
                 >
-                  {respondVoteMutation.isPending ? "Submitting..." : "Submit Vote"}
+                  {respondVoteMutation.isPending
+                    ? "Submitting..."
+                    : "Submit Vote"}
                 </button>
               </div>
             </div>
@@ -1746,22 +1870,20 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       )}
 
       {showVoteParticipantsModal && activeVote && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="z-[60] fixed inset-0 flex justify-center items-center p-4">
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowVoteParticipantsModal(false)}
           />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-3xl overflow-hidden">
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <div className="relative bg-white shadow-xl rounded-2xl w-full max-w-3xl overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-gray-200 border-b">
               <div>
-                <h3 className="font-semibold text-gray-900">
-                  Vote Tracking
-                </h3>
-                <p className="text-sm text-gray-500">{activeVote.title}</p>
+                <h3 className="font-semibold text-gray-900">Vote Tracking</h3>
+                <p className="text-gray-500 text-sm">{activeVote.title}</p>
               </div>
               <button
                 onClick={() => setShowVoteParticipantsModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="hover:bg-gray-100 p-2 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -1778,7 +1900,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                 </div>
               ) : (
                 <>
-                  <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600">
+                  <div className="flex flex-wrap items-center gap-3 text-gray-600 text-sm">
                     <span>
                       Total: {voteParticipantsQuery.data?.totalMembers ?? 0}
                     </span>
@@ -1800,7 +1922,12 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                           type="button"
                           onClick={() =>
                             setVoteParticipantsFilter(
-                              option.id as "all" | "voted" | "pending" | "yes" | "no",
+                              option.id as
+                                | "all"
+                                | "voted"
+                                | "pending"
+                                | "yes"
+                                | "no",
                             )
                           }
                           className={`rounded-full border px-4 py-1.5 text-xs font-semibold transition-colors ${
@@ -1822,32 +1949,32 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                     }`}
                   >
                     {showVotedColumn && (
-                      <div className="border border-gray-200 rounded-xl p-4">
-                        <h4 className="font-medium text-gray-900 mb-3">
+                      <div className="p-4 border border-gray-200 rounded-xl">
+                        <h4 className="mb-3 font-medium text-gray-900">
                           {votedColumnTitle}
                         </h4>
                         <div className="space-y-3 max-h-64 overflow-y-auto">
                           {filteredVotedParticipants.length === 0 ? (
-                            <p className="text-sm text-gray-500">
+                            <p className="text-gray-500 text-sm">
                               No members match this filter.
                             </p>
                           ) : (
                             filteredVotedParticipants.map((participant) => (
                               <div
                                 key={participant.userId}
-                                className="flex items-start justify-between gap-3"
+                                className="flex justify-between items-start gap-3"
                               >
                                 <div>
-                                  <p className="text-sm font-medium text-gray-900">
+                                  <p className="font-medium text-gray-900 text-sm">
                                     {participant.name}
                                   </p>
                                   {participant.memberSerial && (
-                                    <p className="text-xs text-gray-400">
+                                    <p className="text-gray-400 text-xs">
                                       {participant.memberSerial}
                                     </p>
                                   )}
                                 </div>
-                                <span className="text-xs font-semibold text-emerald-600">
+                                <span className="font-semibold text-emerald-600 text-xs">
                                   {participant.choice?.toUpperCase() ?? "VOTED"}
                                 </span>
                               </div>
@@ -1857,23 +1984,23 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                       </div>
                     )}
                     {showPendingColumn && (
-                      <div className="border border-gray-200 rounded-xl p-4">
-                        <h4 className="font-medium text-gray-900 mb-3">
+                      <div className="p-4 border border-gray-200 rounded-xl">
+                        <h4 className="mb-3 font-medium text-gray-900">
                           Not Yet Voted
                         </h4>
                         <div className="space-y-3 max-h-64 overflow-y-auto">
                           {filteredPendingParticipants.length === 0 ? (
-                            <p className="text-sm text-gray-500">
+                            <p className="text-gray-500 text-sm">
                               No members match this filter.
                             </p>
                           ) : (
                             filteredPendingParticipants.map((participant) => (
                               <div key={participant.userId}>
-                                <p className="text-sm font-medium text-gray-900">
+                                <p className="font-medium text-gray-900 text-sm">
                                   {participant.name}
                                 </p>
                                 {participant.memberSerial && (
-                                  <p className="text-xs text-gray-400">
+                                  <p className="text-gray-400 text-xs">
                                     {participant.memberSerial}
                                   </p>
                                 )}
@@ -1892,20 +2019,20 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       )}
 
       {showVoteNotifyModal && activeVote && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="z-[60] fixed inset-0 flex justify-center items-center p-4">
           <div
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowVoteNotifyModal(false)}
           />
-          <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden">
-            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+          <div className="relative bg-white shadow-xl rounded-2xl w-full max-w-lg overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-gray-200 border-b">
               <div>
                 <h3 className="font-semibold text-gray-900">Notify Members</h3>
-                <p className="text-sm text-gray-500">{activeVote.title}</p>
+                <p className="text-gray-500 text-sm">{activeVote.title}</p>
               </div>
               <button
                 onClick={() => setShowVoteNotifyModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="hover:bg-gray-100 p-2 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -1913,7 +2040,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
             <div className="space-y-4 p-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block mb-2 font-medium text-gray-700 text-sm">
                   Notify Scope
                 </label>
                 <select
@@ -1921,7 +2048,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                   onChange={(e) =>
                     setVoteNotifyTarget(e.target.value as "pending" | "all")
                   }
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
                 >
                   <option value="pending">Pending votes only</option>
                   <option value="all">All members</option>
@@ -1929,11 +2056,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block mb-2 font-medium text-gray-700 text-sm">
                   Delivery Channels
                 </label>
                 <div className="space-y-3">
-                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <label className="flex items-center gap-2 text-gray-700 text-sm">
                     <input
                       type="checkbox"
                       checked={voteNotifyChannels.email}
@@ -1943,11 +2070,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                           email: e.target.checked,
                         }))
                       }
-                      className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      className="border-gray-300 rounded focus:ring-emerald-500 w-4 h-4 text-emerald-600"
                     />
                     Email
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <label className="flex items-center gap-2 text-gray-700 text-sm">
                     <input
                       type="checkbox"
                       checked={voteNotifyChannels.sms}
@@ -1957,11 +2084,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                           sms: e.target.checked,
                         }))
                       }
-                      className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      className="border-gray-300 rounded focus:ring-emerald-500 w-4 h-4 text-emerald-600"
                     />
                     SMS
                   </label>
-                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <label className="flex items-center gap-2 text-gray-700 text-sm">
                     <input
                       type="checkbox"
                       checked={voteNotifyChannels.notification}
@@ -1971,7 +2098,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                           notification: e.target.checked,
                         }))
                       }
-                      className="h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                      className="border-gray-300 rounded focus:ring-emerald-500 w-4 h-4 text-emerald-600"
                     />
                     In-app notification
                   </label>
@@ -1979,7 +2106,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
               </div>
 
               {voteNotifyResult && (
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-600">
+                <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg text-gray-600 text-sm">
                   <p className="font-medium text-gray-900">Dispatch Summary</p>
                   <p className="mt-1">
                     {buildNotifySummary(voteNotifyResult) ||
@@ -1992,7 +2119,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowVoteNotifyModal(false)}
-                  className="flex-1 border border-gray-300 text-gray-700 font-medium px-4 py-2.5 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex-1 hover:bg-gray-50 px-4 py-2.5 border border-gray-300 rounded-lg font-medium text-gray-700 transition-colors"
                 >
                   Cancel
                 </button>
@@ -2000,9 +2127,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                   type="button"
                   onClick={handleNotifyVote}
                   disabled={notifyVoteMutation.isPending}
-                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-medium px-4 py-2.5 rounded-lg transition-colors disabled:opacity-60"
+                  className="flex-1 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 px-4 py-2.5 rounded-lg font-medium text-white transition-colors"
                 >
-                  {notifyVoteMutation.isPending ? "Sending..." : "Send Notification"}
+                  {notifyVoteMutation.isPending
+                    ? "Sending..."
+                    : "Send Notification"}
                 </button>
               </div>
             </div>

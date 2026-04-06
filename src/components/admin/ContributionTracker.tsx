@@ -5,7 +5,6 @@ import {
   Clock,
   TrendingUp,
   Search,
-  Filter,
   Download,
   MoreHorizontal,
 } from "lucide-react";
@@ -58,6 +57,9 @@ interface ContributionTrackerProps {
   onMarkPaid: (memberId: string) => void;
   year: number;
   month: number;
+  onYearChange?: (year: number) => void;
+  onMonthChange?: (month: number) => void;
+  canManageActions?: boolean;
 }
 
 export default function ContributionTracker({
@@ -65,6 +67,9 @@ export default function ContributionTracker({
   onMarkPaid,
   year,
   month,
+  onYearChange,
+  onMonthChange,
+  canManageActions = true,
 }: ContributionTrackerProps) {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
@@ -80,6 +85,29 @@ export default function ContributionTracker({
     notification: true,
   });
   const [sendingReminder, setSendingReminder] = useState(false);
+
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 10 }, (_, idx) => currentYear - idx);
+  }, []);
+
+  const monthOptions = useMemo(
+    () => [
+      "January",
+      "February",
+      "March",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "October",
+      "November",
+      "December",
+    ],
+    [],
+  );
 
   const groups = [...new Set(contributions.map((c) => c.groupName))];
 
@@ -183,10 +211,12 @@ export default function ContributionTracker({
   };
 
   const openReminderModal = (targets: ContributionRecord[]) => {
+    if (!canManageActions) return;
     if (targets.length === 0) {
       toast({
         title: "No recipients",
-        description: "There are no members to remind for the current selection.",
+        description:
+          "There are no members to remind for the current selection.",
       });
       return;
     }
@@ -224,6 +254,7 @@ export default function ContributionTracker({
   };
 
   const handleSendReminder = async () => {
+    if (!canManageActions) return;
     if (!canSendReminder || reminderTargets.length === 0) return;
     setSendingReminder(true);
     try {
@@ -260,7 +291,11 @@ export default function ContributionTracker({
         error && typeof error === "object" && "message" in error
           ? String((error as { message?: string }).message)
           : "Unable to send reminders.";
-      toast({ title: "Reminder failed", description: message, variant: "destructive" });
+      toast({
+        title: "Reminder failed",
+        description: message,
+        variant: "destructive",
+      });
     } finally {
       setSendingReminder(false);
     }
@@ -268,7 +303,7 @@ export default function ContributionTracker({
 
   return (
     <div className="space-y-4">
-      {/* Summary Cards */}
+      {/* Summary Cards frontend/src/components/admin/ContributionTracker.tsx */}
       <div className="gap-4 grid grid-cols-1 md:grid-cols-4">
         <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
           <div className="flex justify-between items-center">
@@ -310,9 +345,9 @@ export default function ContributionTracker({
       {/* Defaulter Alert */}
       {defaulters.length > 0 && (
         <div className="bg-red-50 p-4 border border-red-200 rounded-xl">
-        <div className="flex items-start gap-3">
-          <AlertTriangle className="mt-0.5 w-5 h-5 text-red-600" />
-          <div className="flex-1">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 w-5 h-5 text-red-600" />
+            <div className="flex-1">
               <h4 className="font-medium text-red-800">Defaulter Alert</h4>
               <p className="mt-1 text-red-600 text-sm">
                 {defaulters.length} member(s) have outstanding contributions.
@@ -339,18 +374,20 @@ export default function ContributionTracker({
                     +{defaulters.length - 5} more
                   </Badge>
                 )}
+              </div>
             </div>
+            {canManageActions && (
+              <Button
+                size="sm"
+                className="bg-red-600 hover:bg-red-700"
+                onClick={() => openReminderModal(defaulters)}
+              >
+                Send Reminders
+              </Button>
+            )}
           </div>
-          <Button
-            size="sm"
-            className="bg-red-600 hover:bg-red-700"
-            onClick={() => openReminderModal(defaulters)}
-          >
-            Send Reminders
-          </Button>
         </div>
-      </div>
-    )}
+      )}
 
       {/* Filters */}
       <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
@@ -389,6 +426,38 @@ export default function ContributionTracker({
               ))}
             </SelectContent>
           </Select>
+          <Select
+            value={String(year)}
+            onValueChange={(value) => onYearChange?.(Number(value))}
+            disabled={!onYearChange}
+          >
+            <SelectTrigger className="w-full md:w-28">
+              <SelectValue placeholder="Year" />
+            </SelectTrigger>
+            <SelectContent>
+              {yearOptions.map((option) => (
+                <SelectItem key={option} value={String(option)}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select
+            value={String(month)}
+            onValueChange={(value) => onMonthChange?.(Number(value))}
+            disabled={!onMonthChange}
+          >
+            <SelectTrigger className="w-full md:w-36">
+              <SelectValue placeholder="Month" />
+            </SelectTrigger>
+            <SelectContent>
+              {monthOptions.map((label, idx) => (
+                <SelectItem key={label} value={String(idx + 1)}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <Button variant="outline" className="gap-2" onClick={exportCsv}>
             <Download className="w-4 h-4" />
             Export
@@ -420,11 +489,13 @@ export default function ContributionTracker({
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Status
                 </th>
-              <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
-                Actions
-              </th>
-            </tr>
-          </thead>
+                {canManageActions && (
+                  <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                    Actions
+                  </th>
+                )}
+              </tr>
+            </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredContributions.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
@@ -460,34 +531,42 @@ export default function ContributionTracker({
                   <td className="px-4 py-3 text-gray-600 text-sm">
                     <div className="space-y-1">
                       <div>{new Date(record.dueDate).toLocaleDateString()}</div>
-                      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                        Open: 27th–4th
+                      <span className="inline-flex bg-emerald-50 px-2 py-0.5 rounded-full font-medium text-[11px] text-emerald-700">
+                        Open: 27th-4th
                       </span>
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     {getStatusBadge(record.status, record.monthsDefaulted)}
                   </td>
-                  <td className="px-4 py-3">
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => openReminderModal([record])}>
-                          Remind
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => onMarkPaid(record.id)}
-                          disabled={record.status === "paid"}
-                        >
-                          Mark Paid
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </td>
+                  {canManageActions && (
+                    <td className="px-4 py-3">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="w-8 h-8"
+                          >
+                            <MoreHorizontal className="w-4 h-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem
+                            onClick={() => openReminderModal([record])}
+                          >
+                            Remind
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => onMarkPaid(record.id)}
+                            disabled={record.status === "paid"}
+                          >
+                            Mark Paid
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -541,12 +620,14 @@ export default function ContributionTracker({
                     }))
                   }
                 />
-                <Label htmlFor="reminder-notification">In-app notification</Label>
+                <Label htmlFor="reminder-notification">
+                  In-app notification
+                </Label>
               </div>
             </div>
 
             {!canSendReminder && (
-              <p className="text-sm text-rose-500">
+              <p className="text-rose-500 text-sm">
                 Select at least one channel to send reminders.
               </p>
             )}

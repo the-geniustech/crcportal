@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CreditCard,
   Clock,
@@ -13,6 +13,7 @@ import {
   Mail,
   Phone,
   Building2,
+  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,6 +28,11 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -34,12 +40,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useAdminLoanBankAccountsQuery } from "@/hooks/admin/useAdminLoanBankAccountsQuery";
+import { useNotificationPreferencesQuery } from "@/hooks/profile/useNotificationPreferencesQuery";
+import { useUpdateNotificationPreferencesMutation } from "@/hooks/profile/useUpdateNotificationPreferencesMutation";
 import { calculateLoanSummary } from "@/lib/loanMath";
 import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
 import {
   downloadAdminLoanApplicationPdf,
   emailAdminLoanApplicationPdf,
 } from "@/lib/adminLoans";
+import type { NotificationPreferences } from "@/lib/notificationPreferences";
 
 interface LoanDocument {
   name: string;
@@ -61,6 +71,22 @@ interface LoanGuarantor {
   memberSince?: string | null;
   savingsBalance?: number | null;
   liabilityPercentage?: number | null;
+  signature?: {
+    method?: "text" | "draw" | "upload" | null;
+    text?: string | null;
+    font?: string | null;
+    imageUrl?: string | null;
+    signedAt?: string | null;
+  } | null;
+}
+
+interface AdminBankAccount {
+  id: string;
+  bankName: string;
+  bankCode?: string;
+  accountNumber: string;
+  accountName: string;
+  isPrimary: boolean;
 }
 
 interface LoanApplication {
@@ -87,14 +113,43 @@ interface LoanApplication {
   totalRepayable?: number | null;
   remainingBalance?: number | null;
   monthlyIncome: number;
+  disbursementBankAccountId?: string | null;
+  disbursementBankName?: string | null;
+  disbursementBankCode?: string | null;
+  disbursementAccountNumber?: string | null;
+  disbursementAccountName?: string | null;
+  payoutReference?: string | null;
+  payoutGateway?: string | null;
+  payoutTransferCode?: string | null;
+  payoutStatus?: string | null;
+  payoutOtpResentAt?: string | null;
   guarantorName: string;
   guarantorPhone: string;
   guarantors?: LoanGuarantor[];
   documents?: LoanDocument[];
-  status: "pending" | "under_review" | "approved" | "rejected" | "disbursed";
+  status:
+    | "draft"
+    | "pending"
+    | "under_review"
+    | "approved"
+    | "rejected"
+    | "disbursed";
   createdAt: string;
   reviewNotes?: string;
 }
+
+type LoanPayoutUpdate = {
+  payoutReference?: string | null;
+  payoutGateway?: string | null;
+  payoutTransferCode?: string | null;
+  payoutStatus?: string | null;
+  payoutOtpResentAt?: string | null;
+  disbursementBankAccountId?: string | null;
+  disbursementBankName?: string | null;
+  disbursementBankCode?: string | null;
+  disbursementAccountNumber?: string | null;
+  disbursementAccountName?: string | null;
+};
 
 interface LoanReviewPanelProps {
   applications: LoanApplication[];
@@ -105,7 +160,28 @@ interface LoanReviewPanelProps {
   ) => void;
   onReject: (id: string, notes: string) => void;
   onStartReview: (id: string) => void;
-  onDisburse: (id: string, repaymentStartDate?: string | null) => void;
+  onDisburse: (
+    id: string,
+    repaymentStartDate?: string | null,
+    bankAccountId?: string | null,
+  ) => Promise<LoanPayoutUpdate | null>;
+  onVerifyTransfer: (
+    id: string,
+    repaymentStartDate?: string | null,
+  ) => Promise<LoanPayoutUpdate>;
+  onFinalizeOtp: (
+    id: string,
+    transferCode: string,
+    otp: string,
+    repaymentStartDate?: string | null,
+  ) => Promise<LoanPayoutUpdate>;
+  onResendOtp: (
+    id: string,
+    transferCode: string,
+  ) => Promise<{ application: LoanPayoutUpdate; retryAfter?: number }>;
+  otpResendCooldownSeconds: number;
+  canDisburse?: boolean;
+  canFinalizeOtp?: boolean;
 }
 
 export default function LoanReviewPanel({
@@ -114,6 +190,12 @@ export default function LoanReviewPanel({
   onReject,
   onStartReview,
   onDisburse,
+  onVerifyTransfer,
+  onFinalizeOtp,
+  onResendOtp,
+  otpResendCooldownSeconds,
+  canDisburse = true,
+  canFinalizeOtp = true,
 }: LoanReviewPanelProps) {
   const { toast } = useToast();
   const [selectedLoan, setSelectedLoan] = useState<LoanApplication | null>(
@@ -128,15 +210,46 @@ export default function LoanReviewPanel({
   );
   const [statusFilter, setStatusFilter] = useState("all");
   const [repaymentStartDate, setRepaymentStartDate] = useState("");
+  const [selectedDisbursementAccountId, setSelectedDisbursementAccountId] =
+    useState("");
   const [approvedRateInput, setApprovedRateInput] = useState("");
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isPrintingPdf, setIsPrintingPdf] = useState(false);
   const [isEmailingPdf, setIsEmailingPdf] = useState(false);
+  const [otpTarget, setOtpTarget] = useState<LoanApplication | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [transferCode, setTransferCode] = useState("");
+  const [otpAction, setOtpAction] = useState<"finalize" | "resend" | null>(null);
+  const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0);
+  const [verifyTargetId, setVerifyTargetId] = useState<string | null>(null);
   const [recipientOptions, setRecipientOptions] = useState({
     sendApplicant: true,
     sendGuarantors: true,
     extraEmails: "",
   });
+  const [recipientDirty, setRecipientDirty] = useState(false);
+
+  const preferencesQuery = useNotificationPreferencesQuery();
+  const updatePreferencesMutation = useUpdateNotificationPreferencesMutation();
+  const bankAccountsQuery = useAdminLoanBankAccountsQuery(
+    selectedLoan?.id ?? null,
+    showDisburseModal && Boolean(selectedLoan?.id),
+  );
+  const bankAccountsLoading = bankAccountsQuery.isLoading;
+  const bankAccountsError = bankAccountsQuery.isError;
+  const bankAccounts: AdminBankAccount[] = (bankAccountsQuery.data ?? []).map(
+    (acc: any) => ({
+      id: String(acc._id),
+      bankName: String(acc.bankName),
+      bankCode: acc.bankCode ? String(acc.bankCode) : undefined,
+      accountNumber: String(acc.accountNumber),
+      accountName: String(acc.accountName),
+      isPrimary: Boolean(acc.isPrimary),
+    }),
+  );
+  const selectedDisbursementAccount =
+    bankAccounts.find((acc) => acc.id === selectedDisbursementAccountId) ||
+    null;
 
   const pendingCount = applications.filter(
     (a) => a.status === "pending",
@@ -155,6 +268,14 @@ export default function LoanReviewPanel({
     (a) => statusFilter === "all" || a.status === statusFilter,
   );
 
+  const otpBusy = otpAction !== null;
+  const resendDisabled =
+    !otpTarget || otpBusy || resendCooldownSeconds > 0;
+  const resendLabel =
+    resendCooldownSeconds > 0
+      ? `Resend OTP (${resendCooldownSeconds}s)`
+      : "Resend OTP";
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "pending":
@@ -162,6 +283,13 @@ export default function LoanReviewPanel({
           <Badge className="bg-amber-100 text-amber-700">
             <Clock className="mr-1 w-3 h-3" />
             Pending
+          </Badge>
+        );
+      case "draft":
+        return (
+          <Badge className="bg-gray-100 text-gray-600">
+            <Clock className="mr-1 w-3 h-3" />
+            Draft
           </Badge>
         );
       case "under_review":
@@ -227,9 +355,7 @@ export default function LoanReviewPanel({
         })
       : null;
   const selectedMonthlyPayment =
-    selectedLoan?.monthlyPayment ??
-    selectedLoanSummary?.monthlyPayment ??
-    0;
+    selectedLoan?.monthlyPayment ?? selectedLoanSummary?.monthlyPayment ?? 0;
   const selectedTotalRepayable =
     selectedLoan?.totalRepayable ??
     selectedLoanSummary?.totalPayment ??
@@ -281,19 +407,94 @@ export default function LoanReviewPanel({
     return `${size} B`;
   };
 
-  const parseExtraEmails = (value: string) =>
+  const parseEmailEntries = (value: string) =>
     value
       .split(/[,\n;]/g)
       .map((entry) => entry.trim())
       .filter(Boolean);
 
-  const extraRecipientEmails = parseExtraEmails(recipientOptions.extraEmails);
-  const hasEmailRecipients =
-    (recipientOptions.sendApplicant && Boolean(selectedLoan?.applicantEmail)) ||
-    (recipientOptions.sendGuarantors &&
-      Array.isArray(selectedLoan?.guarantors) &&
-      selectedLoan?.guarantors?.some((g) => Boolean(g.email))) ||
-    extraRecipientEmails.length > 0;
+  const normalizeEmail = (value: string) => value.trim().toLowerCase();
+
+  const isValidEmail = (value: string) =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
+  const extraRecipientEntries = parseEmailEntries(recipientOptions.extraEmails);
+  const invalidExtraEmails = extraRecipientEntries.filter(
+    (email) => !isValidEmail(email),
+  );
+  const extraRecipientEmails = extraRecipientEntries.filter((email) =>
+    isValidEmail(email),
+  );
+  const resolvedRecipients = (() => {
+    if (!selectedLoan) return [];
+    const recipients: Array<{ label: string; name?: string; email: string }> =
+      [];
+
+    if (
+      recipientOptions.sendApplicant &&
+      selectedLoan.applicantEmail &&
+      isValidEmail(selectedLoan.applicantEmail)
+    ) {
+      recipients.push({
+        label: "Applicant",
+        name: selectedLoan.applicantName,
+        email: normalizeEmail(selectedLoan.applicantEmail),
+      });
+    }
+
+    if (recipientOptions.sendGuarantors && Array.isArray(selectedLoan.guarantors)) {
+      selectedLoan.guarantors.forEach((g) => {
+        if (g?.email && isValidEmail(g.email)) {
+          recipients.push({
+            label: "Guarantor",
+            name: g.name,
+            email: normalizeEmail(g.email),
+          });
+        }
+      });
+    }
+
+    extraRecipientEmails.forEach((email) => {
+      recipients.push({
+        label: "Extra",
+        name: "",
+        email: normalizeEmail(email),
+      });
+    });
+
+    const unique = new Map<string, { label: string; name?: string; email: string }>();
+    recipients.forEach((recipient) => {
+      if (!unique.has(recipient.email)) {
+        unique.set(recipient.email, recipient);
+      }
+    });
+
+    return Array.from(unique.values());
+  })();
+
+  const hasEmailRecipients = resolvedRecipients.length > 0;
+  const hasTooManyRecipients = resolvedRecipients.length > 10;
+
+  const buildRecipientDefaults = (
+    loan: LoanApplication,
+    prefs?: NotificationPreferences | null,
+  ) => {
+    const applicantHasEmail = Boolean(loan.applicantEmail);
+    const guarantorHasEmail =
+      Array.isArray(loan.guarantors) &&
+      loan.guarantors.some((g) => Boolean(g.email));
+    const sendApplicant = prefs?.loanPdfSendApplicant ?? true;
+    const sendGuarantors = prefs?.loanPdfSendGuarantors ?? true;
+    const extraEmails = Array.isArray(prefs?.loanPdfExtraEmails)
+      ? prefs?.loanPdfExtraEmails.filter(Boolean)
+      : [];
+
+    return {
+      sendApplicant: applicantHasEmail ? sendApplicant : false,
+      sendGuarantors: guarantorHasEmail ? sendGuarantors : false,
+      extraEmails: extraEmails.join(", "),
+    };
+  };
 
   const getLoanLabel = (loan: LoanApplication) =>
     loan.loanCode ||
@@ -330,16 +531,75 @@ export default function LoanReviewPanel({
   const handleViewDetails = (loan: LoanApplication) => {
     setSelectedLoan(loan);
     setShowDetailModal(true);
-    const applicantHasEmail = Boolean(loan.applicantEmail);
-    const guarantorHasEmail =
-      Array.isArray(loan.guarantors) &&
-      loan.guarantors.some((g) => Boolean(g.email));
-    setRecipientOptions({
-      sendApplicant: applicantHasEmail,
-      sendGuarantors: guarantorHasEmail,
-      extraEmails: "",
-    });
+    setRecipientDirty(false);
+    setRecipientOptions(buildRecipientDefaults(loan, preferencesQuery.data));
   };
+
+  useEffect(() => {
+    if (!showDetailModal || !selectedLoan || recipientDirty) return;
+    if (!preferencesQuery.data) return;
+    setRecipientOptions(
+      buildRecipientDefaults(selectedLoan, preferencesQuery.data),
+    );
+  }, [preferencesQuery.data, recipientDirty, selectedLoan, showDetailModal]);
+
+  useEffect(() => {
+    if (resendCooldownSeconds <= 0) return undefined;
+    const timer = setTimeout(() => {
+      setResendCooldownSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldownSeconds]);
+
+  useEffect(() => {
+    if (!otpTarget) {
+      setResendCooldownSeconds(0);
+      return;
+    }
+    if (!otpTarget.payoutOtpResentAt || !otpResendCooldownSeconds) {
+      setResendCooldownSeconds(0);
+      return;
+    }
+    const lastResentAt = Date.parse(otpTarget.payoutOtpResentAt);
+    if (!Number.isFinite(lastResentAt)) {
+      setResendCooldownSeconds(0);
+      return;
+    }
+    const elapsedSeconds = Math.floor((Date.now() - lastResentAt) / 1000);
+    const remainingSeconds = Math.max(
+      otpResendCooldownSeconds - elapsedSeconds,
+      0,
+    );
+    setResendCooldownSeconds(remainingSeconds);
+  }, [otpTarget, otpResendCooldownSeconds]);
+
+  useEffect(() => {
+    if (!showDisburseModal || !selectedLoan) return;
+    if (bankAccounts.length === 0) {
+      setSelectedDisbursementAccountId("");
+      return;
+    }
+    if (
+      selectedDisbursementAccountId &&
+      bankAccounts.some((acc) => acc.id === selectedDisbursementAccountId)
+    ) {
+      return;
+    }
+    const preferred =
+      selectedLoan.disbursementBankAccountId &&
+      bankAccounts.find(
+        (acc) => acc.id === selectedLoan.disbursementBankAccountId,
+      )
+        ? selectedLoan.disbursementBankAccountId
+        : null;
+    const primary = bankAccounts.find((acc) => acc.isPrimary)?.id || null;
+    setSelectedDisbursementAccountId(preferred || primary || bankAccounts[0].id);
+  }, [
+    bankAccounts,
+    selectedDisbursementAccountId,
+    selectedLoan,
+    showDisburseModal,
+  ]);
 
   const handleReview = (
     loan: LoanApplication,
@@ -360,8 +620,10 @@ export default function LoanReviewPanel({
   };
 
   const handleDisburse = (loan: LoanApplication) => {
+    if (!canDisburse) return;
     setSelectedLoan(loan);
     setRepaymentStartDate("");
+    setSelectedDisbursementAccountId("");
     setShowDisburseModal(true);
   };
 
@@ -398,10 +660,24 @@ export default function LoanReviewPanel({
 
   const handleEmailPdf = async () => {
     if (!selectedLoan) return;
+    if (invalidExtraEmails.length > 0) {
+      toast({
+        title: "Invalid emails",
+        description: "Remove or correct the invalid email addresses.",
+      });
+      return;
+    }
     if (!hasEmailRecipients) {
       toast({
         title: "Select recipients",
         description: "Choose at least one recipient to email this PDF.",
+      });
+      return;
+    }
+    if (hasTooManyRecipients) {
+      toast({
+        title: "Too many recipients",
+        description: "Please keep the recipient list to 10 emails or fewer.",
       });
       return;
     }
@@ -430,6 +706,38 @@ export default function LoanReviewPanel({
       });
     } finally {
       setIsEmailingPdf(false);
+    }
+  };
+
+  const handleSaveRecipientDefaults = async () => {
+    if (invalidExtraEmails.length > 0) {
+      toast({
+        title: "Invalid emails",
+        description: "Remove or correct the invalid email addresses.",
+      });
+      return;
+    }
+    try {
+      await updatePreferencesMutation.mutateAsync({
+        loanPdfSendApplicant: recipientOptions.sendApplicant,
+        loanPdfSendGuarantors: recipientOptions.sendGuarantors,
+        loanPdfExtraEmails: extraRecipientEmails,
+      });
+      setRecipientDirty(false);
+      toast({
+        title: "Defaults saved",
+        description: "Your recipient preferences have been updated.",
+      });
+    } catch (error: unknown) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String((error as { message?: string }).message)
+          : "Unable to save recipient defaults.";
+      toast({
+        title: "Save failed",
+        description: message,
+        variant: "destructive",
+      });
     }
   };
 
@@ -485,11 +793,244 @@ export default function LoanReviewPanel({
     }
   };
 
-  const confirmDisburse = () => {
-    if (selectedLoan) {
-      onDisburse(selectedLoan.id, repaymentStartDate || null);
+  const mergePayoutUpdate = (
+    base: LoanApplication,
+    update?: LoanPayoutUpdate | null,
+  ) => ({
+    ...base,
+    payoutReference: update?.payoutReference ?? base.payoutReference,
+    payoutGateway: update?.payoutGateway ?? base.payoutGateway,
+    payoutTransferCode: update?.payoutTransferCode ?? base.payoutTransferCode,
+    payoutStatus: update?.payoutStatus ?? base.payoutStatus,
+    payoutOtpResentAt: update?.payoutOtpResentAt ?? base.payoutOtpResentAt,
+    disbursementBankAccountId:
+      update?.disbursementBankAccountId ?? base.disbursementBankAccountId,
+    disbursementBankName:
+      update?.disbursementBankName ?? base.disbursementBankName,
+    disbursementBankCode:
+      update?.disbursementBankCode ?? base.disbursementBankCode,
+    disbursementAccountNumber:
+      update?.disbursementAccountNumber ?? base.disbursementAccountNumber,
+    disbursementAccountName:
+      update?.disbursementAccountName ?? base.disbursementAccountName,
+  });
+
+  const confirmDisburse = async () => {
+    if (!selectedLoan) return;
+    if (bankAccountsLoading) {
+      toast({
+        title: "Loading Bank Accounts",
+        description: "Please wait while we load the borrower bank accounts.",
+      });
+      return;
+    }
+    if (bankAccountsError) {
+      toast({
+        title: "Bank Accounts Unavailable",
+        description:
+          "Unable to load borrower bank accounts. Please retry shortly.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (bankAccounts.length === 0) {
+      toast({
+        title: "No Bank Accounts",
+        description:
+          "This borrower does not have a bank account on file. Ask them to add one before disbursement.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!selectedDisbursementAccountId) {
+      toast({
+        title: "Select Bank Account",
+        description: "Choose a bank account for disbursement.",
+        variant: "destructive",
+      });
+      return;
+    }
+    try {
+      const result = await onDisburse(
+        selectedLoan.id,
+        repaymentStartDate || null,
+        selectedDisbursementAccountId || null,
+      );
+      if (result?.payoutStatus === "otp") {
+        const updated = mergePayoutUpdate(selectedLoan, result);
+        setOtpTarget(updated);
+        setTransferCode(updated.payoutTransferCode || "");
+        setOtpCode("");
+      }
+    } finally {
       setShowDisburseModal(false);
       setSelectedLoan(null);
+    }
+  };
+
+  const handleVerifyTransfer = async (loan: LoanApplication) => {
+    if (!loan.payoutReference) {
+      toast({
+        title: "Missing Reference",
+        description: "No payout reference found for this transfer.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setVerifyTargetId(loan.id);
+    try {
+      const result = await onVerifyTransfer(
+        loan.id,
+        loan.repaymentStartDate || null,
+      );
+      const updated = mergePayoutUpdate(loan, result);
+
+      if (updated.payoutStatus === "success") {
+        toast({
+          title: "Transfer Verified",
+          description: "The payout has been completed and the loan disbursed.",
+        });
+      } else if (updated.payoutStatus === "otp") {
+        toast({
+          title: "OTP Required",
+          description: "Paystack requires OTP to complete this transfer.",
+        });
+        setOtpTarget(updated);
+        setTransferCode(updated.payoutTransferCode || "");
+        setOtpCode("");
+      } else {
+        toast({
+          title: "Transfer Pending",
+          description:
+            "The payout is still processing. You can verify again later.",
+        });
+      }
+
+      if (selectedLoan?.id === loan.id) {
+        setSelectedLoan(updated);
+      }
+    } catch (error: unknown) {
+      toast({
+        title: "Verify Failed",
+        description:
+          (error as Error).message || "Unable to verify transfer status.",
+        variant: "destructive",
+      });
+    } finally {
+      setVerifyTargetId(null);
+    }
+  };
+
+  const handleFinalizeOtp = async () => {
+    if (!canFinalizeOtp) return;
+    if (!otpTarget) return;
+    if (!otpCode.trim()) {
+      toast({
+        title: "OTP Required",
+        description: "Enter the OTP sent by Paystack to finalize this transfer.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!transferCode.trim()) {
+      toast({
+        title: "Transfer Code Required",
+        description: "Enter the transfer code for this payout.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setOtpAction("finalize");
+    try {
+      const plannedStartDate =
+        otpTarget.repaymentStartDate || repaymentStartDate || null;
+      const result = await onFinalizeOtp(
+        otpTarget.id,
+        transferCode.trim(),
+        otpCode.trim(),
+        plannedStartDate,
+      );
+      const updated = mergePayoutUpdate(otpTarget, result);
+
+      if (updated.payoutStatus === "success") {
+        toast({
+          title: "Transfer Finalized",
+          description: "OTP verified. The loan has been disbursed.",
+        });
+        setOtpTarget(null);
+        setOtpCode("");
+        setTransferCode("");
+        setResendCooldownSeconds(0);
+      } else {
+        toast({
+          title: "Transfer Processing",
+          description:
+            "The payout is still processing. You can retry if Paystack requires another OTP.",
+        });
+        setOtpTarget(updated);
+        setTransferCode(updated.payoutTransferCode || transferCode.trim());
+      }
+    } catch (error: unknown) {
+      toast({
+        title: "Finalize Failed",
+        description:
+          (error as Error).message || "Failed to finalize transfer",
+        variant: "destructive",
+      });
+    } finally {
+      setOtpAction(null);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (!otpTarget) return;
+    if (!transferCode.trim()) {
+      toast({
+        title: "Transfer Code Required",
+        description: "Enter the transfer code to resend OTP.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setOtpAction("resend");
+    try {
+      const result = await onResendOtp(otpTarget.id, transferCode.trim());
+      const updated = mergePayoutUpdate(otpTarget, result.application);
+      setOtpTarget(updated);
+      setTransferCode(updated.payoutTransferCode || transferCode.trim());
+
+      const retryAfter = result.retryAfter;
+      const cooldown =
+        typeof retryAfter === "number" && retryAfter > 0
+          ? retryAfter
+          : otpResendCooldownSeconds;
+      if (cooldown > 0) {
+        setResendCooldownSeconds(cooldown);
+      }
+
+      toast({
+        title: "OTP Resent",
+        description: "A new OTP has been sent to your Paystack contact.",
+      });
+    } catch (error: unknown) {
+      const retryAfter = (error as Error & { retryAfter?: number }).retryAfter;
+      const cooldown =
+        typeof retryAfter === "number" && retryAfter > 0
+          ? retryAfter
+          : otpResendCooldownSeconds;
+      if (cooldown > 0) {
+        setResendCooldownSeconds(cooldown);
+      }
+      toast({
+        title: "Resend Failed",
+        description:
+          (error as Error).message || "Failed to resend OTP",
+        variant: "destructive",
+      });
+    } finally {
+      setOtpAction(null);
     }
   };
 
@@ -652,16 +1193,99 @@ export default function LoanReviewPanel({
                       </>
                     )}
                     {loan.status === "approved" && (
-                      <Button
-                        size="sm"
-                        className="bg-purple-600 hover:bg-purple-700"
-                        onClick={() => handleDisburse(loan)}
-                      >
-                        Disburse
-                      </Button>
+                      <>
+                        {loan.payoutStatus === "otp" ? (
+                          canFinalizeOtp ? (
+                            <Button
+                              size="sm"
+                              className="bg-amber-600 hover:bg-amber-700"
+                              onClick={() => {
+                                setOtpTarget(loan);
+                                setTransferCode(loan.payoutTransferCode || "");
+                                setOtpCode("");
+                              }}
+                            >
+                              Finalize OTP
+                            </Button>
+                          ) : null
+                        ) : ["pending", "processing", "queued"].includes(
+                            String(loan.payoutStatus || "").toLowerCase(),
+                          ) ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-amber-200 text-amber-700"
+                            onClick={() => handleVerifyTransfer(loan)}
+                            disabled={verifyTargetId === loan.id}
+                          >
+                            {verifyTargetId === loan.id
+                              ? "Verifying..."
+                              : "Verify Transfer"}
+                          </Button>
+                        ) : canDisburse ? (
+                          <Button
+                            size="sm"
+                            className="bg-purple-600 hover:bg-purple-700"
+                            onClick={() => handleDisburse(loan)}
+                          >
+                            Disburse
+                          </Button>
+                        ) : null}
+                        {!canDisburse &&
+                          String(loan.payoutStatus || "").toLowerCase() !==
+                            "otp" &&
+                          !["pending", "processing", "queued"].includes(
+                            String(loan.payoutStatus || "").toLowerCase(),
+                          ) && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 cursor-help"
+                                  tabIndex={0}
+                                >
+                                  Admin action required
+                                  <Info className="h-3 w-3" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Only admins can disburse loans.
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                        {!canFinalizeOtp &&
+                          String(loan.payoutStatus || "").toLowerCase() ===
+                            "otp" && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 cursor-help"
+                                  tabIndex={0}
+                                >
+                                  Admin action required
+                                  <Info className="h-3 w-3" />
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                Only admins can finalize OTP transfers.
+                              </TooltipContent>
+                            </Tooltip>
+                          )}
+                      </>
                     )}
                   </div>
                 </div>
+                {(loan.payoutStatus || loan.payoutTransferCode) && (
+                  <div className="flex flex-wrap justify-end gap-3 mt-2 text-xs text-gray-500">
+                    {loan.payoutStatus && (
+                      <span className="text-amber-600">
+                        Payout Status: {loan.payoutStatus.toUpperCase()}
+                      </span>
+                    )}
+                    {loan.payoutTransferCode && (
+                      <span>Transfer Code: {loan.payoutTransferCode}</span>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -670,482 +1294,583 @@ export default function LoanReviewPanel({
 
       {/* Detail Modal */}
       <Dialog open={showDetailModal} onOpenChange={setShowDetailModal}>
-        <DialogContent className="max-w-5xl p-0 overflow-hidden">
+        <DialogContent className="p-0 max-w-5xl">
           <DialogHeader className="sr-only">
             <DialogTitle>Loan Application Details</DialogTitle>
           </DialogHeader>
-          {selectedLoan && (() => {
-            const loanLabel = getLoanLabel(selectedLoan);
-            const facilityLabel =
-              selectedRateInfo?.facility?.name || "Loan Facility";
-            const repaymentProgress =
-              selectedLoan.remainingBalance != null && selectedTotalRepayable
-                ? Math.min(
-                    100,
-                    Math.max(
-                      0,
-                      ((selectedTotalRepayable -
-                        Number(selectedLoan.remainingBalance || 0)) /
-                        selectedTotalRepayable) *
-                        100,
-                    ),
-                  )
-                : null;
-            const monthlyIncome = Number(selectedLoan.monthlyIncome || 0);
-            const dtiValue =
-              monthlyIncome > 0
-                ? (selectedMonthlyPayment / monthlyIncome) * 100
-                : null;
-            const guarantors = Array.isArray(selectedLoan.guarantors)
-              ? selectedLoan.guarantors
-              : [];
-            const documents = Array.isArray(selectedLoan.documents)
-              ? selectedLoan.documents
-              : [];
+          {selectedLoan &&
+            (() => {
+              const loanLabel = getLoanLabel(selectedLoan);
+              const facilityLabel =
+                selectedRateInfo?.facility?.name || "Loan Facility";
+              const repaymentProgress =
+                selectedLoan.remainingBalance != null && selectedTotalRepayable
+                  ? Math.min(
+                      100,
+                      Math.max(
+                        0,
+                        ((selectedTotalRepayable -
+                          Number(selectedLoan.remainingBalance || 0)) /
+                          selectedTotalRepayable) *
+                          100,
+                      ),
+                    )
+                  : null;
+              const monthlyIncome = Number(selectedLoan.monthlyIncome || 0);
+              const dtiValue =
+                monthlyIncome > 0
+                  ? (selectedMonthlyPayment / monthlyIncome) * 100
+                  : null;
+              const guarantors = Array.isArray(selectedLoan.guarantors)
+                ? selectedLoan.guarantors
+                : [];
+              const documents = Array.isArray(selectedLoan.documents)
+                ? selectedLoan.documents
+                : [];
 
-            return (
-              <div className="flex flex-col">
-                <div className="border-b bg-slate-50 px-6 py-5">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">
-                        Loan Application
-                      </p>
-                      <h2 className="mt-1 text-2xl font-semibold text-gray-900">
-                        {loanLabel}
-                      </h2>
-                      <p className="mt-1 text-sm text-gray-500">
-                        Submitted {formatDate(selectedLoan.createdAt)} •{" "}
-                        {facilityLabel}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {getStatusBadge(selectedLoan.status)}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handlePrintLoan}
-                        disabled={isPrintingPdf}
-                        className="gap-2"
-                      >
-                        <Printer className="h-4 w-4" />
-                        {isPrintingPdf ? "Preparing..." : "Print"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleEmailPdf}
-                        disabled={isEmailingPdf || !hasEmailRecipients}
-                        className="gap-2"
-                      >
-                        <Mail className="h-4 w-4" />
-                        {isEmailingPdf ? "Emailing..." : "Email PDF"}
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={handleDownloadPdf}
-                        disabled={isDownloadingPdf}
-                        className="gap-2 bg-emerald-600 hover:bg-emerald-700"
-                      >
-                        <Download className="h-4 w-4" />
-                        {isDownloadingPdf ? "Downloading..." : "Download PDF"}
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2 text-xs">
-                    {(() => {
-                      const risk = getRiskTone(dtiValue);
-                      const dtiLabel =
-                        dtiValue != null
-                          ? `DTI ${dtiValue.toFixed(1)}%`
-                          : "DTI —";
-                      return (
-                        <>
-                          <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">
-                            {dtiLabel}{" "}
-                            {dtiValue != null
-                              ? dtiValue > 35
-                                ? "(Above 35%)"
-                                : "(Below 35%)"
-                              : ""}
-                          </span>
-                          <span
-                            className={`rounded-full px-3 py-1 font-semibold ${risk.classes}`}
-                          >
-                            {risk.label}
-                          </span>
-                          <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">
-                            Guarantors {guarantors.length}
-                          </span>
-                          <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-600">
-                            Documents {documents.length}
-                          </span>
-                        </>
-                      );
-                    })()}
-                  </div>
-                  <div className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
+              return (
+                <div className="flex flex-col max-h-screen">
+                  <div className="z-10 relative bg-slate-50 px-6 py-5 border-b">
+                    <div className="flex flex-wrap justify-between items-start gap-4">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                          Recipients
+                        <p className="font-semibold text-emerald-600 text-xs uppercase tracking-[0.2em]">
+                          Loan Application
                         </p>
-                        <p className="text-xs text-gray-500">
-                          Choose who receives the PDF.
+                        <h2 className="mt-1 font-semibold text-gray-900 text-2xl">
+                          {loanLabel}
+                        </h2>
+                        <p className="mt-1 text-gray-500 text-sm">
+                          Submitted {formatDate(selectedLoan.createdAt)} •{" "}
+                          {facilityLabel}
                         </p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
-                        <label className="flex items-center gap-2">
-                          <Checkbox
-                            id="loan-recipient-applicant"
-                            checked={recipientOptions.sendApplicant}
-                            disabled={!selectedLoan.applicantEmail}
-                            onCheckedChange={(value) =>
-                              setRecipientOptions((prev) => ({
-                                ...prev,
-                                sendApplicant: Boolean(value),
-                              }))
-                            }
-                          />
-                          <span>
-                            Applicant
-                            {!selectedLoan.applicantEmail && " (no email)"}
-                          </span>
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <Checkbox
-                            id="loan-recipient-guarantors"
-                            checked={recipientOptions.sendGuarantors}
-                            disabled={
-                              guarantors.length === 0 ||
+                      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                        {getStatusBadge(selectedLoan.status)}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handlePrintLoan}
+                          disabled={isPrintingPdf}
+                          className="gap-2 bg-white shadow-sm border-slate-200 text-slate-700"
+                        >
+                          <Printer className="w-4 h-4" />
+                          {isPrintingPdf ? "Preparing..." : "Print"}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleEmailPdf}
+                          disabled={
+                            isEmailingPdf ||
+                            !hasEmailRecipients ||
+                            invalidExtraEmails.length > 0 ||
+                            hasTooManyRecipients
+                          }
+                          className="gap-2 bg-white shadow-sm border-slate-200 text-slate-700"
+                        >
+                          <Mail className="w-4 h-4" />
+                          {isEmailingPdf ? "Emailing..." : "Email PDF"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={handleDownloadPdf}
+                          disabled={isDownloadingPdf}
+                          className="gap-2 bg-emerald-600 hover:bg-emerald-700 shadow-sm"
+                        >
+                          <Download className="w-4 h-4" />
+                          {isDownloadingPdf ? "Downloading..." : "Download PDF"}
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-4 text-xs">
+                      {(() => {
+                        const risk = getRiskTone(dtiValue);
+                        const dtiLabel =
+                          dtiValue != null
+                            ? `DTI ${dtiValue.toFixed(1)}%`
+                            : "DTI —";
+                        return (
+                          <>
+                            <span className="bg-slate-100 px-3 py-1 rounded-full font-medium text-slate-600">
+                              {dtiLabel}{" "}
+                              {dtiValue != null
+                                ? dtiValue > 35
+                                  ? "(Above 35%)"
+                                  : "(Below 35%)"
+                                : ""}
+                            </span>
+                            <span
+                              className={`rounded-full px-3 py-1 font-semibold ${risk.classes}`}
+                            >
+                              {risk.label}
+                            </span>
+                            <span className="bg-slate-100 px-3 py-1 rounded-full font-medium text-slate-600">
+                              Guarantors {guarantors.length}
+                            </span>
+                            <span className="bg-slate-100 px-3 py-1 rounded-full font-medium text-slate-600">
+                              Documents {documents.length}
+                            </span>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div className="bg-white mt-4 px-4 py-3 border border-slate-200 rounded-lg">
+                      <div className="flex flex-wrap justify-between items-center gap-3">
+                        <div>
+                          <p className="font-semibold text-gray-500 text-xs uppercase tracking-wide">
+                            Recipients
+                          </p>
+                          <p className="text-gray-500 text-xs">
+                            Choose who receives the PDF.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-4 text-gray-600 text-sm">
+                          <label className="flex items-center gap-2">
+                            <Checkbox
+                              id="loan-recipient-applicant"
+                              checked={recipientOptions.sendApplicant}
+                              disabled={!selectedLoan.applicantEmail}
+                              onCheckedChange={(value) => {
+                                setRecipientDirty(true);
+                                setRecipientOptions((prev) => ({
+                                  ...prev,
+                                  sendApplicant: Boolean(value),
+                                }));
+                              }}
+                            />
+                            <span>
+                              Applicant
+                              {!selectedLoan.applicantEmail && " (no email)"}
+                            </span>
+                          </label>
+                          <label className="flex items-center gap-2">
+                            <Checkbox
+                              id="loan-recipient-guarantors"
+                              checked={recipientOptions.sendGuarantors}
+                              disabled={
+                                guarantors.length === 0 ||
+                                !guarantors.some((g) => Boolean(g.email))
+                              }
+                              onCheckedChange={(value) => {
+                                setRecipientDirty(true);
+                                setRecipientOptions((prev) => ({
+                                  ...prev,
+                                  sendGuarantors: Boolean(value),
+                                }));
+                              }}
+                            />
+                            <span>
+                              Guarantors
+                              {guarantors.length === 0 ||
                               !guarantors.some((g) => Boolean(g.email))
-                            }
-                            onCheckedChange={(value) =>
-                              setRecipientOptions((prev) => ({
-                                ...prev,
-                                sendGuarantors: Boolean(value),
-                              }))
-                            }
-                          />
-                          <span>
-                            Guarantors
-                            {guarantors.length === 0 ||
-                            !guarantors.some((g) => Boolean(g.email))
-                              ? " (no email)"
-                              : ""}
-                          </span>
-                        </label>
-                      </div>
-                    </div>
-                    <div className="mt-3">
-                      <Input
-                        value={recipientOptions.extraEmails}
-                        onChange={(event) =>
-                          setRecipientOptions((prev) => ({
-                            ...prev,
-                            extraEmails: event.target.value,
-                          }))
-                        }
-                        placeholder="Add extra emails (comma or semicolon separated)"
-                      />
-                      <p className="mt-1 text-xs text-gray-400">
-                        Example: finance@company.com, auditor@company.com
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="max-h-[75vh] space-y-6 overflow-y-auto px-6 py-6">
-                  <div className="grid gap-4 md:grid-cols-4">
-                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">
-                        Requested
-                      </p>
-                      <p className="mt-2 text-xl font-semibold text-gray-900">
-                        {formatCurrency(selectedLoan.loanAmount)}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {selectedLoan.repaymentPeriod} months
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">
-                        Approved Amount
-                      </p>
-                      <p className="mt-2 text-xl font-semibold text-emerald-600">
-                        {selectedLoan.approvedAmount != null
-                          ? formatCurrency(selectedLoan.approvedAmount)
-                          : "Pending"}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Interest {selectedInterestLabel || "—"}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">
-                        Monthly Payment
-                      </p>
-                      <p className="mt-2 text-xl font-semibold text-gray-900">
-                        {formatCurrency(selectedMonthlyPayment)}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Total repayable {formatCurrency(selectedTotalRepayable)}
-                      </p>
-                    </div>
-                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">
-                        Remaining Balance
-                      </p>
-                      <p className="mt-2 text-xl font-semibold text-gray-900">
-                        {selectedLoan.remainingBalance != null
-                          ? formatCurrency(selectedLoan.remainingBalance)
-                          : "—"}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Repayment progress{" "}
-                        {repaymentProgress != null
-                          ? `${Math.round(repaymentProgress)}%`
-                          : "—"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                      <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
-                        <User className="h-4 w-4 text-emerald-500" />
-                        Applicant
-                      </div>
-                      <p className="mt-3 text-lg font-semibold text-gray-900">
-                        {selectedLoan.applicantName}
-                      </p>
-                      <div className="mt-3 space-y-2 text-sm text-gray-600">
-                        <div className="flex items-center gap-2">
-                          <Mail className="h-4 w-4 text-gray-400" />
-                          <span>{selectedLoan.applicantEmail || "—"}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Phone className="h-4 w-4 text-gray-400" />
-                          <span>{selectedLoan.applicantPhone || "—"}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Building2 className="h-4 w-4 text-gray-400" />
-                          <span>{selectedLoan.groupName || "—"}</span>
+                                ? " (no email)"
+                                : ""}
+                            </span>
+                          </label>
                         </div>
                       </div>
-                    </div>
-
-                    <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                      <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
-                        <CreditCard className="h-4 w-4 text-emerald-500" />
-                        Loan Snapshot
-                      </div>
-                      <div className="mt-3 space-y-2 text-sm text-gray-600">
-                        <p className="text-base font-semibold text-gray-900">
-                          {selectedLoan.loanPurpose}
-                        </p>
-                        <p>
-                          {selectedLoan.purposeDescription ||
-                            "No additional description provided."}
-                        </p>
-                        <div className="flex flex-wrap gap-2 pt-2 text-xs text-gray-500">
-                          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-700">
-                            {facilityLabel}
-                          </span>
-                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
-                            {selectedInterestLabel || "Interest TBD"}
-                          </span>
-                          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-600">
-                            {selectedLoan.repaymentPeriod} months
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">
-                        Approval Timeline
-                      </p>
-                      <div className="mt-3 space-y-2 text-sm text-gray-600">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-gray-400" />
-                          <span>
-                            Applied {formatDate(selectedLoan.createdAt)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-gray-400" />
-                          <span>
-                            Approved {formatDate(selectedLoan.approvedAt)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-gray-400" />
-                          <span>
-                            Disbursed {formatDate(selectedLoan.disbursedAt)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-gray-400" />
-                          <span>
-                            Repayment Start{" "}
-                            {formatDate(selectedLoan.repaymentStartDate)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">
-                        Affordability
-                      </p>
                       <div className="mt-3">
-                        <p className="text-xl font-semibold text-gray-900">
-                          {monthlyIncome
-                            ? formatCurrency(monthlyIncome)
+                        <Input
+                          value={recipientOptions.extraEmails}
+                          onChange={(event) => {
+                            setRecipientDirty(true);
+                            setRecipientOptions((prev) => ({
+                              ...prev,
+                              extraEmails: event.target.value,
+                            }));
+                          }}
+                          className={
+                            invalidExtraEmails.length > 0
+                              ? "border-rose-300 focus-visible:ring-rose-200"
+                              : undefined
+                          }
+                          placeholder="Add extra emails (comma or semicolon separated)"
+                          aria-invalid={invalidExtraEmails.length > 0}
+                        />
+                        <p className="mt-1 text-gray-400 text-xs">
+                          Example: finance@company.com, auditor@company.com
+                        </p>
+                        {invalidExtraEmails.length > 0 && (
+                          <p className="mt-1 text-rose-500 text-xs">
+                            Invalid: {invalidExtraEmails.join(", ")}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="mt-3 pt-3 border-slate-100 border-t">
+                        <div className="flex flex-wrap justify-between items-center gap-2">
+                          <p className="font-semibold text-gray-500 text-xs uppercase tracking-wide">
+                            Resolved Recipients
+                          </p>
+                          <div className="flex items-center gap-2">
+                            {recipientDirty && (
+                              <span className="text-amber-600 text-xs">
+                                Unsaved changes
+                              </span>
+                            )}
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="bg-white border-slate-200 text-slate-700"
+                              onClick={handleSaveRecipientDefaults}
+                              disabled={updatePreferencesMutation.isPending}
+                            >
+                              {updatePreferencesMutation.isPending
+                                ? "Saving..."
+                                : "Save Defaults"}
+                            </Button>
+                          </div>
+                        </div>
+                        {resolvedRecipients.length === 0 ? (
+                          <p className="mt-2 text-gray-400 text-xs">
+                            No recipients selected yet.
+                          </p>
+                        ) : (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {resolvedRecipients.map((recipient, index) => (
+                              <span
+                                key={`${recipient.email}-${index}`}
+                                className="bg-slate-100 px-2.5 py-1 rounded-full text-slate-600 text-xs"
+                              >
+                                {recipient.label}
+                                {recipient.name ? ` · ${recipient.name}` : ""}{" "}
+                                — {recipient.email}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {hasTooManyRecipients && (
+                          <p className="mt-2 text-rose-500 text-xs">
+                            Too many recipients selected. The limit is 10.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6 px-6 py-6 max-h-[75vh] overflow-y-auto">
+                    <div className="gap-4 grid md:grid-cols-4">
+                      <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+                        <p className="text-gray-500 text-xs uppercase tracking-wide">
+                          Requested
+                        </p>
+                        <p className="mt-2 font-semibold text-gray-900 text-xl">
+                          {formatCurrency(selectedLoan.loanAmount)}
+                        </p>
+                        <p className="text-gray-500 text-xs">
+                          {selectedLoan.repaymentPeriod} months
+                        </p>
+                      </div>
+                      <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+                        <p className="text-gray-500 text-xs uppercase tracking-wide">
+                          Approved Amount
+                        </p>
+                        <p className="mt-2 font-semibold text-emerald-600 text-xl">
+                          {selectedLoan.approvedAmount != null
+                            ? formatCurrency(selectedLoan.approvedAmount)
+                            : "Pending"}
+                        </p>
+                        <p className="text-gray-500 text-xs">
+                          Interest {selectedInterestLabel || "—"}
+                        </p>
+                      </div>
+                      <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+                        <p className="text-gray-500 text-xs uppercase tracking-wide">
+                          Monthly Payment
+                        </p>
+                        <p className="mt-2 font-semibold text-gray-900 text-xl">
+                          {formatCurrency(selectedMonthlyPayment)}
+                        </p>
+                        <p className="text-gray-500 text-xs">
+                          Total repayable{" "}
+                          {formatCurrency(selectedTotalRepayable)}
+                        </p>
+                      </div>
+                      <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+                        <p className="text-gray-500 text-xs uppercase tracking-wide">
+                          Remaining Balance
+                        </p>
+                        <p className="mt-2 font-semibold text-gray-900 text-xl">
+                          {selectedLoan.remainingBalance != null
+                            ? formatCurrency(selectedLoan.remainingBalance)
                             : "—"}
                         </p>
-                        <p className="text-xs text-gray-500">Monthly Income</p>
+                        <p className="text-gray-500 text-xs">
+                          Repayment progress{" "}
+                          {repaymentProgress != null
+                            ? `${Math.round(repaymentProgress)}%`
+                            : "—"}
+                        </p>
                       </div>
-                      <div className="mt-3">
-                        <div className="flex items-center justify-between text-xs text-gray-500">
-                          <span>Debt-to-Income</span>
-                          <span>
-                            {dtiValue != null
-                              ? `${dtiValue.toFixed(1)}%`
-                              : "—"}
-                          </span>
+                    </div>
+
+                    <div className="gap-4 grid md:grid-cols-2">
+                      <div className="bg-white shadow-sm p-5 border border-gray-100 rounded-xl">
+                        <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
+                          <User className="w-4 h-4 text-emerald-500" />
+                          Applicant
                         </div>
-                        <Progress
-                          className="mt-2 h-2"
-                          value={
-                            dtiValue != null
-                              ? Math.min(100, Math.max(0, dtiValue))
-                              : 0
-                          }
-                        />
-                      </div>
-                    </div>
-                    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-                      <p className="text-xs uppercase tracking-wide text-gray-500">
-                        Review Notes
-                      </p>
-                      <p className="mt-3 text-sm text-gray-600">
-                        {selectedLoan.reviewNotes ||
-                          "No review notes recorded."}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                    <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
-                      <User className="h-4 w-4 text-emerald-500" />
-                      Guarantors
-                    </div>
-                    {guarantors.length === 0 ? (
-                      <p className="mt-3 text-sm text-gray-500">
-                        No guarantors submitted for this application.
-                      </p>
-                    ) : (
-                      <div className="mt-4 grid gap-3 md:grid-cols-2">
-                        {guarantors.map((g, index) => (
-                          <div
-                            key={`${g.name}-${index}`}
-                            className="rounded-lg border border-gray-100 bg-gray-50 p-3"
-                          >
-                            <p className="font-semibold text-gray-900">
-                              {g.name}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {g.relationship || g.type || "Guarantor"}
-                            </p>
-                            <p className="mt-2 text-xs text-gray-600">
-                              {g.phone || g.email || "—"}
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-2 text-xs text-gray-500">
-                              {g.liabilityPercentage != null && (
-                                <span className="rounded-full bg-white px-2 py-1 text-gray-600">
-                                  Liability {g.liabilityPercentage}%
-                                </span>
-                              )}
-                              {g.savingsBalance != null && (
-                                <span className="rounded-full bg-white px-2 py-1 text-gray-600">
-                                  Savings {formatCurrency(g.savingsBalance)}
-                                </span>
-                              )}
-                            </div>
+                        <p className="mt-3 font-semibold text-gray-900 text-lg">
+                          {selectedLoan.applicantName}
+                        </p>
+                        <div className="space-y-2 mt-3 text-gray-600 text-sm">
+                          <div className="flex items-center gap-2">
+                            <Mail className="w-4 h-4 text-gray-400" />
+                            <span>{selectedLoan.applicantEmail || "—"}</span>
                           </div>
-                        ))}
+                          <div className="flex items-center gap-2">
+                            <Phone className="w-4 h-4 text-gray-400" />
+                            <span>{selectedLoan.applicantPhone || "—"}</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Building2 className="w-4 h-4 text-gray-400" />
+                            <span>{selectedLoan.groupName || "—"}</span>
+                          </div>
+                        </div>
                       </div>
-                    )}
-                  </div>
 
-                  <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
-                    <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
-                      <FileText className="h-4 w-4 text-emerald-500" />
-                      Documents
+                      <div className="bg-white shadow-sm p-5 border border-gray-100 rounded-xl">
+                        <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
+                          <CreditCard className="w-4 h-4 text-emerald-500" />
+                          Loan Snapshot
+                        </div>
+                        <div className="space-y-2 mt-3 text-gray-600 text-sm">
+                          <p className="font-semibold text-gray-900 text-base">
+                            {selectedLoan.loanPurpose}
+                          </p>
+                          <p>
+                            {selectedLoan.purposeDescription ||
+                              "No additional description provided."}
+                          </p>
+                          <div className="flex flex-wrap gap-2 pt-2 text-gray-500 text-xs">
+                            <span className="bg-emerald-50 px-2.5 py-1 rounded-full text-emerald-700">
+                              {facilityLabel}
+                            </span>
+                            <span className="bg-slate-100 px-2.5 py-1 rounded-full text-slate-600">
+                              {selectedInterestLabel || "Interest TBD"}
+                            </span>
+                            <span className="bg-slate-100 px-2.5 py-1 rounded-full text-slate-600">
+                              {selectedLoan.repaymentPeriod} months
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    {documents.length === 0 ? (
-                      <p className="mt-3 text-sm text-gray-500">
-                        No documents have been uploaded yet.
-                      </p>
-                    ) : (
-                      <div className="mt-4 divide-y divide-gray-100">
-                        {documents.map((doc, index) => (
-                          <div
-                            key={`${doc.name}-${index}`}
-                            className="flex flex-wrap items-center justify-between gap-3 py-3"
-                          >
-                            <div>
-                              <p className="font-medium text-gray-900">
-                                {doc.name}
+
+                    <div className="gap-4 grid md:grid-cols-3">
+                      <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+                        <p className="text-gray-500 text-xs uppercase tracking-wide">
+                          Approval Timeline
+                        </p>
+                        <div className="space-y-2 mt-3 text-gray-600 text-sm">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-gray-400" />
+                            <span>
+                              Applied {formatDate(selectedLoan.createdAt)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-gray-400" />
+                            <span>
+                              Approved {formatDate(selectedLoan.approvedAt)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-gray-400" />
+                            <span>
+                              Disbursed {formatDate(selectedLoan.disbursedAt)}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-gray-400" />
+                            <span>
+                              Repayment Start{" "}
+                              {formatDate(selectedLoan.repaymentStartDate)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+                        <p className="text-gray-500 text-xs uppercase tracking-wide">
+                          Affordability
+                        </p>
+                        <div className="mt-3">
+                          <p className="font-semibold text-gray-900 text-xl">
+                            {monthlyIncome
+                              ? formatCurrency(monthlyIncome)
+                              : "—"}
+                          </p>
+                          <p className="text-gray-500 text-xs">
+                            Monthly Income
+                          </p>
+                        </div>
+                        <div className="mt-3">
+                          <div className="flex justify-between items-center text-gray-500 text-xs">
+                            <span>Debt-to-Income</span>
+                            <span>
+                              {dtiValue != null
+                                ? `${dtiValue.toFixed(1)}%`
+                                : "—"}
+                            </span>
+                          </div>
+                          <Progress
+                            className="mt-2 h-2"
+                            value={
+                              dtiValue != null
+                                ? Math.min(100, Math.max(0, dtiValue))
+                                : 0
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+                        <p className="text-gray-500 text-xs uppercase tracking-wide">
+                          Review Notes
+                        </p>
+                        <p className="mt-3 text-gray-600 text-sm">
+                          {selectedLoan.reviewNotes ||
+                            "No review notes recorded."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white shadow-sm p-5 border border-gray-100 rounded-xl">
+                      <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
+                        <User className="w-4 h-4 text-emerald-500" />
+                        Guarantors
+                      </div>
+                      {guarantors.length === 0 ? (
+                        <p className="mt-3 text-gray-500 text-sm">
+                          No guarantors submitted for this application.
+                        </p>
+                      ) : (
+                        <div className="gap-3 grid md:grid-cols-2 mt-4">
+                          {guarantors.map((g, index) => (
+                            <div
+                              key={`${g.name}-${index}`}
+                              className="bg-gray-50 p-3 border border-gray-100 rounded-lg"
+                            >
+                              <p className="font-semibold text-gray-900">
+                                {g.name}
                               </p>
-                              <p className="text-xs text-gray-500">
-                                {doc.type} • {formatFileSize(doc.size)}
+                              <p className="text-gray-500 text-xs">
+                                {g.relationship || g.type || "Guarantor"}
                               </p>
+                              <p className="mt-2 text-gray-600 text-xs">
+                                {g.phone || g.email || "—"}
+                              </p>
+                              {g.signature && (
+                                <div className="mt-2 rounded-lg border border-gray-200 bg-white p-2">
+                                  <p className="text-[10px] font-semibold uppercase text-gray-400">
+                                    Signature
+                                  </p>
+                                  {g.signature.method === "text" ? (
+                                    <p
+                                      className="text-base text-gray-800"
+                                      style={{
+                                        fontFamily:
+                                          g.signature.font || "cursive",
+                                      }}
+                                    >
+                                      {g.signature.text || "—"}
+                                    </p>
+                                  ) : g.signature.imageUrl ? (
+                                    <img
+                                      src={g.signature.imageUrl}
+                                      alt="Guarantor signature"
+                                      className="mt-1 h-10 w-auto object-contain"
+                                    />
+                                  ) : null}
+                                  <p className="mt-1 text-[10px] text-gray-400">
+                                    {g.signature.signedAt
+                                      ? `Signed ${formatDate(g.signature.signedAt)}`
+                                      : "Signature date not available"}
+                                  </p>
+                                </div>
+                              )}
+                              <div className="flex flex-wrap gap-2 mt-2 text-gray-500 text-xs">
+                                {g.liabilityPercentage != null && (
+                                  <span className="bg-white px-2 py-1 rounded-full text-gray-600">
+                                    Liability {g.liabilityPercentage}%
+                                  </span>
+                                )}
+                                {g.savingsBalance != null && (
+                                  <span className="bg-white px-2 py-1 rounded-full text-gray-600">
+                                    Savings {formatCurrency(g.savingsBalance)}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            <div className="flex items-center gap-3">
-                              <span
-                                className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getDocumentStatusTone(
-                                  doc.status,
-                                )}`}
-                              >
-                                {doc.status || "Uploaded"}
-                              </span>
-                              {doc.url ? (
-                                <a
-                                  href={doc.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-sm font-medium text-emerald-600 hover:text-emerald-700"
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-white shadow-sm p-5 border border-gray-100 rounded-xl">
+                      <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
+                        <FileText className="w-4 h-4 text-emerald-500" />
+                        Documents
+                      </div>
+                      {documents.length === 0 ? (
+                        <p className="mt-3 text-gray-500 text-sm">
+                          No documents have been uploaded yet.
+                        </p>
+                      ) : (
+                        <div className="mt-4 divide-y divide-gray-100">
+                          {documents.map((doc, index) => (
+                            <div
+                              key={`${doc.name}-${index}`}
+                              className="flex flex-wrap justify-between items-center gap-3 py-3"
+                            >
+                              <div>
+                                <p className="font-medium text-gray-900">
+                                  {doc.name}
+                                </p>
+                                <p className="text-gray-500 text-xs">
+                                  {doc.type} • {formatFileSize(doc.size)}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${getDocumentStatusTone(
+                                    doc.status,
+                                  )}`}
                                 >
-                                  View
-                                </a>
-                              ) : (
-                                <span className="text-xs text-gray-400">
-                                  File pending
+                                  {doc.status || "Uploaded"}
                                 </span>
-                              )}
+                                {doc.url ? (
+                                  <a
+                                    href={doc.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="font-medium text-emerald-600 hover:text-emerald-700 text-sm"
+                                  >
+                                    View
+                                  </a>
+                                ) : (
+                                  <span className="text-gray-400 text-xs">
+                                    File pending
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 bg-white px-6 py-4 border-t">
+                    <Button
+                      variant="outline"
+                      onClick={() => setShowDetailModal(false)}
+                    >
+                      Close
+                    </Button>
                   </div>
                 </div>
-
-                <div className="flex justify-end gap-2 border-t bg-white px-6 py-4">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowDetailModal(false)}
-                  >
-                    Close
-                  </Button>
-                </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
         </DialogContent>
       </Dialog>
 
@@ -1237,7 +1962,8 @@ export default function LoanReviewPanel({
       </Dialog>
 
       {/* Disburse Modal */}
-      <Dialog open={showDisburseModal} onOpenChange={setShowDisburseModal}>
+      {canDisburse && (
+        <Dialog open={showDisburseModal} onOpenChange={setShowDisburseModal}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Disburse Loan</DialogTitle>
@@ -1247,13 +1973,87 @@ export default function LoanReviewPanel({
               <div className="bg-gray-50 p-4 rounded-lg">
                 <p className="font-medium">{selectedLoan.applicantName}</p>
                 <p className="font-bold text-purple-600 text-lg">
-                  {formatCurrency(selectedLoan.loanAmount)}
+                  {formatCurrency(
+                    selectedLoan.approvedAmount ?? selectedLoan.loanAmount,
+                  )}
                 </p>
                 <p className="text-gray-600 text-sm">
                   {selectedLoan.loanPurpose}
                 </p>
               </div>
             )}
+            {selectedLoan && (
+              <div className="bg-slate-50 p-3 rounded-lg text-slate-600 text-sm">
+                {selectedDisbursementAccount ? (
+                  <div>
+                    <p className="font-medium text-slate-700">
+                      Disbursement Account
+                    </p>
+                    <p className="mt-1 text-slate-600 text-sm">
+                      {selectedDisbursementAccount.bankName} •{" "}
+                      {selectedDisbursementAccount.accountNumber} •{" "}
+                      {selectedDisbursementAccount.accountName}
+                    </p>
+                  </div>
+                ) : bankAccountsLoading ? (
+                  <p>Loading borrower bank accounts...</p>
+                ) : bankAccountsError ? (
+                  <p>
+                    Unable to load borrower bank accounts right now. Please
+                    retry.
+                  </p>
+                ) : bankAccounts.length === 0 ? (
+                  <p>
+                    Borrower has no bank accounts on file. Ask them to add one
+                    before disbursement.
+                  </p>
+                ) : (
+                  <p>Select a bank account below for disbursement.</p>
+                )}
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="block font-medium text-gray-700 text-sm">
+                Bank Account for Disbursement
+              </label>
+              <Select
+                value={selectedDisbursementAccountId}
+                onValueChange={setSelectedDisbursementAccountId}
+                disabled={bankAccountsLoading || bankAccounts.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue
+                    placeholder={
+                      bankAccountsLoading
+                        ? "Loading accounts..."
+                        : bankAccounts.length === 0
+                          ? "No bank accounts found"
+                          : "Select bank account"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {bankAccounts.map((account) => (
+                    <SelectItem key={account.id} value={account.id}>
+                      {account.bankName} • {account.accountNumber} •{" "}
+                      {account.accountName}
+                      {account.isPrimary ? " (Primary)" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {bankAccounts.length === 0 && !bankAccountsLoading && (
+                <p className="text-xs text-amber-600">
+                  The borrower must add a bank account before you can disburse
+                  this loan.
+                </p>
+              )}
+              {bankAccountsError && !bankAccountsLoading && (
+                <p className="text-xs text-red-600">
+                  Unable to load bank accounts. Please retry in a moment.
+                </p>
+              )}
+            </div>
             <div className="space-y-2">
               <label className="block font-medium text-gray-700 text-sm">
                 Repayment Start Date (optional)
@@ -1280,6 +2080,12 @@ export default function LoanReviewPanel({
               <Button
                 className="flex-1 bg-purple-600 hover:bg-purple-700"
                 onClick={confirmDisburse}
+                disabled={
+                  bankAccountsLoading ||
+                  bankAccountsError ||
+                  bankAccounts.length === 0 ||
+                  !selectedDisbursementAccountId
+                }
               >
                 Confirm Disbursement
               </Button>
@@ -1287,8 +2093,93 @@ export default function LoanReviewPanel({
           </div>
         </DialogContent>
       </Dialog>
+      )}
+
+      {/* OTP Finalization Modal */}
+      {canFinalizeOtp && otpTarget && (
+        <Dialog
+          open={Boolean(otpTarget)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setOtpTarget(null);
+              setOtpCode("");
+              setTransferCode("");
+              setResendCooldownSeconds(0);
+            }
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Finalize Paystack OTP</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="bg-amber-50 p-3 rounded-lg text-amber-800 text-sm">
+                Paystack requires OTP authorization to complete this transfer.
+              </div>
+
+              <div>
+                <label className="font-medium text-gray-700 text-sm">
+                  Transfer Code
+                </label>
+                <Input
+                  placeholder="e.g., TRF_ABC123"
+                  value={transferCode}
+                  onChange={(e) => setTransferCode(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+
+              <div>
+                <label className="font-medium text-gray-700 text-sm">OTP</label>
+                <Input
+                  placeholder="Enter OTP"
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className="mt-1"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setOtpTarget(null);
+                    setOtpCode("");
+                    setTransferCode("");
+                    setResendCooldownSeconds(0);
+                  }}
+                  disabled={otpBusy}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={handleResendOtp}
+                  disabled={resendDisabled}
+                >
+                  {otpAction === "resend" ? "Resending..." : resendLabel}
+                </Button>
+                <Button
+                  className="flex-1 bg-amber-600 hover:bg-amber-700"
+                  onClick={handleFinalizeOtp}
+                  disabled={otpBusy}
+                >
+                  {otpAction === "finalize" ? "Finalizing..." : "Finalize OTP"}
+                </Button>
+              </div>
+              {resendCooldownSeconds > 0 && (
+                <p className="text-amber-700 text-xs">
+                  You can resend a new OTP in {resendCooldownSeconds}s.
+                </p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
-
-

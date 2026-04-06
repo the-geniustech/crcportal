@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useGroupContributionTargetsQuery } from "@/hooks/groups/useGroupContributionTargetsQuery";
 import { useContributionSettingsQuery } from "@/hooks/profile/useContributionSettingsQuery";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   ContributionTypeConfig,
   ContributionTypeOptions,
@@ -83,6 +84,7 @@ interface GroupContributionDashboardModalProps {
   contributionsLoading?: boolean;
   selectedYear?: number;
   onYearChange?: (year: number) => void;
+  currentMemberRole?: string | null;
 }
 
 const MONTHS = [
@@ -140,7 +142,9 @@ const GroupContributionDashboardModal: React.FC<
   contributionsLoading = false,
   selectedYear: selectedYearProp,
   onYearChange,
+  currentMemberRole,
 }) => {
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const [selectedType, setSelectedType] =
     useState<DashboardContributionType>("revolving");
@@ -156,10 +160,32 @@ const GroupContributionDashboardModal: React.FC<
   const contributionSettingsQuery = useContributionSettingsQuery();
   const targets = targetsQuery.data?.monthlyTargets ?? null;
   const unitAmounts = targetsQuery.data?.unitAmounts ?? null;
+  const normalizedMemberRole = String(currentMemberRole || "").toLowerCase();
+  const hasElevatedMembership = ["coordinator", "treasurer", "secretary", "admin"].includes(
+    normalizedMemberRole,
+  );
+  const canViewAll =
+    user?.role === "admin" ||
+    user?.role === "groupCoordinator" ||
+    user?.role === "group_coordinator" ||
+    hasElevatedMembership;
+  const scopedMemberId = profile?.id ? String(profile.id) : null;
+  const scopedMembers = useMemo(() => {
+    if (canViewAll) return members;
+    if (!scopedMemberId) return [];
+    return members.filter((member) => String(member.id) === scopedMemberId);
+  }, [members, canViewAll, scopedMemberId]);
+  const scopedContributions = useMemo(() => {
+    if (canViewAll) return contributions;
+    if (!scopedMemberId) return [];
+    return contributions.filter(
+      (contribution) => String(contribution.memberId) === scopedMemberId,
+    );
+  }, [contributions, canViewAll, scopedMemberId]);
 
   const normalizedContributions = useMemo(
     () =>
-      contributions.map((contribution) => {
+      scopedContributions.map((contribution) => {
         const amount = Number(contribution.amount ?? 0);
         const normalizedType = normalizeContributionType(
           contribution.contributionType,
@@ -187,7 +213,7 @@ const GroupContributionDashboardModal: React.FC<
           type: resolvedType,
         };
       }),
-    [contributions],
+    [scopedContributions],
   );
 
   const resolvedSelectedYear =
@@ -247,7 +273,11 @@ const GroupContributionDashboardModal: React.FC<
 
   const monthsToDate = selectedYear === currentYear ? currentMonth : 12;
   const totalMembers =
-    members.length > 0 ? members.length : Number(group?.memberCount ?? 0);
+    scopedMembers.length > 0
+      ? scopedMembers.length
+      : canViewAll
+        ? Number(group?.memberCount ?? 0)
+        : 0;
   const effectiveType: ContributionTypeCanonical =
     selectedType === "interest" ? selectedInterestType : selectedType;
 
@@ -342,7 +372,9 @@ const GroupContributionDashboardModal: React.FC<
   }, [filteredContributions, selectedType]);
 
   const allMemberRows = useMemo(() => {
-    const sorted = [...members].sort((a, b) => a.name.localeCompare(b.name));
+    const sorted = [...scopedMembers].sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
     return sorted.map((member) => {
       const monthAmounts = MONTHS.map(({ value }) => {
         const record = memberMonthMap.get(member.id)?.get(value);
@@ -373,7 +405,7 @@ const GroupContributionDashboardModal: React.FC<
       };
     });
   }, [
-    members,
+    scopedMembers,
     memberMonthMap,
     monthsToDate,
     expectedMonthly,
@@ -703,6 +735,11 @@ const GroupContributionDashboardModal: React.FC<
                         </option>
                       ))}
                     </select>
+                  )}
+                  {!canViewAll && (
+                    <span className="border border-amber-200/40 bg-amber-100/20 px-4 py-2 rounded-full font-semibold text-amber-100 text-xs">
+                      Showing your data only
+                    </span>
                   )}
                   <span className="bg-white/10 px-4 py-2 border border-white/30 rounded-full font-semibold text-white text-xs">
                     Updated {currentDate.toLocaleDateString("en-US")}

@@ -8,11 +8,10 @@ export function useUpdateNotificationPreferencesMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (payload: NotificationPreferences) =>
+    mutationFn: async (payload: Partial<NotificationPreferences>) =>
       updateNotificationPreferences(payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["profile", "notification-preferences"] });
     },
   });
 }
-

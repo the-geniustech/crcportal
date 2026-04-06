@@ -1,4 +1,4 @@
-﻿import React, {
+import React, {
   createContext,
   useContext,
   useState,
@@ -24,6 +24,7 @@ interface AuthContextType {
   connectionError: string | null;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  refreshSession: () => Promise<void>;
   retryConnection: () => Promise<void>;
 }
 
@@ -67,6 +68,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const refreshProfile = async () => {
     if (user?.id) {
       await fetchProfile(user.id);
+    }
+  };
+
+  const refreshSession = async () => {
+    try {
+      const { session: freshSession } = await getSession();
+      if (freshSession) {
+        setSession(freshSession);
+        setUser(freshSession.user ?? null);
+      }
+    } catch (err) {
+      console.error("Error refreshing session:", err);
     }
   };
 
@@ -193,6 +206,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     connectionError,
     signOut: handleSignOut,
     refreshProfile,
+    refreshSession,
     retryConnection,
   };
 

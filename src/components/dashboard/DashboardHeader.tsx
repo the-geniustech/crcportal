@@ -93,6 +93,7 @@ const DashboardHeader: React.FC = () => {
     { name: "Groups", path: "/groups" },
     // { name: "Contribution Groups", path: "/contribution-groups" },
     { name: "Loans", path: "/loans" },
+    { name: "Withdrawals", path: "/withdrawals" },
     // { name: "Payments", path: "/payments" },
     { name: "Calendar", path: "/calendar" },
     { name: "Credit Score", path: "/credit-score" },
@@ -386,6 +387,25 @@ const DashboardHeader: React.FC = () => {
                       </svg>
                       Payments
                     </button>
+                    <button
+                      onClick={() => navigate("/withdrawals")}
+                      className="flex items-center gap-3 hover:bg-gray-50 px-4 py-2 w-full text-gray-700 text-left"
+                    >
+                      <svg
+                        className="w-5 h-5 text-gray-400"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={1.5}
+                          d="M20 12H4m0 0l4-4m-4 4l4 4"
+                        />
+                      </svg>
+                      Withdrawals
+                    </button>
                     {/* <button
                       onClick={() => navigate("/groups")}
                       className="flex items-center gap-3 hover:bg-gray-50 px-4 py-2 w-full text-gray-700 text-left"
@@ -405,7 +425,8 @@ const DashboardHeader: React.FC = () => {
                       </svg>
                       My Groups
                     </button> */}
-                    {user?.role === "group_coordinator" ||
+                    {user?.role === "groupCoordinator" ||
+                    user?.role === "group_coordinator" ||
                     user?.role === "admin" ? (
                       <button
                         onClick={() => navigate("/admin")}

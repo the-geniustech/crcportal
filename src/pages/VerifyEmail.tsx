@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { verifyEmailToken } from "@/lib/auth";
+import { CONTACT_SUPPORT_HREF } from "@/lib/support";
 
 const VerifyEmail: React.FC = () => {
   const navigate = useNavigate();
@@ -97,7 +98,7 @@ const VerifyEmail: React.FC = () => {
             <h2 className="mb-2 font-semibold text-gray-900 text-xl">
               Verifying Email
             </h2>
-            <p className="text-gray-600">
+            <p className="text-gray-600 leading-relaxed">
               Please wait while we confirm your email address.
             </p>
           </>
@@ -123,7 +124,7 @@ const VerifyEmail: React.FC = () => {
             <h2 className="mb-4 font-bold text-gray-900 text-2xl">
               Email Confirmed!
             </h2>
-            <p className="mb-6 text-gray-600">
+            <p className="mb-6 text-gray-600 leading-relaxed">
               {message ||
                 "Your email has been verified. You can now sign in to your account."}
             </p>
@@ -156,7 +157,7 @@ const VerifyEmail: React.FC = () => {
             <h2 className="mb-4 font-bold text-gray-900 text-2xl">
               Verification Failed
             </h2>
-            <p className="mb-6 text-gray-600">
+            <p className="mb-6 text-gray-600 leading-relaxed">
               {message ||
                 "This verification link is invalid or expired. Please request a new confirmation email."}
             </p>
@@ -169,11 +170,12 @@ const VerifyEmail: React.FC = () => {
             <p className="mt-6 text-gray-500 text-sm">
               Need help?{" "}
               <a
-                href="mailto:support@crcconnect.ng"
+                href={CONTACT_SUPPORT_HREF}
                 className="text-emerald-600 hover:underline"
               >
                 Contact Support
               </a>
+              .
             </p>
           </>
         )}

@@ -7,6 +7,7 @@ import { useMyTransactionsQuery } from "@/hooks/finance/useMyTransactionsQuery";
 import { useMyLoanApplicationsQuery } from "@/hooks/loans/useMyLoanApplicationsQuery";
 import { useMyGroupMembershipsQuery } from "@/hooks/groups/useMyGroupMembershipsQuery";
 import { useDashboardSummaryQuery } from "@/hooks/dashboard/useDashboardSummaryQuery";
+import { useContributionTrendQuery } from "@/hooks/dashboard/useContributionTrendQuery";
 import { useNotifications } from "@/hooks/notifications/useNotifications";
 import { useMarkNotificationReadMutation } from "@/hooks/notifications/useMarkNotificationReadMutation";
 import { useMarkAllNotificationsReadMutation } from "@/hooks/notifications/useMarkAllNotificationsReadMutation";
@@ -25,6 +26,7 @@ import NotificationsPanel from "@/components/dashboard/NotificationsPanel";
 import { BackendGroupMembership } from "@/lib/groups";
 import { BackendNotification } from "@/lib/notifications";
 import { BackendLoanApplication } from "@/lib/loans";
+import { goToContactSupport } from "@/lib/support";
 
 interface RawTransaction {
   _id: string;
@@ -84,7 +86,7 @@ const notificationTypes = new Set([
     type: "payment_reminder" as const,
     title: "Loan Payment Due Soon",
     message:
-      "Your monthly loan payment of ₦45,000 is due in 3 days. Ensure sufficient balance.",
+      "Your monthly loan payment of â‚¦45,000 is due in 3 days. Ensure sufficient balance.",
     isRead: false,
     createdAt: new Date(Date.now() - 7200000).toISOString(),
   },
@@ -92,7 +94,7 @@ const notificationTypes = new Set([
     id: "2",
     type: "deposit_confirmed" as const,
     title: "Deposit Successful",
-    message: "₦50,000 has been successfully added to your savings account.",
+    message: "â‚¦50,000 has been successfully added to your savings account.",
     isRead: false,
     createdAt: new Date(Date.now() - 86400000).toISOString(),
   },
@@ -110,7 +112,7 @@ const notificationTypes = new Set([
     type: "loan_approved" as const,
     title: "Loan Application Update",
     message:
-      "Congratulations! Your loan application for ₦500,000 has been approved.",
+      "Congratulations! Your loan application for â‚¦500,000 has been approved.",
     isRead: true,
     createdAt: new Date(Date.now() - 604800000).toISOString(),
   },
@@ -119,7 +121,7 @@ const notificationTypes = new Set([
     type: "promotion" as const,
     title: "Special Offer",
     message:
-      "Refer a friend and earn ₦5,000 bonus when they make their first deposit!",
+      "Refer a friend and earn â‚¦5,000 bonus when they make their first deposit!",
     isRead: true,
     createdAt: new Date(Date.now() - 1209600000).toISOString(),
   },
@@ -142,9 +144,7 @@ const DashboardContent: React.FC = () => {
   const { user, profile, loading } = useAuth();
   const { toast } = useToast();
   const [showDepositModal, setShowDepositModal] = useState(false);
-  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [depositAmount, setDepositAmount] = useState("");
-  const [withdrawAmount, setWithdrawAmount] = useState("");
   const [contributionView, setContributionView] = useState<
     "monthly" | "cumulative"
   >("monthly");
@@ -154,6 +154,7 @@ const DashboardContent: React.FC = () => {
   const myLoanApplicationsQuery = useMyLoanApplicationsQuery();
   const myGroupsQuery = useMyGroupMembershipsQuery();
   const dashboardSummaryQuery = useDashboardSummaryQuery();
+  const contributionTrendQuery = useContributionTrendQuery({ months: 6 });
   const notificationsQuery = useNotifications();
   const markReadMutation = useMarkNotificationReadMutation();
   const markAllMutation = useMarkAllNotificationsReadMutation();
@@ -221,27 +222,25 @@ const DashboardContent: React.FC = () => {
         label: d.toLocaleDateString("en-NG", { month: "short" }),
       };
     });
-
-    const txs: RawTransaction[] = myTransactionsQuery.data?.transactions ?? [];
+    const trend = contributionTrendQuery.data?.trend ?? [];
+    if (trend.length > 0) {
+      return trend.map((point) => ({
+        month: point.label,
+        amount: Math.round(Number(point.amount ?? 0)),
+      }));
+    }
     const totalsByMonth = new Map<string, number>();
 
-    for (const t of txs) {
-      const d = new Date(t.date);
-      if (Number.isNaN(d.getTime())) continue;
-      const key = `${d.getFullYear()}-${d.getMonth()}`;
-      const amount = Number(t.amount ?? 0);
-      if (t.status !== "success") continue;
-
-      if (t.type === "group_contribution") {
-        totalsByMonth.set(key, (totalsByMonth.get(key) ?? 0) + amount);
-      }
-    }
+    trend.forEach((point) => {
+      const key = `${point.year}-${point.month - 1}`;
+      totalsByMonth.set(key, Number(point.amount ?? 0));
+    });
 
     return months.map((m) => ({
       month: m.label,
       amount: Math.round(totalsByMonth.get(`${m.year}-${m.month}`) ?? 0),
     }));
-  }, [myTransactionsQuery.data?.transactions]);
+  }, [contributionTrendQuery.data?.trend]);
 
   const contributionChartCumulative = useMemo(() => {
     let running = 0;
@@ -315,20 +314,31 @@ const DashboardContent: React.FC = () => {
         if (!g?._id) return null;
 
         const rawRole = String(m.role || "member");
-        const role = ["member", "treasurer", "secretary", "chairman"].includes(
-          rawRole,
-        )
+        const role = [
+          "member",
+          "treasurer",
+          "secretary",
+          "chairman",
+          "coordinator",
+          "admin",
+        ].includes(rawRole)
           ? rawRole
           : "member";
 
-        const rawStatus = String(m.status || "active");
-        const contributionStatus =
-          rawStatus === "paused"
-            ? "paused"
-            : rawStatus === "defaulted"
-              ? "defaulted"
-              : "active";
+        const rawStatus = String(m.status || "active").toLowerCase();
+        const contributionStatus = [
+          "active",
+          "pending",
+          "inactive",
+          "suspended",
+          "rejected",
+          "paused",
+          "defaulted",
+        ].includes(rawStatus)
+          ? rawStatus
+          : "active";
 
+        const expectedMonthlyRaw = Number(m.expectedMonthlyContribution ?? NaN);
         return {
           id: String(g._id),
           name: String(g.groupName ?? "Group"),
@@ -337,6 +347,9 @@ const DashboardContent: React.FC = () => {
           role,
           contributionStatus,
           totalContributed: Number(m.totalContributed ?? 0),
+          expectedMonthlyContribution: Number.isFinite(expectedMonthlyRaw)
+            ? expectedMonthlyRaw
+            : undefined,
           monthlyContribution: Number(g.monthlyContribution ?? 0),
           nextMeeting: "",
           imageUrl: g.imageUrl ?? undefined,
@@ -443,7 +456,7 @@ const DashboardContent: React.FC = () => {
   };
 
   const handleWithdraw = () => {
-    setShowWithdrawModal(true);
+    navigate("/withdrawals");
   };
 
   const handleContributeOverview = () => {
@@ -518,38 +531,12 @@ const DashboardContent: React.FC = () => {
     }
     toast({
       title: "Deposit Initiated",
-      description: `Your deposit of ₦${amount.toLocaleString()} is being processed.`,
+      description: `Your deposit of â‚¦${amount.toLocaleString()} is being processed.`,
     });
     setShowDepositModal(false);
     setDepositAmount("");
   };
-
-  const processWithdraw = () => {
-    const amount = parseFloat(withdrawAmount);
-    if (isNaN(amount) || amount <= 0) {
-      toast({
-        title: "Invalid Amount",
-        description: "Please enter a valid withdrawal amount.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (amount > 385000) {
-      toast({
-        title: "Insufficient Balance",
-        description: "You do not have enough balance for this withdrawal.",
-        variant: "destructive",
-      });
-      return;
-    }
-    toast({
-      title: "Withdrawal Initiated",
-      description: `Your withdrawal of ₦${amount.toLocaleString()} is being processed.`,
-    });
-    setShowWithdrawModal(false);
-    setWithdrawAmount("");
-  };
-
+  //
   return (
     <div className="bg-gray-50 min-h-screen">
       <DashboardHeader />
@@ -674,11 +661,14 @@ const DashboardContent: React.FC = () => {
             {/* Help Card */}
             <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-6 rounded-2xl text-white">
               <h3 className="mb-2 font-semibold">Need Help?</h3>
-              <p className="mb-4 text-emerald-100 text-sm">
-                Our support team is available 24/7 to assist you with any
-                questions.
+              <p className="mb-4 text-emerald-100 text-sm leading-relaxed">
+                Our support team is available 24/7 for account, contribution,
+                and loan help.
               </p>
-              <button className="bg-white hover:bg-emerald-50 py-2 rounded-lg w-full font-medium text-emerald-600 transition-colors">
+              <button
+                onClick={goToContactSupport}
+                className="bg-white hover:bg-emerald-50 py-2 rounded-lg w-full font-medium text-emerald-600 transition-colors"
+              >
                 Contact Support
               </button>
             </div>
@@ -717,7 +707,7 @@ const DashboardContent: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label className="block mb-2 font-medium text-gray-700 text-sm">
-                  Amount (₦)
+                  Amount (â‚¦)
                 </label>
                 <input
                   type="number"
@@ -735,7 +725,7 @@ const DashboardContent: React.FC = () => {
                     onClick={() => setDepositAmount(amount.toString())}
                     className="flex-1 bg-emerald-50 hover:bg-emerald-100 py-2 rounded-lg font-medium text-emerald-600 text-sm transition-colors"
                   >
-                    ₦{amount / 1000}K
+                    â‚¦{amount / 1000}K
                   </button>
                 ))}
               </div>
@@ -745,76 +735,6 @@ const DashboardContent: React.FC = () => {
                 className="bg-emerald-500 hover:bg-emerald-600 py-3 rounded-xl w-full font-semibold text-white transition-colors"
               >
                 Proceed to Deposit
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Withdraw Modal */}
-      {showWithdrawModal && (
-        <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/50 p-4">
-          <div className="bg-white p-6 rounded-2xl w-full max-w-md">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="font-bold text-gray-900 text-xl">
-                Withdraw Funds
-              </h2>
-              <button
-                onClick={() => setShowWithdrawModal(false)}
-                className="hover:bg-gray-100 p-2 rounded-full transition-colors"
-              >
-                <svg
-                  className="w-5 h-5 text-gray-500"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M6 18L18 6M6 6l12 12"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            <div className="bg-gray-50 mb-4 p-4 rounded-xl">
-              <p className="text-gray-600 text-sm">Available Balance</p>
-              <p className="font-bold text-gray-900 text-2xl">₦385,000</p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block mb-2 font-medium text-gray-700 text-sm">
-                  Amount (₦)
-                </label>
-                <input
-                  type="number"
-                  value={withdrawAmount}
-                  onChange={(e) => setWithdrawAmount(e.target.value)}
-                  placeholder="Enter amount"
-                  className="px-4 py-3 border border-gray-300 focus:border-emerald-500 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 w-full"
-                />
-              </div>
-
-              <div className="flex gap-2">
-                {[10000, 25000, 50000, 100000].map((amount) => (
-                  <button
-                    key={amount}
-                    onClick={() => setWithdrawAmount(amount.toString())}
-                    className="flex-1 bg-blue-50 hover:bg-blue-100 py-2 rounded-lg font-medium text-blue-600 text-sm transition-colors"
-                  >
-                    ₦{amount / 1000}K
-                  </button>
-                ))}
-              </div>
-
-              <button
-                onClick={processWithdraw}
-                className="bg-blue-500 hover:bg-blue-600 py-3 rounded-xl w-full font-semibold text-white transition-colors"
-              >
-                Proceed to Withdraw
               </button>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import axios from "axios";
 import { api, getApiErrorMessage } from "@/lib/api/client";
 
 export type AdminLoanDocument = {
@@ -20,6 +21,13 @@ export type AdminLoanGuarantor = {
   memberSince?: string | null;
   savingsBalance?: number | null;
   liabilityPercentage?: number | null;
+  signature?: {
+    method?: "text" | "draw" | "upload" | null;
+    text?: string | null;
+    font?: string | null;
+    imageUrl?: string | null;
+    signedAt?: string | null;
+  } | null;
 };
 
 export type AdminLoanApplication = {
@@ -45,9 +53,20 @@ export type AdminLoanApplication = {
   totalRepayable?: number | null;
   remainingBalance?: number | null;
   monthlyIncome?: number | null;
+  disbursementBankAccountId?: string | null;
+  disbursementBankName?: string | null;
+  disbursementBankCode?: string | null;
+  disbursementAccountNumber?: string | null;
+  disbursementAccountName?: string | null;
+  payoutReference?: string | null;
+  payoutGateway?: string | null;
+  payoutTransferCode?: string | null;
+  payoutStatus?: string | null;
+  payoutOtpResentAt?: string | null;
   guarantors?: AdminLoanGuarantor[];
   documents?: AdminLoanDocument[];
   status:
+    | "draft"
     | "pending"
     | "under_review"
     | "approved"
@@ -65,13 +84,26 @@ export type AdminLoanApplication = {
   } | null;
 };
 
-export async function listAdminLoanApplications(params: { status?: string; search?: string } = {}) {
+export type AdminLoanListResponse = {
+  applications: AdminLoanApplication[];
+  otpResendCooldownSeconds: number;
+};
+
+export async function listAdminLoanApplications(
+  params: { status?: string; search?: string } = {},
+): Promise<AdminLoanListResponse> {
   const apiParams =
     params.status === "all" ? { search: params.search } : params;
 
   try {
     const res = await api.get("/admin/loans/applications", { params: apiParams });
-    return (res.data?.data?.applications ?? []) as AdminLoanApplication[];
+    return {
+      applications: (res.data?.data?.applications ?? []) as AdminLoanApplication[],
+      otpResendCooldownSeconds: Math.max(
+        0,
+        Number(res.data?.data?.otpResendCooldownSeconds) || 0,
+      ),
+    };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
@@ -137,7 +169,12 @@ export async function reviewAdminLoanApplication(
 
 export async function disburseAdminLoanApplication(
   applicationId: string,
-  payload?: { repaymentStartDate?: string | null },
+  payload?: {
+    repaymentStartDate?: string | null;
+    reference?: string;
+    gateway?: string;
+    bankAccountId?: string | null;
+  },
 ) {
   try {
     const res = await api.post(
@@ -148,4 +185,115 @@ export async function disburseAdminLoanApplication(
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
+}
+
+export async function finalizeAdminLoanDisbursementOtp(
+  applicationId: string,
+  payload: { transferCode: string; otp: string; repaymentStartDate?: string | null },
+) {
+  try {
+    const res = await api.patch(
+      `/admin/loans/applications/${applicationId}/finalize-otp`,
+      {
+        transferCode: payload.transferCode,
+        otp: payload.otp,
+        repaymentStartDate: payload.repaymentStartDate ?? null,
+      },
+    );
+    return res.data?.data?.application as AdminLoanApplication;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function resendAdminLoanDisbursementOtp(
+  applicationId: string,
+  payload: { transferCode: string; reason?: string } = { transferCode: "" },
+) {
+  try {
+    const res = await api.patch(
+      `/admin/loans/applications/${applicationId}/resend-otp`,
+      {
+        transferCode: payload.transferCode,
+        reason: payload.reason,
+      },
+    );
+    const retryAfter = parseRetryAfterSeconds(res.headers?.["retry-after"]);
+    return {
+      application: res.data?.data?.application as AdminLoanApplication,
+      retryAfter,
+    };
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      const retryAfter = parseRetryAfterSeconds(
+        err.response?.headers?.["retry-after"],
+      );
+      const wrapped = new Error(getApiErrorMessage(err)) as Error & {
+        retryAfter?: number;
+        status?: number;
+      };
+      if (retryAfter) wrapped.retryAfter = retryAfter;
+      if (err.response?.status) wrapped.status = err.response.status;
+      throw wrapped;
+    }
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminLoanBankAccount = {
+  _id: string;
+  userId: string;
+  bankName: string;
+  bankCode?: string | null;
+  accountNumber: string;
+  accountName: string;
+  isPrimary: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function listAdminLoanBankAccounts(
+  applicationId: string,
+): Promise<AdminLoanBankAccount[]> {
+  try {
+    const res = await api.get(
+      `/admin/loans/applications/${applicationId}/bank-accounts`,
+    );
+    return (res.data?.data?.accounts ?? []) as AdminLoanBankAccount[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function verifyAdminLoanDisbursementTransfer(
+  applicationId: string,
+  payload: { repaymentStartDate?: string | null } = {},
+) {
+  try {
+    const res = await api.patch(
+      `/admin/loans/applications/${applicationId}/verify-transfer`,
+      { repaymentStartDate: payload.repaymentStartDate ?? null },
+    );
+    return res.data?.data?.application as AdminLoanApplication;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+function parseRetryAfterSeconds(value: unknown): number | undefined {
+  if (!value) return undefined;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (raw == null) return undefined;
+  const rawText = String(raw).trim();
+  if (!rawText) return undefined;
+  const asNumber = Number(rawText);
+  if (Number.isFinite(asNumber) && asNumber > 0) {
+    return Math.ceil(asNumber);
+  }
+  const parsedDate = Date.parse(rawText);
+  if (Number.isFinite(parsedDate)) {
+    const seconds = Math.ceil((parsedDate - Date.now()) / 1000);
+    return seconds > 0 ? seconds : undefined;
+  }
+  return undefined;
 }

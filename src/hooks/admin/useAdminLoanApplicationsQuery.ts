@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { listAdminLoanApplications } from "@/lib/adminLoans";
+import { AdminLoanListResponse, listAdminLoanApplications } from "@/lib/adminLoans";
 
 export function useAdminLoanApplicationsQuery(
   params: {
@@ -8,7 +8,7 @@ export function useAdminLoanApplicationsQuery(
   } = {},
   enabled = true,
 ) {
-  return useQuery({
+  return useQuery<AdminLoanListResponse>({
     queryKey: [
       "admin",
       "loans",

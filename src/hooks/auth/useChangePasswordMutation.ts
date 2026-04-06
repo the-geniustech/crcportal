@@ -1,4 +1,4 @@
-﻿import { useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { changePassword } from "@/lib/auth";
 
 export function useChangePasswordMutation() {

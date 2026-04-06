@@ -82,6 +82,9 @@ export default function PaymentModal({
     "loan_repayment" | "group_contribution" | ""
   >(preselectedType || "");
   const [amount, setAmount] = useState(preselectedAmount?.toString() || "");
+  const [amountTouched, setAmountTouched] = useState(
+    Boolean(preselectedAmount),
+  );
   const [selectedGroup, setSelectedGroup] = useState(
     preselectedGroup?.id || "",
   );
@@ -99,15 +102,14 @@ export default function PaymentModal({
   const [transactionRef, setTransactionRef] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
 
-  const quickAmounts = useMemo(() => {
-    if (paymentType === "group_contribution") {
-      const config = getContributionTypeConfig(contributionType);
-      const step = config?.stepAmount ?? config?.unitAmount ?? 1000;
-      const base = Math.max(step, config?.minAmount ?? step);
-      return [base, base * 2, base * 3, base * 5, base * 10, base * 20];
-    }
-    return [1000, 5000, 10000, 25000, 50000, 100000];
-  }, [paymentType, contributionType]);
+  const formatCurrency = (value: number) => {
+    const safe = Number.isFinite(value) ? value : 0;
+    return new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      maximumFractionDigits: 0,
+    }).format(safe);
+  };
 
   const groupMembershipsQuery = useMyGroupMembershipsQuery();
   const loanApplicationsQuery = useMyLoanApplicationsQuery();
@@ -149,11 +151,95 @@ export default function PaymentModal({
             ? m.groupId
             : (g as { _id?: string })?._id;
         const name = (g as { groupName?: string })?.groupName ?? null;
+        const monthlyRaw =
+          (g as { monthlyContribution?: unknown })?.monthlyContribution ?? null;
+        const monthlyContribution = Number.isFinite(Number(monthlyRaw))
+          ? Number(monthlyRaw)
+          : null;
+        const expectedRaw = (m as { expectedMonthlyContribution?: unknown })
+          .expectedMonthlyContribution;
+        const expectedMonthlyContribution = Number.isFinite(Number(expectedRaw))
+          ? Number(expectedRaw)
+          : null;
         if (!id || !name) return null;
-        return { id: String(id), name: String(name) };
+        return {
+          id: String(id),
+          name: String(name),
+          monthlyContribution:
+            typeof monthlyContribution === "number" ? monthlyContribution : null,
+          expectedMonthlyContribution:
+            typeof expectedMonthlyContribution === "number"
+              ? expectedMonthlyContribution
+              : null,
+        };
       })
-      .filter(Boolean) as { id: string; name: string }[];
+      .filter(Boolean) as {
+      id: string;
+      name: string;
+      monthlyContribution: number | null;
+      expectedMonthlyContribution: number | null;
+    }[];
   }, [groupMembershipsQuery.data]);
+
+  const selectedGroupInfo = useMemo(
+    () => groups.find((group) => group.id === selectedGroup) ?? null,
+    [groups, selectedGroup],
+  );
+
+  const expectedMonthlyAmount = useMemo(() => {
+    if (!selectedGroupInfo) return null;
+    const config = getContributionTypeConfig("revolving");
+    const minAmount = Number(config?.minAmount ?? 0);
+    const baseMonthly = Math.max(
+      minAmount,
+      Number(selectedGroupInfo.monthlyContribution ?? 0),
+    );
+    const raw = selectedGroupInfo.expectedMonthlyContribution ?? baseMonthly;
+    const value = Number(raw ?? 0);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }, [selectedGroupInfo]);
+
+  useEffect(() => {
+    if (isBulk) return;
+    if (paymentType !== "group_contribution") return;
+    if (!selectedGroupInfo || !expectedMonthlyAmount) return;
+    if (amountTouched) return;
+    setAmount(expectedMonthlyAmount.toString());
+  }, [
+    isBulk,
+    paymentType,
+    selectedGroupInfo,
+    expectedMonthlyAmount,
+    amountTouched,
+  ]);
+
+  const quickAmounts = useMemo(() => {
+    if (paymentType === "group_contribution") {
+      const config = getContributionTypeConfig(contributionType);
+      const step = config?.stepAmount ?? config?.unitAmount ?? 1000;
+      const base = Math.max(step, config?.minAmount ?? step);
+      const baseList = [
+        base,
+        base * 2,
+        base * 3,
+        base * 5,
+        base * 10,
+        base * 20,
+      ];
+      const recommended =
+        contributionType === "revolving" ? expectedMonthlyAmount : null;
+      const merged = recommended ? [recommended, ...baseList] : baseList;
+      const seen = new Set<number>();
+      return merged.filter((value) => {
+        const num = Math.round(Number(value));
+        if (!Number.isFinite(num) || num <= 0) return false;
+        if (seen.has(num)) return false;
+        seen.add(num);
+        return true;
+      });
+    }
+    return [1000, 5000, 10000, 25000, 50000, 100000];
+  }, [paymentType, contributionType, expectedMonthlyAmount]);
 
   const loans = useMemo(() => {
     const apps = loanApplicationsQuery.data ?? [];
@@ -294,6 +380,7 @@ export default function PaymentModal({
     setStep("form");
     setPaymentType(preselectedType || "");
     setAmount(preselectedAmount?.toString() || "");
+    setAmountTouched(Boolean(preselectedAmount));
     setSelectedGroup(preselectedGroup?.id || "");
     setSelectedLoan(preselectedLoan?.id || "");
     setContributionType("revolving");
@@ -414,6 +501,14 @@ export default function PaymentModal({
                       {getContributionTypeConfig(contributionType)?.description}
                     </p>
                   )}
+                  {contributionType === "revolving" &&
+                    expectedMonthlyAmount &&
+                    selectedGroupInfo && (
+                      <p className="text-xs text-emerald-600">
+                        Expected monthly for {selectedGroupInfo.name}:{" "}
+                        {formatCurrency(expectedMonthlyAmount)}
+                      </p>
+                    )}
                 </div>
                 <div className="space-y-2">
                   <Label>Contribution Month</Label>
@@ -484,7 +579,10 @@ export default function PaymentModal({
                   onValueChange={(value) => {
                     setSelectedLoan(value);
                     const loan = loans.find((l) => l.id === value);
-                    if (loan) setAmount(loan.monthlyPayment.toString());
+                    if (loan) {
+                      setAmount(loan.monthlyPayment.toString());
+                      setAmountTouched(true);
+                    }
                   }}
                   disabled={isBulk}
                 >
@@ -509,7 +607,10 @@ export default function PaymentModal({
                 type="number"
                 placeholder="Enter amount"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setAmountTouched(true);
+                }}
                 min="100"
                 className="font-semibold text-lg"
                 disabled={isBulk}
@@ -521,7 +622,10 @@ export default function PaymentModal({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setAmount(quickAmount.toString())}
+                    onClick={() => {
+                      setAmount(quickAmount.toString());
+                      setAmountTouched(true);
+                    }}
                     className={
                       amount === quickAmount.toString()
                         ? "border-emerald-500 bg-emerald-50"

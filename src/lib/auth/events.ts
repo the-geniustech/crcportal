@@ -1,4 +1,4 @@
-﻿export type AuthEvent =
+export type AuthEvent =
   | { type: "SIGNED_IN" }
   | { type: "SIGNED_OUT" }
   | { type: "TOKEN_REFRESHED" };

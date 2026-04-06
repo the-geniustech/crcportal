@@ -62,6 +62,9 @@ import { useAdminGroupsQuery } from "@/hooks/admin/useAdminGroupsQuery";
 import { useAdminLoanApplicationsQuery } from "@/hooks/admin/useAdminLoanApplicationsQuery";
 import { useReviewAdminLoanApplicationMutation } from "@/hooks/admin/useReviewAdminLoanApplicationMutation";
 import { useDisburseAdminLoanApplicationMutation } from "@/hooks/admin/useDisburseAdminLoanApplicationMutation";
+import { useFinalizeAdminLoanDisbursementOtpMutation } from "@/hooks/admin/useFinalizeAdminLoanDisbursementOtpMutation";
+import { useResendAdminLoanDisbursementOtpMutation } from "@/hooks/admin/useResendAdminLoanDisbursementOtpMutation";
+import { useVerifyAdminLoanDisbursementTransferMutation } from "@/hooks/admin/useVerifyAdminLoanDisbursementTransferMutation";
 import { useCreateAdminAnnouncementMutation } from "@/hooks/admin/useCreateAdminAnnouncementMutation";
 import { useAdminAttendanceMeetingsQuery } from "@/hooks/admin/useAdminAttendanceMeetingsQuery";
 import { useAdminSmsStatsQuery } from "@/hooks/admin/useAdminSmsStatsQuery";
@@ -107,6 +110,7 @@ type Applicant = {
 
 // Define LoanApplication type with all possible statuses
 type LoanApplicationStatus =
+  | "draft"
   | "pending"
   | "under_review"
   | "approved"
@@ -136,6 +140,16 @@ type LoanApplication = {
   totalRepayable?: number | null;
   remainingBalance?: number | null;
   monthlyIncome: number;
+  disbursementBankAccountId?: string | null;
+  disbursementBankName?: string | null;
+  disbursementBankCode?: string | null;
+  disbursementAccountNumber?: string | null;
+  disbursementAccountName?: string | null;
+  payoutReference?: string | null;
+  payoutGateway?: string | null;
+  payoutTransferCode?: string | null;
+  payoutStatus?: string | null;
+  payoutOtpResentAt?: string | null;
   guarantorName: string;
   guarantorPhone: string;
   guarantors?: Array<{
@@ -160,6 +174,20 @@ type LoanApplication = {
   status: LoanApplicationStatus;
   createdAt: string;
   reviewNotes?: string;
+};
+
+const getEffectiveContributionPeriod = (date = new Date()) => {
+  const day = date.getDate();
+  let year = date.getFullYear();
+  let month = date.getMonth() + 1;
+  if (day <= 4) {
+    month -= 1;
+    if (month <= 0) {
+      month = 12;
+      year -= 1;
+    }
+  }
+  return { year, month };
 };
 
 export default function Admin() {
@@ -214,8 +242,10 @@ export default function Admin() {
     user?.role === "admin" ||
     user?.role === "groupCoordinator" ||
     user?.role === "group_coordinator";
+  const isAdmin = user?.role === "admin";
   const isCoordinator =
     user?.role === "groupCoordinator" || user?.role === "group_coordinator";
+  const canAccessCoordinatorPanels = isCoordinator || isAdmin;
 
   const memberApprovalsQuery = useMemberApprovalsQuery(
     { status: "pending" },
@@ -224,13 +254,17 @@ export default function Admin() {
   const approveMemberMutation = useApproveMemberApprovalMutation();
   const rejectMemberMutation = useRejectMemberApprovalMutation();
 
+  const defaultPeriod = useMemo(() => getEffectiveContributionPeriod(), []);
+  const [trackerYear, setTrackerYear] = useState(defaultPeriod.year);
+  const [trackerMonth, setTrackerMonth] = useState(defaultPeriod.month);
+
   const now = new Date();
   const trackerQuery = useContributionTrackerQuery(
     {
-      year: now.getFullYear(),
-      month: now.getMonth() + 1,
+      year: trackerYear,
+      month: trackerMonth,
     },
-    isCoordinator,
+    canAccessCoordinatorPanels,
   );
   const markPaidMutation = useMarkContributionPaidMutation();
 
@@ -586,11 +620,18 @@ export default function Admin() {
   const contributions = trackerQuery.data ?? [];
   const adminLoanAppsQuery = useAdminLoanApplicationsQuery(
     { status: "all" },
-    isCoordinator,
+    canAccessCoordinatorPanels,
   );
   const reviewAdminLoanMutation = useReviewAdminLoanApplicationMutation();
   const disburseAdminLoanMutation = useDisburseAdminLoanApplicationMutation();
-  const loanApplications = adminLoanAppsQuery.data ?? [];
+  const finalizeLoanOtpMutation =
+    useFinalizeAdminLoanDisbursementOtpMutation();
+  const resendLoanOtpMutation = useResendAdminLoanDisbursementOtpMutation();
+  const verifyLoanTransferMutation =
+    useVerifyAdminLoanDisbursementTransferMutation();
+  const loanApplications = adminLoanAppsQuery.data?.applications ?? [];
+  const loanOtpResendCooldownSeconds =
+    adminLoanAppsQuery.data?.otpResendCooldownSeconds ?? 0;
   const createAnnouncementMutation = useCreateAdminAnnouncementMutation();
   const smsStatsQuery = useAdminSmsStatsQuery();
   const smsTemplatesQuery = useAdminSmsTemplatesQuery();
@@ -645,6 +686,18 @@ export default function Admin() {
         totalRepayable: a.totalRepayable ?? null,
         remainingBalance: a.remainingBalance ?? null,
         monthlyIncome: Number(a.monthlyIncome || 0),
+        disbursementBankAccountId: a.disbursementBankAccountId
+          ? String(a.disbursementBankAccountId)
+          : null,
+        disbursementBankName: a.disbursementBankName ?? null,
+        disbursementBankCode: a.disbursementBankCode ?? null,
+        disbursementAccountNumber: a.disbursementAccountNumber ?? null,
+        disbursementAccountName: a.disbursementAccountName ?? null,
+        payoutReference: a.payoutReference ?? null,
+        payoutGateway: a.payoutGateway ?? null,
+        payoutTransferCode: a.payoutTransferCode ?? null,
+        payoutStatus: a.payoutStatus ?? null,
+        payoutOtpResentAt: a.payoutOtpResentAt ?? null,
         guarantorName: guarantor?.name || "—",
         guarantorPhone: guarantor?.phone || "—",
         guarantors: Array.isArray(a.guarantors) ? a.guarantors : [],
@@ -745,12 +798,7 @@ export default function Admin() {
       { id: "sms", label: "SMS Center", icon: MessageSquare },
     ];
 
-    const coordinatorOnly = new Set([
-      "approvals",
-      "contributions",
-      "loans",
-      "withdrawals",
-    ]);
+    const coordinatorOnly = new Set(["approvals"]);
 
     return isCoordinator
       ? items
@@ -934,16 +982,36 @@ export default function Admin() {
   const handleLoanDisburse = async (
     id: string,
     repaymentStartDate?: string | null,
+    bankAccountId?: string | null,
   ) => {
     try {
-      await disburseAdminLoanMutation.mutateAsync({
+      const application = await disburseAdminLoanMutation.mutateAsync({
         applicationId: id,
         repaymentStartDate: repaymentStartDate || null,
+        bankAccountId: bankAccountId || null,
       });
-      toast({
-        title: "Loan Disbursed",
-        description: "Loan funds have been disbursed and schedule created.",
-      });
+
+      const payoutStatus = application?.payoutStatus;
+      if (payoutStatus === "otp") {
+        toast({
+          title: "OTP Required",
+          description:
+            "Paystack requires OTP authorization to complete this disbursement.",
+        });
+      } else if (payoutStatus && payoutStatus !== "success") {
+        toast({
+          title: "Disbursement Processing",
+          description:
+            "The transfer is processing. You can verify or retry if needed.",
+        });
+      } else {
+        toast({
+          title: "Loan Disbursed",
+          description: "Loan funds have been disbursed and schedule created.",
+        });
+      }
+
+      return application;
     } catch (error: unknown) {
       const message =
         error && typeof error === "object" && "message" in error
@@ -953,8 +1021,36 @@ export default function Admin() {
             )
           : "Failed to disburse loan.";
       toast({ title: "Error", description: message, variant: "destructive" });
+      return null;
     }
   };
+
+  const handleLoanFinalizeOtp = async (
+    id: string,
+    transferCode: string,
+    otp: string,
+    repaymentStartDate?: string | null,
+  ) =>
+    finalizeLoanOtpMutation.mutateAsync({
+      applicationId: id,
+      transferCode,
+      otp,
+      repaymentStartDate: repaymentStartDate ?? null,
+    });
+
+  const handleLoanResendOtp = async (
+    id: string,
+    transferCode: string,
+  ) => resendLoanOtpMutation.mutateAsync({ applicationId: id, transferCode });
+
+  const handleLoanVerifyTransfer = async (
+    id: string,
+    repaymentStartDate?: string | null,
+  ) =>
+    verifyLoanTransferMutation.mutateAsync({
+      applicationId: id,
+      repaymentStartDate: repaymentStartDate ?? null,
+    });
 
   const handleSendAnnouncement = async () => {
     if (!announcementTitle.trim() || !announcementMessage.trim()) {
@@ -1440,7 +1536,7 @@ export default function Admin() {
                     Quick Actions
                   </h3>
                   <div className="gap-3 grid grid-cols-2">
-                    {isCoordinator && (
+                    {canAccessCoordinatorPanels && (
                       <Button
                         variant="outline"
                         className="flex-col gap-2 h-20"
@@ -1450,7 +1546,7 @@ export default function Admin() {
                         <span className="text-sm">View Defaulters</span>
                       </Button>
                     )}
-                    {isCoordinator && (
+                    {canAccessCoordinatorPanels && (
                       <Button
                         variant="outline"
                         className="flex-col gap-2 h-20"
@@ -1490,22 +1586,31 @@ export default function Admin() {
             />
           )}
 
-          {activeTab === "contributions" && isCoordinator && (
+          {activeTab === "contributions" && canAccessCoordinatorPanels && (
             <ContributionTracker
               contributions={contributions}
               onMarkPaid={handleMarkPaid}
-              year={now.getFullYear()}
-              month={now.getMonth() + 1}
+              year={trackerYear}
+              month={trackerMonth}
+              onYearChange={setTrackerYear}
+              onMonthChange={setTrackerMonth}
+              canManageActions={isCoordinator}
             />
           )}
 
-          {activeTab === "loans" && isCoordinator && (
+          {activeTab === "loans" && canAccessCoordinatorPanels && (
             <LoanReviewPanel
               applications={loanApplicationsForPanel}
               onApprove={handleLoanApprove}
               onReject={handleLoanReject}
               onStartReview={handleStartReview}
               onDisburse={handleLoanDisburse}
+              onVerifyTransfer={handleLoanVerifyTransfer}
+              onFinalizeOtp={handleLoanFinalizeOtp}
+              onResendOtp={handleLoanResendOtp}
+              otpResendCooldownSeconds={loanOtpResendCooldownSeconds}
+              canDisburse={isAdmin}
+              canFinalizeOtp={isAdmin}
             />
           )}
 
@@ -2132,8 +2237,11 @@ export default function Admin() {
             </div>
           )}
 
-          {activeTab === "withdrawals" && isCoordinator && (
-            <WithdrawalApprovalPanel />
+          {activeTab === "withdrawals" && canAccessCoordinatorPanels && (
+            <WithdrawalApprovalPanel
+              canCompletePayout={isAdmin}
+              canFinalizeOtp={isAdmin}
+            />
           )}
 
           {activeTab === "sms" && (

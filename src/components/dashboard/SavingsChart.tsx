@@ -35,13 +35,15 @@ const SavingsChart: React.FC<SavingsChartProps> = ({
   const range = maxAmount - minAmount || 1;
 
   const formatCurrency = (amount: number) => {
-    if (amount >= 1000000) {
-      return `₦${(amount / 1000000).toFixed(1)}M`;
+    const value = Number.isFinite(amount) ? amount : 0;
+    const nairaSymbol = "\u20A6";
+    if (value >= 1000000) {
+      return `${nairaSymbol}${(value / 1000000).toFixed(1)}M`;
     }
-    if (amount >= 1000) {
-      return `₦${(amount / 1000).toFixed(0)}K`;
+    if (value >= 1000) {
+      return `${nairaSymbol}${(value / 1000).toFixed(0)}K`;
     }
-    return `₦${amount}`;
+    return `${nairaSymbol}${value}`;
   };
 
   const formatExactCurrency = (amount: number) =>
@@ -71,10 +73,12 @@ const SavingsChart: React.FC<SavingsChartProps> = ({
     return { x, y };
   });
 
-  const linePath = points
-    .map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`)
-    .join(" ");
-  const areaPath = `${linePath} L ${points[points.length - 1].x} ${chartHeight - padding} L ${padding} ${chartHeight - padding} Z`;
+  const linePath = points.length
+    ? points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ")
+    : "";
+  const areaPath = points.length
+    ? `${linePath} L ${points[points.length - 1].x} ${chartHeight - padding} L ${padding} ${chartHeight - padding} Z`
+    : "";
 
   // Calculate percentage change
   const firstAmount = data[0]?.amount || 0;
@@ -139,7 +143,7 @@ const SavingsChart: React.FC<SavingsChartProps> = ({
         </div>
         <div className="flex items-center gap-3">
           {onViewChange && (
-            <div className="flex items-center rounded-full bg-gray-100 p-1 text-xs">
+            <div className="flex items-center bg-gray-100 p-1 rounded-full text-xs">
               {(["monthly", "cumulative"] as const).map((option) => (
                 <button
                   key={option}
@@ -218,38 +222,42 @@ const SavingsChart: React.FC<SavingsChartProps> = ({
             />
           ))}
 
-          {/* Area fill */}
-          <path d={areaPath} fill="url(#chartGradient)" />
+          {points.length > 0 && (
+            <>
+              {/* Area fill */}
+              <path d={areaPath} fill="url(#chartGradient)" />
 
-          {/* Line */}
-          <path
-            d={linePath}
-            fill="none"
-            stroke="#10b981"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+              {/* Line */}
+              <path
+                d={linePath}
+                fill="none"
+                stroke="#10b981"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
 
-          {/* Data points */}
-          {points.map((p, i) => (
-            <circle
-              key={i}
-              cx={p.x}
-              cy={p.y}
-              r="2.5"
-              fill="#10b981"
-              stroke="white"
-              strokeWidth="1"
-              className="cursor-pointer"
-              onMouseEnter={(event) => updateTooltip(event, i)}
-              onMouseMove={(event) => updateTooltip(event, i)}
-              onMouseLeave={hideTooltip}
-              onFocus={() => showTooltipAtPoint(i)}
-              onBlur={hideTooltip}
-              tabIndex={0}
-            />
-          ))}
+              {/* Data points */}
+              {points.map((p, i) => (
+                <circle
+                  key={i}
+                  cx={p.x}
+                  cy={p.y}
+                  r="2.5"
+                  fill="#10b981"
+                  stroke="white"
+                  strokeWidth="1"
+                  className="cursor-pointer"
+                  onMouseEnter={(event) => updateTooltip(event, i)}
+                  onMouseMove={(event) => updateTooltip(event, i)}
+                  onMouseLeave={hideTooltip}
+                  onFocus={() => showTooltipAtPoint(i)}
+                  onBlur={hideTooltip}
+                  tabIndex={0}
+                />
+              ))}
+            </>
+          )}
         </svg>
 
         {/* Y-axis labels */}
@@ -261,7 +269,7 @@ const SavingsChart: React.FC<SavingsChartProps> = ({
 
         {tooltip && (
           <div
-            className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-[110%] rounded-lg bg-slate-900 px-3 py-2 text-xs text-white shadow-lg"
+            className="z-10 absolute bg-slate-900 shadow-lg px-3 py-2 rounded-lg text-white text-xs -translate-x-1/2 -translate-y-[110%] pointer-events-none"
             style={{ left: tooltip.x, top: tooltip.y }}
           >
             <p className="font-semibold">{tooltip.month}</p>
@@ -316,3 +324,4 @@ const SavingsChart: React.FC<SavingsChartProps> = ({
 };
 
 export default SavingsChart;
+

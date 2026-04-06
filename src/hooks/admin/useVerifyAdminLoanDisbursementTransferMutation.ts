@@ -1,22 +1,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { disburseAdminLoanApplication } from "@/lib/adminLoans";
+import { verifyAdminLoanDisbursementTransfer } from "@/lib/adminLoans";
 
-export function useDisburseAdminLoanApplicationMutation() {
+export function useVerifyAdminLoanDisbursementTransferMutation() {
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async (vars: {
       applicationId: string;
       repaymentStartDate?: string | null;
-      reference?: string;
-      gateway?: string;
-      bankAccountId?: string | null;
     }) =>
-      disburseAdminLoanApplication(vars.applicationId, {
+      verifyAdminLoanDisbursementTransfer(vars.applicationId, {
         repaymentStartDate: vars.repaymentStartDate ?? null,
-        reference: vars.reference,
-        gateway: vars.gateway,
-        bankAccountId: vars.bankAccountId ?? null,
       }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["admin", "loans", "applications"] });

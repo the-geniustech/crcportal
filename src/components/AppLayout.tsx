@@ -13,6 +13,7 @@ import ContactSection from "./crc/ContactSection";
 import CTASection from "./crc/CTASection";
 import Footer from "./crc/Footer";
 import AuthModal from "./crc/AuthModal";
+import { goToContactSupport } from "@/lib/support";
 
 const AppLayout: React.FC = () => {
   const { user, loading } = useAuth();
@@ -124,11 +125,7 @@ const AppLayout: React.FC = () => {
                   View Dashboard
                 </a>
                 <button
-                  onClick={() => {
-                    const contactSection = document.getElementById("contact");
-                    if (contactSection)
-                      contactSection.scrollIntoView({ behavior: "smooth" });
-                  }}
+                  onClick={goToContactSupport}
                   className="hover:bg-white px-8 py-4 border-2 border-white rounded-xl w-full sm:w-auto font-semibold text-white hover:text-emerald-600 transition-all duration-300"
                 >
                   Contact Support

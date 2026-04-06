@@ -243,7 +243,8 @@ const Header: React.FC<HeaderProps> = ({ onLoginClick, onGetStartedClick }) => {
                         Payments
                       </a>
 
-                      {user.role === "group_coordinator" ||
+                      {user.role === "groupCoordinator" ||
+                      user.role === "group_coordinator" ||
                       user.role === "admin" ? (
                         <a
                           href="/admin"

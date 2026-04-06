@@ -1,4 +1,4 @@
-﻿import { api, getApiErrorMessage } from "./api/client";
+import { api, getApiErrorMessage } from "./api/client";
 import { clearTokens, getRefreshToken, getTokens, setTokens } from "./auth/tokens";
 import { emitAuthEvent, onAuthEvent } from "./auth/events";
 
@@ -404,7 +404,6 @@ export async function updateProfile(
     const payload: Record<string, unknown> = {};
     if (typeof updates.full_name !== "undefined")
       payload.fullName = updates.full_name;
-    if (typeof updates.phone !== "undefined") payload.phone = updates.phone;
     if (typeof updates.date_of_birth !== "undefined")
       payload.dateOfBirth = updates.date_of_birth;
     if (typeof updates.address !== "undefined")
@@ -427,6 +426,60 @@ export async function updateProfile(
     return { profile: p ? mapBackendProfile(p) : null, error: null };
   } catch (err) {
     return { profile: null, error: new Error(getApiErrorMessage(err)) };
+  }
+}
+
+export async function requestEmailChange(
+  email: string,
+): Promise<{ ok: boolean; error: Error | null; pendingEmail?: string }> {
+  try {
+    const res = await api.post("/users/me/email-change/request", { email });
+    return {
+      ok: true,
+      error: null,
+      pendingEmail: res.data?.data?.pendingEmail,
+    };
+  } catch (err) {
+    return { ok: false, error: new Error(getApiErrorMessage(err)) };
+  }
+}
+
+export async function confirmEmailChange(
+  email: string,
+  otp: string,
+): Promise<{ ok: boolean; error: Error | null }> {
+  try {
+    await api.post("/users/me/email-change/confirm", { email, otp });
+    return { ok: true, error: null };
+  } catch (err) {
+    return { ok: false, error: new Error(getApiErrorMessage(err)) };
+  }
+}
+
+export async function requestPhoneChange(
+  phone: string,
+): Promise<{ ok: boolean; error: Error | null; pendingPhone?: string }> {
+  try {
+    const res = await api.post("/users/me/phone-change/request", { phone });
+    return {
+      ok: true,
+      error: null,
+      pendingPhone: res.data?.data?.pendingPhone,
+    };
+  } catch (err) {
+    return { ok: false, error: new Error(getApiErrorMessage(err)) };
+  }
+}
+
+export async function confirmPhoneChange(
+  phone: string,
+  otp: string,
+): Promise<{ ok: boolean; error: Error | null }> {
+  try {
+    await api.post("/users/me/phone-change/confirm", { phone, otp });
+    return { ok: true, error: null };
+  } catch (err) {
+    return { ok: false, error: new Error(getApiErrorMessage(err)) };
   }
 }
 

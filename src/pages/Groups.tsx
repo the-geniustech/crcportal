@@ -27,6 +27,7 @@ type GroupUI = {
   memberCount: number;
   maxMembers: number;
   monthlyContribution: number;
+  expectedMonthlyContribution?: number;
   totalSavings: number;
   category: string;
   nextMeeting?: string;
@@ -66,6 +67,7 @@ type Contribution = {
 
 type Loan = {
   id: string;
+  borrowerId?: string | null;
   loanCode?: string | null;
   loanType?: string | null;
   loanAmount: number;
@@ -208,6 +210,19 @@ const GroupsContent: React.FC = () => {
       totalSavings: Number(selectedGroup.totalSavings || 0),
     };
   }, [selectedGroup]);
+
+  const selectedMembershipRole = useMemo(() => {
+    if (!selectedGroup) return null;
+    const memberships = myGroupsQuery.data ?? [];
+    const match = memberships.find((membership) => {
+      const groupId =
+        typeof membership.groupId === "string"
+          ? membership.groupId
+          : membership.groupId?._id;
+      return groupId && String(groupId) === selectedGroup.id;
+    });
+    return match?.role ?? null;
+  }, [myGroupsQuery.data, selectedGroup]);
 
   const membersForManagement = useMemo(() => {
     const raw = groupMembersQuery.data ?? [];
@@ -504,6 +519,20 @@ const GroupsContent: React.FC = () => {
     if (raw.length === 0) return [];
 
     return raw.map((loan) => ({
+      borrowerId: (() => {
+        const userObj =
+          typeof loan.userId === "object" && loan.userId
+            ? (loan.userId as Record<string, unknown>)
+            : null;
+        if (
+          userObj &&
+          (typeof userObj._id === "string" || typeof userObj.id === "string")
+        ) {
+          return String((userObj._id || userObj.id) as string);
+        }
+        if (typeof loan.userId === "string") return loan.userId;
+        return null;
+      })(),
       id: loan._id,
       loanCode: loan.loanCode ?? null,
       loanType: loan.loanType ?? null,
@@ -584,6 +613,20 @@ const GroupsContent: React.FC = () => {
             ? (m.groupId as BackendGroup)
             : null;
         if (!group) return null;
+        const expectedMonthlyContribution = (() => {
+          const raw =
+            typeof m === "object" && m
+              ? (m as { expectedMonthlyContribution?: unknown })
+                  .expectedMonthlyContribution
+              : null;
+          const num =
+            typeof raw === "number"
+              ? raw
+              : typeof raw === "string"
+                ? Number(raw)
+                : null;
+          return Number.isFinite(num) ? Number(num) : undefined;
+        })();
 
         return {
           id: group._id,
@@ -594,6 +637,7 @@ const GroupsContent: React.FC = () => {
           memberCount: group.memberCount || 0,
           maxMembers: group.maxMembers,
           monthlyContribution: group.monthlyContribution,
+          expectedMonthlyContribution,
           totalSavings: group.totalSavings || 0,
           category: group.category || "General",
           nextMeeting: group.meetingDay || undefined,
@@ -680,7 +724,11 @@ const GroupsContent: React.FC = () => {
         result.sort((a, b) => b.totalSavings - a.totalSavings);
         break;
       case "contribution":
-        result.sort((a, b) => a.monthlyContribution - b.monthlyContribution);
+        result.sort((a, b) => {
+          const aValue = a.expectedMonthlyContribution ?? a.monthlyContribution;
+          const bValue = b.expectedMonthlyContribution ?? b.monthlyContribution;
+          return aValue - bValue;
+        });
         break;
       case "popular":
       default:
@@ -801,7 +849,14 @@ const GroupsContent: React.FC = () => {
   // Stats
   const formatCompactNaira = (amount: number) => {
     const value = Number(amount || 0);
-    if (!Number.isFinite(value)) return "₦0";
+    if (!Number.isFinite(value)) {
+      return new Intl.NumberFormat("en-NG", {
+        style: "currency",
+        currency: "NGN",
+        notation: "compact",
+        maximumFractionDigits: 1,
+      }).format(0);
+    }
     return new Intl.NumberFormat("en-NG", {
       style: "currency",
       currency: "NGN",
@@ -966,6 +1021,7 @@ const GroupsContent: React.FC = () => {
         membersLoading={groupMembersQuery.isLoading}
         contributionsLoading={groupCurrentYearContributionsQuery.isLoading}
         meetingsLoading={groupMeetingsQuery.isLoading}
+        currentMemberRole={selectedMembershipRole}
         onClose={() => setShowGroupPanel(false)}
         onInviteMembers={() => {
           toast({
@@ -997,6 +1053,7 @@ const GroupsContent: React.FC = () => {
         contributionsLoading={groupContributionsQuery.isLoading}
         selectedYear={selectedContributionYear}
         onYearChange={setSelectedContributionYear}
+        currentMemberRole={selectedMembershipRole}
       />
 
       <GroupLoanDashboardModal
@@ -1005,6 +1062,7 @@ const GroupsContent: React.FC = () => {
         group={selectedGroup}
         loans={loansForDetails}
         loansLoading={groupLoansQuery.isLoading}
+        currentMemberRole={selectedMembershipRole}
       />
     </div>
   );

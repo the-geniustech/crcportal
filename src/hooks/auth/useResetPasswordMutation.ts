@@ -1,4 +1,4 @@
-﻿import { useMutation } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { resetPasswordWithToken } from "@/lib/auth";
 
 export function useResetPasswordMutation() {

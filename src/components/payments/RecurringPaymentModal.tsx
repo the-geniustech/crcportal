@@ -103,6 +103,9 @@ export default function RecurringPaymentModal({
     editPayment?.payment_type || "",
   );
   const [amount, setAmount] = useState(editPayment?.amount?.toString() || "");
+  const [amountTouched, setAmountTouched] = useState(
+    Boolean(editPayment?.amount),
+  );
   const [frequency, setFrequency] = useState<string>(
     editPayment?.frequency || "monthly",
   );
@@ -122,7 +125,14 @@ export default function RecurringPaymentModal({
   );
   const [hasEndDate, setHasEndDate] = useState(!!editPayment?.end_date);
 
-  const quickAmounts = [5000, 10000, 25000, 50000];
+  const formatCurrency = (value: number) => {
+    const safe = Number.isFinite(value) ? value : 0;
+    return new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      maximumFractionDigits: 0,
+    }).format(safe);
+  };
 
   const groupMembershipsQuery = useMyGroupMembershipsQuery();
   const loanApplicationsQuery = useMyLoanApplicationsQuery();
@@ -137,11 +147,73 @@ export default function RecurringPaymentModal({
           typeof m.groupId === "string" ? null : (m.groupId as unknown);
         const id = typeof m.groupId === "string" ? m.groupId : g?._id;
         const name = g?.groupName ?? null;
+        const monthlyRaw =
+          (g as { monthlyContribution?: unknown })?.monthlyContribution ?? null;
+        const monthlyContribution = Number.isFinite(Number(monthlyRaw))
+          ? Number(monthlyRaw)
+          : null;
+        const expectedRaw = (m as { expectedMonthlyContribution?: unknown })
+          .expectedMonthlyContribution;
+        const expectedMonthlyContribution = Number.isFinite(Number(expectedRaw))
+          ? Number(expectedRaw)
+          : null;
         if (!id || !name) return null;
-        return { id: String(id), name: String(name) };
+        return {
+          id: String(id),
+          name: String(name),
+          monthlyContribution:
+            typeof monthlyContribution === "number" ? monthlyContribution : null,
+          expectedMonthlyContribution:
+            typeof expectedMonthlyContribution === "number"
+              ? expectedMonthlyContribution
+              : null,
+        };
       })
-      .filter(Boolean) as { id: string; name: string }[];
+      .filter(Boolean) as {
+      id: string;
+      name: string;
+      monthlyContribution: number | null;
+      expectedMonthlyContribution: number | null;
+    }[];
   }, [groupMembershipsQuery.data]);
+
+  const selectedGroupInfo = useMemo(
+    () => groups.find((group) => group.id === selectedGroup) ?? null,
+    [groups, selectedGroup],
+  );
+
+  const expectedMonthlyAmount = useMemo(() => {
+    if (!selectedGroupInfo) return null;
+    const config = getContributionTypeConfig("revolving");
+    const minAmount = Number(config?.minAmount ?? 0);
+    const baseMonthly = Math.max(
+      minAmount,
+      Number(selectedGroupInfo.monthlyContribution ?? 0),
+    );
+    const raw = selectedGroupInfo.expectedMonthlyContribution ?? baseMonthly;
+    const value = Number(raw ?? 0);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }, [selectedGroupInfo]);
+
+  const quickAmounts = useMemo(() => {
+    const baseList = [5000, 10000, 25000, 50000];
+    if (
+      paymentType === "group_contribution" &&
+      contributionType === "revolving" &&
+      expectedMonthlyAmount
+    ) {
+      const merged = [expectedMonthlyAmount, ...baseList];
+      const seen = new Set<number>();
+      return merged.filter((value) => {
+        const num = Math.round(Number(value));
+        if (!Number.isFinite(num) || num <= 0) return false;
+        if (seen.has(num)) return false;
+        seen.add(num);
+        return true;
+      });
+    }
+    return baseList;
+  }, [paymentType, contributionType, expectedMonthlyAmount]);
 
   const loans = useMemo(() => {
     const apps = loanApplicationsQuery.data ?? [];
@@ -152,7 +224,7 @@ export default function RecurringPaymentModal({
         const code = String(a.loanCode ?? a._id);
         return {
           id: a._id,
-          name: `${code} - ₦${amountLabel.toLocaleString()}`,
+          name: `${code} - ${formatCurrency(amountLabel)}`,
           monthlyPayment: Number(a.monthlyPayment ?? 0),
         };
       });
@@ -162,6 +234,7 @@ export default function RecurringPaymentModal({
     if (editPayment) {
       setPaymentType(editPayment.payment_type);
       setAmount(editPayment.amount.toString());
+      setAmountTouched(Boolean(editPayment.amount));
       setFrequency(editPayment.frequency);
       setStartDate(new Date(editPayment.start_date));
       setEndDate(
@@ -177,6 +250,20 @@ export default function RecurringPaymentModal({
       setContributionType(canonicalType || "revolving");
     }
   }, [editPayment]);
+
+  useEffect(() => {
+    if (editPayment) return;
+    if (paymentType !== "group_contribution") return;
+    if (!selectedGroupInfo || !expectedMonthlyAmount) return;
+    if (amountTouched) return;
+    setAmount(expectedMonthlyAmount.toString());
+  }, [
+    editPayment,
+    paymentType,
+    selectedGroupInfo,
+    expectedMonthlyAmount,
+    amountTouched,
+  ]);
 
   const calculateNextPaymentDate = (start: Date, freq: string): Date => {
     const today = new Date();
@@ -318,6 +405,7 @@ export default function RecurringPaymentModal({
   const handleClose = () => {
     setPaymentType("");
     setAmount("");
+    setAmountTouched(false);
     setFrequency("monthly");
     setStartDate(undefined);
     setEndDate(undefined);
@@ -453,6 +541,14 @@ export default function RecurringPaymentModal({
                   {getContributionTypeConfig(contributionType)?.description}
                 </p>
               )}
+              {contributionType === "revolving" &&
+                expectedMonthlyAmount &&
+                selectedGroupInfo && (
+                  <p className="text-xs text-emerald-600">
+                    Expected monthly for {selectedGroupInfo.name}:{" "}
+                    {formatCurrency(expectedMonthlyAmount)}
+                  </p>
+                )}
             </div>
           )}
 
@@ -465,7 +561,10 @@ export default function RecurringPaymentModal({
                 onValueChange={(value) => {
                   setSelectedLoan(value);
                   const loan = loans.find((l) => l.id === value);
-                  if (loan) setAmount(loan.monthlyPayment.toString());
+                  if (loan) {
+                    setAmount(loan.monthlyPayment.toString());
+                    setAmountTouched(true);
+                  }
                 }}
               >
                 <SelectTrigger>
@@ -484,12 +583,15 @@ export default function RecurringPaymentModal({
 
           {/* Amount Input */}
           <div className="space-y-2">
-            <Label>Amount (₦)</Label>
+            <Label>Amount (NGN)</Label>
             <Input
               type="number"
               placeholder="Enter amount"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => {
+                setAmount(e.target.value);
+                setAmountTouched(true);
+              }}
               min="100"
               className="font-semibold text-lg"
             />
@@ -500,14 +602,17 @@ export default function RecurringPaymentModal({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setAmount(quickAmount.toString())}
+                  onClick={() => {
+                    setAmount(quickAmount.toString());
+                    setAmountTouched(true);
+                  }}
                   className={
                     amount === quickAmount.toString()
                       ? "border-emerald-500 bg-emerald-50"
                       : ""
                   }
                 >
-                  ₦{quickAmount.toLocaleString()}
+                  {formatCurrency(quickAmount)}
                 </Button>
               ))}
             </div>
@@ -632,7 +737,7 @@ export default function RecurringPaymentModal({
                 <div>
                   <p className="text-gray-500">Amount</p>
                   <p className="font-bold text-emerald-600">
-                    ₦{parseFloat(amount || "0").toLocaleString()}
+                    {formatCurrency(parseFloat(amount || "0"))}
                   </p>
                 </div>
                 <div>

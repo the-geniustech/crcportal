@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { usePaystackBanksQuery } from '@/hooks/finance/usePaystackBanksQuery';
 import { Building2, CreditCard, Plus, Trash2, Edit2, Check, X, Star } from 'lucide-react';
 
 interface BankAccount {
   id: string;
   bankName: string;
+  bankCode?: string;
   accountNumber: string;
   accountName: string;
   isPrimary: boolean;
@@ -17,16 +19,6 @@ interface BankingDetailsProps {
   onSetPrimary: (id: string) => void;
 }
 
-const nigerianBanks = [
-  'Access Bank', 'Citibank', 'Ecobank', 'Fidelity Bank', 'First Bank of Nigeria',
-  'First City Monument Bank (FCMB)', 'Globus Bank', 'Guaranty Trust Bank (GTBank)',
-  'Heritage Bank', 'Keystone Bank', 'Polaris Bank', 'Providus Bank', 'Stanbic IBTC Bank',
-  'Standard Chartered Bank', 'Sterling Bank', 'SunTrust Bank', 'Titan Trust Bank',
-  'Union Bank of Nigeria', 'United Bank for Africa (UBA)', 'Unity Bank', 'Wema Bank',
-  'Zenith Bank', 'Jaiz Bank', 'TAJBank', 'Lotus Bank', 'Optimus Bank', 'Parallex Bank',
-  'Kuda Bank', 'OPay', 'PalmPay', 'Moniepoint'
-];
-
 const BankingDetails: React.FC<BankingDetailsProps> = ({
   accounts,
   onAddAccount,
@@ -38,9 +30,24 @@ const BankingDetails: React.FC<BankingDetailsProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     bankName: '',
+    bankCode: '',
     accountNumber: '',
     accountName: '',
   });
+  const banksQuery = usePaystackBanksQuery();
+  const bankOptions = useMemo(() => {
+    const list = banksQuery.data ?? [];
+    return list
+      .filter((bank: any) => bank && bank.is_deleted !== true)
+      .filter((bank: any) => bank && bank.active !== false)
+      .map((bank: any) => ({
+        name: String(bank.name),
+        code: String(bank.code),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [banksQuery.data]);
+  const bankListLoading = banksQuery.isLoading;
+  const bankListError = banksQuery.isError;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,13 +58,15 @@ const BankingDetails: React.FC<BankingDetailsProps> = ({
       onAddAccount({ ...formData, isPrimary: accounts.length === 0 });
       setShowAddForm(false);
     }
-    setFormData({ bankName: '', accountNumber: '', accountName: '' });
+    setFormData({ bankName: '', bankCode: '', accountNumber: '', accountName: '' });
   };
 
   const handleEdit = (account: BankAccount) => {
+    const matched = bankOptions.find((bank) => bank.name === account.bankName);
     setEditingId(account.id);
     setFormData({
       bankName: account.bankName,
+      bankCode: account.bankCode || matched?.code || '',
       accountNumber: account.accountNumber,
       accountName: account.accountName,
     });
@@ -66,7 +75,7 @@ const BankingDetails: React.FC<BankingDetailsProps> = ({
   const handleCancel = () => {
     setEditingId(null);
     setShowAddForm(false);
-    setFormData({ bankName: '', accountNumber: '', accountName: '' });
+    setFormData({ bankName: '', bankCode: '', accountNumber: '', accountName: '' });
   };
 
   return (
@@ -103,16 +112,34 @@ const BankingDetails: React.FC<BankingDetailsProps> = ({
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
                       <select
-                        value={formData.bankName}
-                        onChange={(e) => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
+                        value={formData.bankCode}
+                        onChange={(e) => {
+                          const code = e.target.value;
+                          const bank = bankOptions.find((item) => item.code === code);
+                          setFormData(prev => ({
+                            ...prev,
+                            bankCode: code,
+                            bankName: bank?.name || ''
+                          }));
+                        }}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
                         required
+                        disabled={bankListLoading || bankOptions.length === 0}
                       >
                         <option value="">Select Bank</option>
-                        {nigerianBanks.map(bank => (
-                          <option key={bank} value={bank}>{bank}</option>
+                        {bankOptions.map(bank => (
+                          <option key={bank.code} value={bank.code}>{bank.name}</option>
                         ))}
                       </select>
+                      {(bankListLoading || bankOptions.length === 0) && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          {bankListLoading
+                            ? 'Loading bank list...'
+                            : bankListError
+                              ? 'Unable to load bank list right now.'
+                              : 'Bank list is unavailable right now. Please try again shortly.'}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
@@ -149,7 +176,12 @@ const BankingDetails: React.FC<BankingDetailsProps> = ({
                     </button>
                     <button
                       type="submit"
-                      className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors flex items-center gap-1"
+                      className={`px-4 py-2 rounded-lg transition-colors flex items-center gap-1 ${
+                        bankListLoading || bankOptions.length === 0
+                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                          : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                      }`}
+                      disabled={bankListLoading || bankOptions.length === 0}
                     >
                       <Check className="w-4 h-4" />
                       Save
@@ -227,16 +259,34 @@ const BankingDetails: React.FC<BankingDetailsProps> = ({
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
                 <select
-                  value={formData.bankName}
-                  onChange={(e) => setFormData(prev => ({ ...prev, bankName: e.target.value }))}
+                  value={formData.bankCode}
+                  onChange={(e) => {
+                    const code = e.target.value;
+                    const bank = bankOptions.find((item) => item.code === code);
+                    setFormData(prev => ({
+                      ...prev,
+                      bankCode: code,
+                      bankName: bank?.name || ''
+                    }));
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
                   required
+                  disabled={bankListLoading || bankOptions.length === 0}
                 >
                   <option value="">Select Bank</option>
-                  {nigerianBanks.map(bank => (
-                    <option key={bank} value={bank}>{bank}</option>
+                  {bankOptions.map(bank => (
+                    <option key={bank.code} value={bank.code}>{bank.name}</option>
                   ))}
                 </select>
+                {(bankListLoading || bankOptions.length === 0) && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    {bankListLoading
+                      ? 'Loading bank list...'
+                      : bankListError
+                        ? 'Unable to load bank list right now.'
+                        : 'Bank list is unavailable right now. Please try again shortly.'}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
@@ -272,7 +322,12 @@ const BankingDetails: React.FC<BankingDetailsProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors"
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  bankListLoading || bankOptions.length === 0
+                    ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                    : 'bg-emerald-500 text-white hover:bg-emerald-600'
+                }`}
+                disabled={bankListLoading || bankOptions.length === 0}
               >
                 Add Account
               </button>

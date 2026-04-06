@@ -5,10 +5,18 @@ export interface Group {
   name: string;
   location: string;
   memberCount: number;
-  role: "member" | "treasurer" | "secretary" | "chairman";
-  contributionStatus: "active" | "paused" | "defaulted";
+  role: "member" | "treasurer" | "secretary" | "chairman" | "coordinator" | "admin";
+  contributionStatus:
+    | "active"
+    | "pending"
+    | "inactive"
+    | "suspended"
+    | "rejected"
+    | "paused"
+    | "defaulted";
   totalContributed: number;
   monthlyContribution: number;
+  expectedMonthlyContribution?: number;
   nextMeeting: string;
   imageUrl?: string;
 }
@@ -39,6 +47,8 @@ const GroupMemberships: React.FC<GroupMembershipsProps> = ({
       treasurer: "bg-blue-100 text-blue-700",
       secretary: "bg-purple-100 text-purple-700",
       chairman: "bg-amber-100 text-amber-700",
+      coordinator: "bg-indigo-100 text-indigo-700",
+      admin: "bg-rose-100 text-rose-700",
     };
     return colors[role];
   };
@@ -46,10 +56,14 @@ const GroupMemberships: React.FC<GroupMembershipsProps> = ({
   const getStatusColor = (status: Group["contributionStatus"]) => {
     const colors = {
       active: "text-emerald-600",
+      pending: "text-amber-600",
+      inactive: "text-gray-500",
+      suspended: "text-rose-600",
+      rejected: "text-rose-600",
       paused: "text-yellow-600",
       defaulted: "text-red-600",
     };
-    return colors[status];
+    return colors[status] ?? "text-gray-500";
   };
 
   const navigate = (path: string) => {
@@ -154,9 +168,16 @@ const GroupMemberships: React.FC<GroupMembershipsProps> = ({
                     </p>
                   </div>
                   <div>
-                    <p className="text-gray-500 text-xs">Monthly</p>
+                    <p className="text-gray-500 text-xs">
+                      {group.expectedMonthlyContribution !== undefined
+                        ? "Expected Monthly"
+                        : "Monthly"}
+                    </p>
                     <p className="font-semibold text-gray-900">
-                      {formatCurrency(group.monthlyContribution)}
+                      {formatCurrency(
+                        group.expectedMonthlyContribution ??
+                          group.monthlyContribution,
+                      )}
                     </p>
                   </div>
                 </div>
@@ -180,7 +201,7 @@ const GroupMemberships: React.FC<GroupMembershipsProps> = ({
                       {group.memberCount} members
                     </span>
                     <span
-                      className={`flex items-center gap-1 ${getStatusColor(group.contributionStatus)}`}
+                      className={`flex items-center gap-1 capitalize ${getStatusColor(group.contributionStatus)}`}
                     >
                       <span className="bg-current rounded-full w-2 h-2"></span>
                       {group.contributionStatus}

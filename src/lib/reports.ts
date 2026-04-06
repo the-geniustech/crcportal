@@ -6,9 +6,18 @@ export type ReportType =
   | "credit_score_report"
   | "annual_summary";
 
+export type ReportPeriodPayload =
+  | string
+  | {
+      type: "year" | "5years" | "10years" | "custom";
+      year?: number;
+      startDate?: string;
+      endDate?: string;
+    };
+
 export async function generateMyFinancialReport(payload: {
   type: ReportType;
-  period: string;
+  period: ReportPeriodPayload;
   memberName: string;
   memberId?: string;
 }) {

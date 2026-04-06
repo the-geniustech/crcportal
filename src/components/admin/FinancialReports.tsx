@@ -26,9 +26,30 @@ function formatPct(value: number) {
   return `${sign}${v.toFixed(1)}%`;
 }
 
+function formatCurrency(value: number) {
+  const safe = Number.isFinite(value) ? value : 0;
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    maximumFractionDigits: 0,
+  }).format(safe);
+}
+
+function formatCompactCurrency(value: number, maximumFractionDigits = 1) {
+  const safe = Number.isFinite(value) ? value : 0;
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    notation: "compact",
+    maximumFractionDigits,
+  }).format(safe);
+}
+
 export default function FinancialReports() {
   const [selectedPeriod, setSelectedPeriod] = useState<Period>("6months");
-  const reportsQuery = useAdminFinancialReportsQuery({ period: selectedPeriod });
+  const reportsQuery = useAdminFinancialReportsQuery({
+    period: selectedPeriod,
+  });
 
   const monthlyData = useMemo(
     () => reportsQuery.data?.monthlyData ?? [],
@@ -64,40 +85,53 @@ export default function FinancialReports() {
 
   const topPerformers = useMemo(() => {
     return [...groupPerformance]
-      .sort((a, b) => b.collectionRate - a.collectionRate)
+      .filter((group) => (group.expectedTotal ?? 0) > 0)
+      .sort((a, b) => {
+        const rateDiff = (b.collectionRate ?? 0) - (a.collectionRate ?? 0);
+        if (rateDiff !== 0) return rateDiff;
+        return (b.collectedTotal ?? 0) - (a.collectedTotal ?? 0);
+      })
       .slice(0, 5);
   }, [groupPerformance]);
 
   const needsAttention = useMemo(() => {
     return [...groupPerformance]
-      .sort((a, b) => a.collectionRate - b.collectionRate)
+      .filter(
+        (group) =>
+          (group.expectedTotal ?? 0) > 0 && (group.collectionGap ?? 0) > 0,
+      )
+      .sort((a, b) => {
+        const gapDiff = (b.collectionGap ?? 0) - (a.collectionGap ?? 0);
+        if (gapDiff !== 0) return gapDiff;
+        return (a.collectionRate ?? 0) - (b.collectionRate ?? 0);
+      })
       .slice(0, 5);
   }, [groupPerformance]);
 
   return (
     <div className="space-y-6">
       {reportsQuery.isError && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+        <div className="bg-red-50 p-4 border border-red-200 rounded-xl text-red-700 text-sm">
           {(reportsQuery.error as Error)?.message ||
             "Failed to load financial reports."}
         </div>
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-5 text-white">
-          <div className="flex items-center justify-between">
+      <div className="gap-4 grid grid-cols-1 md:grid-cols-4">
+        <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-5 rounded-xl text-white">
+          <div className="flex justify-between items-center">
             <div>
               <p className="text-emerald-100 text-sm">Total Contributions</p>
-              <p className="text-2xl font-bold mt-1">
-                ₦{(totals.contributions / 1_000_000).toFixed(1)}M
+              <p className="mt-1 font-bold text-2xl">
+                {formatCompactCurrency(totals.contributions)}
               </p>
             </div>
-            <div className="p-3 bg-white/20 rounded-lg">
+            <div className="bg-white/20 p-3 rounded-lg">
               <TrendingUp className="w-6 h-6" />
             </div>
           </div>
-          <div className="flex items-center gap-1 mt-3 text-sm text-emerald-100">
+          <div className="flex items-center gap-1 mt-3 text-emerald-100 text-sm">
             <TrendingUp className="w-4 h-4" />
             <span>
               {summary
@@ -107,19 +141,19 @@ export default function FinancialReports() {
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-5 text-white">
-          <div className="flex items-center justify-between">
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-5 rounded-xl text-white">
+          <div className="flex justify-between items-center">
             <div>
               <p className="text-blue-100 text-sm">Total Loans Disbursed</p>
-              <p className="text-2xl font-bold mt-1">
-                ₦{(totals.loans / 1_000_000).toFixed(1)}M
+              <p className="mt-1 font-bold text-2xl">
+                {formatCompactCurrency(totals.loans)}
               </p>
             </div>
-            <div className="p-3 bg-white/20 rounded-lg">
+            <div className="bg-white/20 p-3 rounded-lg">
               <DollarSign className="w-6 h-6" />
             </div>
           </div>
-          <div className="flex items-center gap-1 mt-3 text-sm text-blue-100">
+          <div className="flex items-center gap-1 mt-3 text-blue-100 text-sm">
             <TrendingUp className="w-4 h-4" />
             <span>
               {summary
@@ -129,19 +163,19 @@ export default function FinancialReports() {
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-5 text-white">
-          <div className="flex items-center justify-between">
+        <div className="bg-gradient-to-br from-purple-500 to-purple-600 p-5 rounded-xl text-white">
+          <div className="flex justify-between items-center">
             <div>
               <p className="text-purple-100 text-sm">Total Repayments</p>
-              <p className="text-2xl font-bold mt-1">
-                ₦{(totals.repayments / 1_000_000).toFixed(1)}M
+              <p className="mt-1 font-bold text-2xl">
+                {formatCompactCurrency(totals.repayments)}
               </p>
             </div>
-            <div className="p-3 bg-white/20 rounded-lg">
+            <div className="bg-white/20 p-3 rounded-lg">
               <BarChart3 className="w-6 h-6" />
             </div>
           </div>
-          <div className="flex items-center gap-1 mt-3 text-sm text-purple-100">
+          <div className="flex items-center gap-1 mt-3 text-purple-100 text-sm">
             <TrendingUp className="w-4 h-4" />
             <span>
               {summary
@@ -151,19 +185,19 @@ export default function FinancialReports() {
           </div>
         </div>
 
-        <div className="bg-gradient-to-br from-amber-500 to-amber-600 rounded-xl p-5 text-white">
-          <div className="flex items-center justify-between">
+        <div className="bg-gradient-to-br from-amber-500 to-amber-600 p-5 rounded-xl text-white">
+          <div className="flex justify-between items-center">
             <div>
               <p className="text-amber-100 text-sm">Interest Earned</p>
-              <p className="text-2xl font-bold mt-1">
-                ₦{(totals.interest / 1000).toFixed(0)}K
+              <p className="mt-1 font-bold text-2xl">
+                {formatCompactCurrency(totals.interest, 0)}
               </p>
             </div>
-            <div className="p-3 bg-white/20 rounded-lg">
+            <div className="bg-white/20 p-3 rounded-lg">
               <PieChart className="w-6 h-6" />
             </div>
           </div>
-          <div className="flex items-center gap-1 mt-3 text-sm text-amber-100">
+          <div className="flex items-center gap-1 mt-3 text-amber-100 text-sm">
             <TrendingUp className="w-4 h-4" />
             <span>
               {summary
@@ -175,11 +209,11 @@ export default function FinancialReports() {
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="gap-6 grid grid-cols-1 lg:grid-cols-2">
         {/* Main Chart */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-900">
+        <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-xl">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="font-semibold text-gray-900 text-lg">
               Financial Overview
             </h3>
             <div className="flex gap-2">
@@ -200,14 +234,14 @@ export default function FinancialReports() {
           </div>
 
           {/* Bar Chart */}
-          <div className="h-64 flex items-end gap-2">
+          <div className="flex items-end gap-2 h-64">
             {reportsQuery.isLoading && (
-              <div className="w-full h-full flex items-center justify-center text-sm text-gray-500">
-                Loading…
+              <div className="flex justify-center items-center w-full h-full text-gray-500 text-sm">
+                Loading...
               </div>
             )}
             {!reportsQuery.isLoading && monthlyData.length === 0 && (
-              <div className="w-full h-full flex items-center justify-center text-sm text-gray-500">
+              <div className="flex justify-center items-center w-full h-full text-gray-500 text-sm">
                 No data for this period.
               </div>
             )}
@@ -216,32 +250,32 @@ export default function FinancialReports() {
               monthlyData.map((data, index) => (
                 <div
                   key={index}
-                  className="flex-1 flex flex-col items-center gap-1"
+                  className="flex flex-col flex-1 items-center gap-1"
                 >
-                  <div className="w-full flex gap-1 items-end h-48">
+                  <div className="flex items-end gap-1 w-full h-48">
                     <div
-                      className="flex-1 bg-emerald-500 rounded-t transition-all hover:bg-emerald-600"
+                      className="flex-1 bg-emerald-500 hover:bg-emerald-600 rounded-t transition-all"
                       style={{
                         height: `${maxValue > 0 ? (data.contributions / maxValue) * 100 : 0}%`,
                       }}
-                      title={`Contributions: ₦${data.contributions.toLocaleString()}`}
+                      title={`Contributions: ${formatCurrency(data.contributions)}`}
                     />
                     <div
-                      className="flex-1 bg-blue-500 rounded-t transition-all hover:bg-blue-600"
+                      className="flex-1 bg-blue-500 hover:bg-blue-600 rounded-t transition-all"
                       style={{
                         height: `${maxValue > 0 ? (data.loans / maxValue) * 100 : 0}%`,
                       }}
-                      title={`Loans: ₦${data.loans.toLocaleString()}`}
+                      title={`Loans: ${formatCurrency(data.loans)}`}
                     />
                     <div
-                      className="flex-1 bg-purple-500 rounded-t transition-all hover:bg-purple-600"
+                      className="flex-1 bg-purple-500 hover:bg-purple-600 rounded-t transition-all"
                       style={{
                         height: `${maxValue > 0 ? (data.repayments / maxValue) * 100 : 0}%`,
                       }}
-                      title={`Repayments: ₦${data.repayments.toLocaleString()}`}
+                      title={`Repayments: ${formatCurrency(data.repayments)}`}
                     />
                   </div>
-                  <span className="text-xs text-gray-500">{data.month}</span>
+                  <span className="text-gray-500 text-xs">{data.month}</span>
                 </div>
               ))}
           </div>
@@ -249,36 +283,36 @@ export default function FinancialReports() {
           {/* Legend */}
           <div className="flex justify-center gap-6 mt-4">
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded bg-emerald-500" />
-              <span className="text-sm text-gray-600">Contributions</span>
+              <div className="bg-emerald-500 rounded w-3 h-3" />
+              <span className="text-gray-600 text-sm">Contributions</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded bg-blue-500" />
-              <span className="text-sm text-gray-600">Loans</span>
+              <div className="bg-blue-500 rounded w-3 h-3" />
+              <span className="text-gray-600 text-sm">Loans</span>
             </div>
             <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded bg-purple-500" />
-              <span className="text-sm text-gray-600">Repayments</span>
+              <div className="bg-purple-500 rounded w-3 h-3" />
+              <span className="text-gray-600 text-sm">Repayments</span>
             </div>
           </div>
         </div>
 
         {/* Group Performance */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+        <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-xl">
+          <h3 className="mb-4 font-semibold text-gray-900 text-lg">
             Group Performance
           </h3>
 
           <div className="space-y-6">
             {!reportsQuery.isLoading && groupPerformance.length === 0 && (
-              <div className="rounded-lg border border-gray-100 bg-gray-50 p-4 text-sm text-gray-600">
+              <div className="bg-gray-50 p-4 border border-gray-100 rounded-lg text-gray-600 text-sm">
                 No groups found in scope.
               </div>
             )}
 
             {/* Top Performers */}
             <div>
-              <h4 className="text-sm font-medium text-gray-600 mb-3 flex items-center gap-2">
+              <h4 className="flex items-center gap-2 mb-3 font-medium text-gray-600 text-sm">
                 <TrendingUp className="w-4 h-4 text-emerald-500" />
                 Top Performers
               </h4>
@@ -286,27 +320,30 @@ export default function FinancialReports() {
                 {topPerformers.map((group, index) => (
                   <div
                     key={index}
-                    className="flex items-center justify-between p-2 bg-emerald-50 rounded-lg"
+                    className="flex justify-between items-center bg-emerald-50 p-2 rounded-lg"
                   >
                     <div className="flex items-center gap-3">
-                      <span className="w-6 h-6 rounded-full bg-emerald-500 text-white text-xs flex items-center justify-center font-medium">
+                      <span className="flex justify-center items-center bg-emerald-500 rounded-full w-6 h-6 font-medium text-white text-xs">
                         {index + 1}
                       </span>
                       <div>
-                        <p className="text-sm font-medium text-gray-900">
+                        <p className="font-medium text-gray-900 text-sm">
                           {group.groupName}
                         </p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-gray-500 text-xs">
                           {group.memberCount} members
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-bold text-emerald-600">
+                      <p className="font-bold text-emerald-600 text-sm">
                         {group.collectionRate}%
                       </p>
-                      <p className="text-xs text-gray-500">
-                        ₦{(group.totalContributions / 1000).toFixed(0)}K
+                      <p className="text-gray-500 text-xs">
+                        {formatCompactCurrency(
+                          group.collectedTotal ?? group.totalContributions,
+                          0,
+                        )}
                       </p>
                     </div>
                   </div>
@@ -316,30 +353,35 @@ export default function FinancialReports() {
 
             {/* Needs Attention */}
             <div>
-              <h4 className="text-sm font-medium text-gray-600 mb-3 flex items-center gap-2">
+              <h4 className="flex items-center gap-2 mb-3 font-medium text-gray-600 text-sm">
                 <TrendingDown className="w-4 h-4 text-red-500" />
                 Needs Attention
               </h4>
               <div className="space-y-2">
+                {groupPerformance.length > 0 && needsAttention.length === 0 && (
+                  <div className="bg-emerald-50 p-2 rounded-lg text-emerald-700 text-xs">
+                    All groups are on track for this period.
+                  </div>
+                )}
                 {needsAttention.map((group, index) => (
                   <div
                     key={index}
-                    className="flex items-center justify-between p-2 bg-red-50 rounded-lg"
+                    className="flex justify-between items-center bg-red-50 p-2 rounded-lg"
                   >
                     <div>
-                      <p className="text-sm font-medium text-gray-900">
+                      <p className="font-medium text-gray-900 text-sm">
                         {group.groupName}
                       </p>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-gray-500 text-xs">
                         {group.memberCount} members
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-bold text-red-600">
+                      <p className="font-bold text-red-600 text-sm">
                         {group.collectionRate}%
                       </p>
-                      <p className="text-xs text-gray-500">
-                        {group.activeLoans} active loans
+                      <p className="text-gray-500 text-xs">
+                        {formatCompactCurrency(group.collectionGap ?? 0, 0)} shortfall
                       </p>
                     </div>
                   </div>
@@ -351,9 +393,9 @@ export default function FinancialReports() {
       </div>
 
       {/* Detailed Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">
+      <div className="bg-white shadow-sm border border-gray-100 rounded-xl overflow-hidden">
+        <div className="flex justify-between items-center p-4 border-gray-100 border-b">
+          <h3 className="font-semibold text-gray-900 text-lg">
             All Groups Performance
           </h3>
           <Button variant="outline" className="gap-2" disabled>
@@ -365,22 +407,25 @@ export default function FinancialReports() {
           <table className="w-full">
             <thead className="bg-gray-50">
               <tr>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Group Name
                 </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Members
                 </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">
-                  Total Contributions
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                  Collected (Period)
                 </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                  Expected (Period)
+                </th>
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Active Loans
                 </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Collection Rate
                 </th>
-                <th className="text-left px-4 py-3 text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Status
                 </th>
               </tr>
@@ -395,12 +440,19 @@ export default function FinancialReports() {
                     {group.memberCount}
                   </td>
                   <td className="px-4 py-3 text-gray-900">
-                    ₦{group.totalContributions.toLocaleString()}
+                    {formatCurrency(
+                      group.collectedTotal ?? group.totalContributions,
+                    )}
                   </td>
-                  <td className="px-4 py-3 text-gray-600">{group.activeLoans}</td>
+                  <td className="px-4 py-3 text-gray-900">
+                    {formatCurrency(group.expectedTotal ?? 0)}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {group.activeLoans}
+                  </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-16 h-2 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="bg-gray-200 rounded-full w-16 h-2 overflow-hidden">
                         <div
                           className={`h-full rounded-full ${
                             group.collectionRate >= 90
@@ -412,22 +464,22 @@ export default function FinancialReports() {
                           style={{ width: `${group.collectionRate}%` }}
                         />
                       </div>
-                      <span className="text-sm font-medium">
+                      <span className="font-medium text-sm">
                         {group.collectionRate}%
                       </span>
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     {group.collectionRate >= 90 ? (
-                      <span className="px-2 py-1 text-xs font-medium bg-emerald-100 text-emerald-700 rounded-full">
+                      <span className="bg-emerald-100 px-2 py-1 rounded-full font-medium text-emerald-700 text-xs">
                         Excellent
                       </span>
                     ) : group.collectionRate >= 70 ? (
-                      <span className="px-2 py-1 text-xs font-medium bg-amber-100 text-amber-700 rounded-full">
+                      <span className="bg-amber-100 px-2 py-1 rounded-full font-medium text-amber-700 text-xs">
                         Good
                       </span>
                     ) : (
-                      <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-700 rounded-full">
+                      <span className="bg-red-100 px-2 py-1 rounded-full font-medium text-red-700 text-xs">
                         Needs Attention
                       </span>
                     )}
@@ -441,3 +493,6 @@ export default function FinancialReports() {
     </div>
   );
 }
+
+
+

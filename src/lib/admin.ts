@@ -228,6 +228,9 @@ export type AdminFinancialGroupPerformanceRow = {
   activeLoans: number;
   collectionRate: number;
   memberCount: number;
+  expectedTotal?: number;
+  collectedTotal?: number;
+  collectionGap?: number;
 };
 
 export type AdminFinancialReportsResponse = {
@@ -525,12 +528,14 @@ export type AdminContributionTrackingGroup = {
 
 export async function getAdminContributionTracking(params: {
   year: number;
+  month?: number;
   contributionType: ContributionTypeCanonical;
 }) {
   try {
     const res = await api.get("/admin/contributions/tracking", { params });
     return res.data?.data as {
       year: number;
+      month?: number | null;
       contributionType: string;
       groups: AdminContributionTrackingGroup[];
     };

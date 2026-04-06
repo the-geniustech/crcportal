@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   LOAN_FACILITIES,
   formatInterestLabel,
@@ -20,6 +21,7 @@ import {
 
 interface GroupLoan {
   id: string;
+  borrowerId?: string | null;
   loanCode?: string | null;
   loanType?: string | null;
   loanAmount: number;
@@ -60,6 +62,7 @@ interface GroupLoanDashboardModalProps {
   } | null;
   loans: GroupLoan[];
   loansLoading?: boolean;
+  currentMemberRole?: string | null;
 }
 
 const statusOptions = [
@@ -227,13 +230,32 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
   group,
   loans,
   loansLoading = false,
+  currentMemberRole,
 }) => {
+  const { user, profile } = useAuth();
   const { toast } = useToast();
   const [selectedType, setSelectedType] =
     useState<LoanFacilityKey>("revolving");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const normalizedMemberRole = String(currentMemberRole || "").toLowerCase();
+  const hasElevatedMembership = ["coordinator", "treasurer", "secretary", "admin"].includes(
+    normalizedMemberRole,
+  );
+  const canViewAll =
+    user?.role === "admin" ||
+    user?.role === "groupCoordinator" ||
+    user?.role === "group_coordinator" ||
+    hasElevatedMembership;
+  const scopedBorrowerId = profile?.id ? String(profile.id) : null;
+  const scopedLoans = useMemo(() => {
+    if (canViewAll) return loans;
+    if (!scopedBorrowerId) return [];
+    return loans.filter(
+      (loan) => String(loan.borrowerId ?? "") === scopedBorrowerId,
+    );
+  }, [loans, canViewAll, scopedBorrowerId]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -245,11 +267,11 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
 
   const normalizedLoans = useMemo(
     () =>
-      loans.map((loan) => ({
+      scopedLoans.map((loan) => ({
         ...loan,
         typeKey: normalizeLoanType(loan.loanType),
       })),
-    [loans],
+    [scopedLoans],
   );
 
   const filteredLoans = useMemo(() => {
@@ -528,6 +550,11 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
+                  {!canViewAll && (
+                    <span className="rounded-full border border-amber-200/40 bg-amber-100/20 px-4 py-2 text-xs font-semibold text-amber-100">
+                      Showing your data only
+                    </span>
+                  )}
                   <span className="rounded-full border border-white/30 bg-white/10 px-4 py-2 text-xs font-semibold text-white">
                     Updated {updatedLabel}
                   </span>
