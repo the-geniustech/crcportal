@@ -3,6 +3,7 @@ import type {
   ContributionTypeCanonical,
   ContributionTypeValue,
 } from "./contributionPolicy";
+import type { GroupRole } from "./roles";
 
 export type BackendGroup = {
   _id: string;
@@ -34,7 +35,7 @@ export type BackendGroupMembership = {
   _id: string;
   userId: string;
   groupId: string | BackendGroup;
-  role: "admin" | "treasurer" | "secretary" | "member";
+  role: GroupRole;
   status: string;
   joinedAt: string;
   totalContributed: number;
@@ -170,7 +171,7 @@ export type BackendGroupMember = {
   _id: string;
   userId: unknown;
   groupId: string;
-  role: "member" | "coordinator" | "treasurer" | "secretary" | "admin";
+  role: GroupRole;
   status: string;
   joinedAt: string;
   totalContributed: number;
@@ -216,7 +217,7 @@ export async function listGroupMemberCandidates(
 
 export async function addGroupMembers(
   groupId: string,
-  payload: { userIds: string[]; role?: "member" | "coordinator" | "treasurer" | "secretary" | "admin" },
+  payload: { userIds: string[]; role?: GroupRole },
 ) {
   try {
     const res = await api.post(`/groups/${groupId}/members`, payload);
@@ -472,7 +473,7 @@ export type BackendGroupVoteParticipant = {
   phone?: string | null;
   avatarUrl?: string | null;
   memberSerial?: string | null;
-  role?: string | null;
+  role?: GroupRole | null;
   status: "voted" | "pending";
   choice?: "yes" | "no" | null;
   respondedAt?: string | null;

@@ -17,12 +17,13 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { normalizeContributionType } from "@/lib/contributionPolicy";
+import { GROUP_ROLE, type GroupRole } from "@/lib/roles";
 
 export interface Member {
   id: string;
   name: string;
   avatar: string;
-  role: "admin" | "treasurer" | "secretary" | "member";
+  role: GroupRole;
   joinedDate: string;
   totalContributed: number;
   memberSerial?: string | null;
@@ -110,18 +111,22 @@ interface GroupDetailsModalProps {
   joinDisabledReason?: string;
 }
 
-const roleIcons = {
-  admin: Crown,
-  treasurer: Shield,
-  secretary: User,
-  member: User,
+const roleIcons: Record<GroupRole, typeof Crown> = {
+  [GROUP_ROLE.ADMIN]: Crown,
+  [GROUP_ROLE.COORDINATOR]: Crown,
+  [GROUP_ROLE.TREASURER]: Shield,
+  [GROUP_ROLE.SECRETARY]: User,
+  [GROUP_ROLE.CHAIRMAN]: Crown,
+  [GROUP_ROLE.MEMBER]: User,
 };
 
-const roleColors = {
-  admin: "text-amber-500",
-  treasurer: "text-blue-500",
-  secretary: "text-purple-500",
-  member: "text-gray-400",
+const roleColors: Record<GroupRole, string> = {
+  [GROUP_ROLE.ADMIN]: "text-amber-500",
+  [GROUP_ROLE.COORDINATOR]: "text-indigo-500",
+  [GROUP_ROLE.TREASURER]: "text-blue-500",
+  [GROUP_ROLE.SECRETARY]: "text-purple-500",
+  [GROUP_ROLE.CHAIRMAN]: "text-amber-500",
+  [GROUP_ROLE.MEMBER]: "text-gray-400",
 };
 
 const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({

@@ -15,13 +15,16 @@ import { emitAuthEvent } from "../auth/events";
 
 const baseURL = import.meta.env.VITE_API_URL as string | undefined;
 
+export const DEFAULT_TIMEOUT_MS = 20_000;
+export const AUTH_TIMEOUT_MS = 45_000;
+
 if (!baseURL) {
   console.warn("Missing VITE_API_URL; backend auth calls will fail.");
 }
 
 export const api: AxiosInstance = axios.create({
   baseURL,
-  timeout: 20_000,
+  timeout: DEFAULT_TIMEOUT_MS,
 });
 
 let refreshPromise: Promise<string> | null = null;
@@ -35,7 +38,7 @@ async function refreshAccessToken(): Promise<string> {
   const res = await axios.post(
     `${baseURL}/auth/refresh`,
     { refreshToken },
-    { timeout: 20_000 },
+    { timeout: DEFAULT_TIMEOUT_MS },
   );
 
   const { accessToken, refreshToken: newRefreshToken } = res.data || {};
@@ -97,6 +100,9 @@ api.interceptors.response.use(
 
 export function getApiErrorMessage(err: unknown): string {
   if (axios.isAxiosError(err)) {
+    if (isTimeoutError(err)) {
+      return "Request timed out. The server may be waking up — please try again.";
+    }
     const data = err.response?.data as
       | { message?: string; error?: { message?: string } }
       | undefined;
@@ -106,4 +112,12 @@ export function getApiErrorMessage(err: unknown): string {
   }
 
   return err instanceof Error ? err.message : "Request failed";
+}
+
+export function isTimeoutError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  if (err.code === "ECONNABORTED") return true;
+  return typeof err.message === "string"
+    ? err.message.toLowerCase().includes("timeout")
+    : false;
 }

@@ -246,14 +246,12 @@ const NotificationsPanel: React.FC<NotificationsPanelProps> = ({
         </div>
       )}
 
-      {notifications.length > 5 && (
-        <button
-          onClick={onViewAll}
-          className="mt-4 py-2 w-full font-medium text-emerald-600 hover:text-emerald-700 text-sm text-center"
-        >
-          View all {notifications.length} notifications
-        </button>
-      )}
+      <button
+        onClick={onViewAll}
+        className="mt-4 py-2 w-full font-medium text-emerald-600 hover:text-emerald-700 text-sm text-center"
+      >
+        View all notifications
+      </button>
     </div>
   );
 };

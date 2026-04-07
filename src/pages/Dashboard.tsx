@@ -26,6 +26,7 @@ import NotificationsPanel from "@/components/dashboard/NotificationsPanel";
 import { BackendGroupMembership } from "@/lib/groups";
 import { BackendNotification } from "@/lib/notifications";
 import { BackendLoanApplication } from "@/lib/loans";
+import { GROUP_ROLE, type GroupRole } from "@/lib/roles";
 import { goToContactSupport } from "@/lib/support";
 
 interface RawTransaction {
@@ -308,22 +309,16 @@ const DashboardContent: React.FC = () => {
 
   const groups = useMemo(() => {
     const memberships: BackendGroupMembership[] = myGroupsQuery.data ?? [];
+    const allowedGroupRoles = new Set(Object.values(GROUP_ROLE));
     return memberships
       .map((m) => {
         const g = typeof m.groupId === "object" ? m.groupId : null;
         if (!g?._id) return null;
 
-        const rawRole = String(m.role || "member");
-        const role = [
-          "member",
-          "treasurer",
-          "secretary",
-          "chairman",
-          "coordinator",
-          "admin",
-        ].includes(rawRole)
-          ? rawRole
-          : "member";
+        const rawRole = String(m.role || GROUP_ROLE.MEMBER);
+        const role = allowedGroupRoles.has(rawRole)
+          ? (rawRole as GroupRole)
+          : GROUP_ROLE.MEMBER;
 
         const rawStatus = String(m.status || "active").toLowerCase();
         const contributionStatus = [
@@ -360,7 +355,7 @@ const DashboardContent: React.FC = () => {
       name: string;
       location: string;
       memberCount: number;
-      role: string;
+      role: GroupRole;
       contributionStatus: string;
       totalContributed: number;
       monthlyContribution: number;
@@ -513,10 +508,7 @@ const DashboardContent: React.FC = () => {
   };
 
   const handleViewAllNotifications = () => {
-    toast({
-      title: "Notifications",
-      description: "Full notifications page coming soon!",
-    });
+    navigate("/notifications");
   };
 
   const processDeposit = () => {

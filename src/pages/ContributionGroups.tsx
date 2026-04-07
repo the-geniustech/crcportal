@@ -66,6 +66,7 @@ import {
   normalizeContributionType,
 } from "@/lib/contributionPolicy";
 import type { ContributionTypeCanonical } from "@/lib/contributionPolicy";
+import { USER_ROLE } from "@/lib/roles";
 
 // Types
 interface Group {
@@ -202,12 +203,11 @@ const ContributionGroupsContent: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
   const { toast } = useToast();
-  const canAssignCoordinator = hasUserRole(user, "admin");
+  const canAssignCoordinator = hasUserRole(user, USER_ROLE.ADMIN);
   const isAllowedUser = hasUserRole(
     user,
-    "admin",
-    "groupCoordinator",
-    "group_coordinator",
+    USER_ROLE.ADMIN,
+    USER_ROLE.GROUP_COORDINATOR,
   );
 
   // State

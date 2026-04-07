@@ -34,6 +34,11 @@ import {
   type ContributionTypeCanonical,
 } from "@/lib/contributionPolicy";
 import { downloadGroupContributionLedgerPdf } from "@/lib/groups";
+import {
+  USER_ROLE,
+  ELEVATED_GROUP_ROLES,
+  type GroupRole,
+} from "@/lib/roles";
 
 interface GroupMember {
   id: string;
@@ -85,7 +90,7 @@ interface GroupContributionDashboardModalProps {
   contributionsLoading?: boolean;
   selectedYear?: number;
   onYearChange?: (year: number) => void;
-  currentMemberRole?: string | null;
+  currentMemberRole?: GroupRole | null;
 }
 
 const MONTHS = [
@@ -161,12 +166,12 @@ const GroupContributionDashboardModal: React.FC<
   const contributionSettingsQuery = useContributionSettingsQuery();
   const targets = targetsQuery.data?.monthlyTargets ?? null;
   const unitAmounts = targetsQuery.data?.unitAmounts ?? null;
-  const normalizedMemberRole = String(currentMemberRole || "").toLowerCase();
-  const hasElevatedMembership = ["coordinator", "treasurer", "secretary", "admin"].includes(
-    normalizedMemberRole,
-  );
+  const normalizedMemberRole = currentMemberRole ?? null;
+  const hasElevatedMembership = normalizedMemberRole
+    ? ELEVATED_GROUP_ROLES.includes(normalizedMemberRole)
+    : false;
   const canViewAll =
-    hasUserRole(user, "admin", "groupCoordinator", "group_coordinator") ||
+    hasUserRole(user, USER_ROLE.ADMIN, USER_ROLE.GROUP_COORDINATOR) ||
     hasElevatedMembership;
   const scopedMemberId = profile?.id ? String(profile.id) : null;
   const scopedMembers = useMemo(() => {

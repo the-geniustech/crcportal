@@ -2,6 +2,10 @@ import React, { useMemo, useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasUserRole } from "@/lib/auth";
+import { useNotifications } from "@/hooks/notifications/useNotifications";
+import { useMarkNotificationReadMutation } from "@/hooks/notifications/useMarkNotificationReadMutation";
+import { useMarkAllNotificationsReadMutation } from "@/hooks/notifications/useMarkAllNotificationsReadMutation";
+import { USER_ROLE } from "@/lib/roles";
 
 const notificationTypes = new Set([
   "payment_reminder",
@@ -31,16 +35,11 @@ const formatTimestamp = (dateString?: string) => {
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString("en-NG", { month: "short", day: "numeric" });
 };
-import { useToast } from "@/hooks/use-toast";
-import { useNotifications } from "@/hooks/notifications/useNotifications";
-import { useMarkNotificationReadMutation } from "@/hooks/notifications/useMarkNotificationReadMutation";
-import { useMarkAllNotificationsReadMutation } from "@/hooks/notifications/useMarkAllNotificationsReadMutation";
 
 const DashboardHeader: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, profile, signOut } = useAuth();
-  const { toast } = useToast();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -83,10 +82,8 @@ const DashboardHeader: React.FC = () => {
   };
 
   const handleViewAllNotifications = () => {
-    toast({
-      title: "Notifications",
-      description: "Full notifications page coming soon!",
-    });
+    setNotificationsOpen(false);
+    navigate("/notifications");
   };
 
   const navItems = [
@@ -101,7 +98,7 @@ const DashboardHeader: React.FC = () => {
     { name: "Guarantor", path: "/guarantor" },
     // { name: "Settings", path: "/settings" },
     // { name: 'Profile', path: '/profile' },
-    // (user?.role === "admin" || user?.role === "group_coordinator") && {
+    // (user?.role === "admin" || user?.role === "groupCoordinator") && {
     //   name: "Admin",
     //   path: "/admin",
     // },
@@ -428,9 +425,8 @@ const DashboardHeader: React.FC = () => {
                     </button> */}
                     {hasUserRole(
                       user,
-                      "admin",
-                      "groupCoordinator",
-                      "group_coordinator",
+                      USER_ROLE.ADMIN,
+                      USER_ROLE.GROUP_COORDINATOR,
                     ) ? (
                       <button
                         onClick={() => navigate("/admin")}

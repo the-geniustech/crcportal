@@ -15,6 +15,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasUserRole } from "@/lib/auth";
 import {
+  USER_ROLE,
+  ELEVATED_GROUP_ROLES,
+  type GroupRole,
+} from "@/lib/roles";
+import {
   LOAN_FACILITIES,
   formatInterestLabel,
   type LoanFacilityKey,
@@ -63,7 +68,7 @@ interface GroupLoanDashboardModalProps {
   } | null;
   loans: GroupLoan[];
   loansLoading?: boolean;
-  currentMemberRole?: string | null;
+  currentMemberRole?: GroupRole | null;
 }
 
 const statusOptions = [
@@ -240,12 +245,12 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isExportingCsv, setIsExportingCsv] = useState(false);
-  const normalizedMemberRole = String(currentMemberRole || "").toLowerCase();
-  const hasElevatedMembership = ["coordinator", "treasurer", "secretary", "admin"].includes(
-    normalizedMemberRole,
-  );
+  const normalizedMemberRole = currentMemberRole ?? null;
+  const hasElevatedMembership = normalizedMemberRole
+    ? ELEVATED_GROUP_ROLES.includes(normalizedMemberRole)
+    : false;
   const canViewAll =
-    hasUserRole(user, "admin", "groupCoordinator", "group_coordinator") ||
+    hasUserRole(user, USER_ROLE.ADMIN, USER_ROLE.GROUP_COORDINATOR) ||
     hasElevatedMembership;
   const scopedBorrowerId = profile?.id ? String(profile.id) : null;
   const scopedLoans = useMemo(() => {

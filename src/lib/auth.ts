@@ -1,14 +1,34 @@
-import { api, getApiErrorMessage } from "./api/client";
-import { clearTokens, getRefreshToken, getTokens, setTokens } from "./auth/tokens";
+import {
+  api,
+  AUTH_TIMEOUT_MS,
+  getApiErrorMessage,
+  isTimeoutError,
+} from "./api/client";
+import {
+  clearTokens,
+  getRefreshToken,
+  getTokens,
+  setTokens,
+} from "./auth/tokens";
 import { emitAuthEvent, onAuthEvent } from "./auth/events";
+import {
+  LEGACY_USER_ROLE,
+  USER_ROLE,
+  USER_ROLE_PRIORITY,
+  type LegacyUserRole,
+  type UserRole,
+} from "./roles";
 
-export type UserRole =
-  | "member"
-  | "groupCoordinator"
-  | "groupGuarantor"
-  | "admin"
-  | "group_coordinator"
-  | "group_guarantor";
+/*
+node C:\Users\user\Desktop\crs\backend/
+node C:\Users\user\Desktop\crs\backend\
+
+
+*/
+
+export type { UserRole } from "./roles";
+
+type BackendUserRole = UserRole | LegacyUserRole;
 
 export type AuthUser = {
   id: string;
@@ -60,6 +80,32 @@ export interface SignInData {
 export interface PhoneSignInData {
   phone: string;
   fullName?: string;
+}
+
+const AUTH_RETRY_DELAY_MS = 800;
+const AUTH_MAX_ATTEMPTS = 2;
+
+async function postAuthWithRetry<T>(
+  url: string,
+  payload: unknown,
+  config: Record<string, unknown> = {},
+) {
+  let attempt = 0;
+  while (attempt < AUTH_MAX_ATTEMPTS) {
+    try {
+      return await api.post<T>(url, payload, {
+        timeout: AUTH_TIMEOUT_MS,
+        ...config,
+      });
+    } catch (err) {
+      attempt += 1;
+      if (!isTimeoutError(err) || attempt >= AUTH_MAX_ATTEMPTS) {
+        throw err;
+      }
+      await new Promise((resolve) => setTimeout(resolve, AUTH_RETRY_DELAY_MS));
+    }
+  }
+  throw new Error("Auth request failed");
 }
 
 function mapBackendProfile(p: unknown): Profile {
@@ -120,24 +166,8 @@ type BackendUser = {
   _id?: string;
   email?: string | null;
   phone?: string | null;
-  role?:
-    | "member"
-    | "groupCoordinator"
-    | "groupGuarantor"
-    | "admin"
-    | "coordinator"
-    | "group_coordinator"
-    | "group_guarantor"
-    | null;
-  roles?: Array<
-    | "member"
-    | "groupCoordinator"
-    | "groupGuarantor"
-    | "admin"
-    | "coordinator"
-    | "group_coordinator"
-    | "group_guarantor"
-  > | null;
+  role?: BackendUserRole | null;
+  roles?: BackendUserRole[] | null;
 };
 
 export function normalizeUserRole(value?: string | null): UserRole | null {
@@ -145,18 +175,18 @@ export function normalizeUserRole(value?: string | null): UserRole | null {
   const raw = String(value).trim();
   if (!raw) return null;
   const lower = raw.toLowerCase();
-  if (lower === "coordinator") {
-    return "groupCoordinator";
+  if (lower === LEGACY_USER_ROLE.COORDINATOR) {
+    return USER_ROLE.GROUP_COORDINATOR;
   }
-  if (lower === "group_coordinator" || lower === "groupcoordinator") {
-    return "groupCoordinator";
+  if (
+    lower === LEGACY_USER_ROLE.GROUP_COORDINATOR_SNAKE ||
+    lower === LEGACY_USER_ROLE.GROUP_COORDINATOR_COMPACT
+  ) {
+    return USER_ROLE.GROUP_COORDINATOR;
   }
-  if (lower === "group_guarantor" || lower === "groupguarantor") {
-    return "groupGuarantor";
-  }
-  if (lower === "admin") return "admin";
-  if (lower === "member") return "member";
-  if (raw === "groupCoordinator" || raw === "groupGuarantor") return raw as UserRole;
+  if (lower === USER_ROLE.ADMIN) return USER_ROLE.ADMIN;
+  if (lower === USER_ROLE.MEMBER) return USER_ROLE.MEMBER;
+  if (raw === USER_ROLE.GROUP_COORDINATOR) return USER_ROLE.GROUP_COORDINATOR;
   return null;
 }
 
@@ -172,21 +202,15 @@ export function getUserRoles(user?: BackendUser | AuthUser | null): UserRole[] {
     const normalized = normalizeUserRole((user as BackendUser).role as string);
     if (normalized) roles.add(normalized);
   }
-  if (roles.size === 0) roles.add("member");
+  if (roles.size === 0) roles.add(USER_ROLE.MEMBER);
   return Array.from(roles);
 }
 
 export function pickPrimaryRole(roles: UserRole[]): UserRole {
-  const priority: UserRole[] = [
-    "admin",
-    "groupCoordinator",
-    "groupGuarantor",
-    "member",
-  ];
-  for (const role of priority) {
+  for (const role of USER_ROLE_PRIORITY) {
     if (roles.includes(role)) return role;
   }
-  return roles[0] ?? "member";
+  return roles[0] ?? USER_ROLE.MEMBER;
 }
 
 export function hasUserRole(
@@ -225,7 +249,7 @@ export async function signUp({
   error: Error | null;
 }> {
   try {
-    const res = await api.post("/auth/signup", {
+    const res = await postAuthWithRetry("/auth/signup", {
       email,
       phone,
       password,
@@ -257,7 +281,7 @@ export async function signIn({ email, password }: SignInData): Promise<{
   twoFactorToken?: string;
 }> {
   try {
-    const res = await api.post("/auth/login", { email, password });
+    const res = await postAuthWithRetry("/auth/login", { email, password });
     const twoFactorRequired = Boolean(res.data?.twoFactorRequired);
     const twoFactorToken = res.data?.twoFactorToken;
 
@@ -703,7 +727,11 @@ export async function verifyTwoFactorLogin(
       error: null,
     };
   } catch (err) {
-    return { user: null, session: null, error: new Error(getApiErrorMessage(err)) };
+    return {
+      user: null,
+      session: null,
+      error: new Error(getApiErrorMessage(err)),
+    };
   }
 }
 

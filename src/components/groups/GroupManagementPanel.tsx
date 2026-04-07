@@ -52,6 +52,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import {
+  USER_ROLE,
+  GROUP_ROLE,
+  ELEVATED_GROUP_ROLES,
+  type GroupRole,
+} from "@/lib/roles";
 
 export type GroupManagementSummary = {
   id: string;
@@ -110,7 +116,7 @@ type GroupManagementPanelProps = {
   meetingsLoading?: boolean;
   onClose: () => void;
   onInviteMembers: () => void;
-  currentMemberRole?: string | null;
+  currentMemberRole?: GroupRole | null;
 };
 
 const DEFAULT_REMINDER_SETTINGS = {
@@ -210,23 +216,26 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
   const canManageVotes = hasUserRole(
     user,
-    "admin",
-    "groupCoordinator",
-    "group_coordinator",
+    USER_ROLE.ADMIN,
+    USER_ROLE.GROUP_COORDINATOR,
   );
 
-  const normalizedMemberRole = String(currentMemberRole || "").toLowerCase();
-  const hasElevatedMembership = ["coordinator", "treasurer", "secretary", "admin"].includes(
-    normalizedMemberRole,
-  );
+  const normalizedMemberRole = currentMemberRole ?? null;
+  const hasElevatedMembership = normalizedMemberRole
+    ? ELEVATED_GROUP_ROLES.includes(normalizedMemberRole)
+    : false;
   const canViewAll =
-    hasUserRole(user, "admin", "groupCoordinator", "group_coordinator") ||
+    hasUserRole(user, USER_ROLE.ADMIN, USER_ROLE.GROUP_COORDINATOR) ||
     hasElevatedMembership;
   const canManageReminderSettings =
-    hasUserRole(user, "admin", "groupCoordinator", "group_coordinator") ||
-    ["coordinator", "admin"].includes(normalizedMemberRole);
+    hasUserRole(user, USER_ROLE.ADMIN, USER_ROLE.GROUP_COORDINATOR) ||
+    (normalizedMemberRole
+      ? [GROUP_ROLE.COORDINATOR, GROUP_ROLE.ADMIN].includes(
+          normalizedMemberRole,
+        )
+      : false);
   const canSendReminders =
-    canManageReminderSettings || normalizedMemberRole === "treasurer";
+    canManageReminderSettings || normalizedMemberRole === GROUP_ROLE.TREASURER;
   const showRemindersTab = canSendReminders;
   const scopedMemberId = profile?.id ? String(profile.id) : null;
   const scopedMembers = useMemo(() => {

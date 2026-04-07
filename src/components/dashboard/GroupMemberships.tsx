@@ -1,11 +1,12 @@
 import React from "react";
+import { GROUP_ROLE, type GroupRole } from "@/lib/roles";
 
 export interface Group {
   id: string;
   name: string;
   location: string;
   memberCount: number;
-  role: "member" | "treasurer" | "secretary" | "chairman" | "coordinator" | "admin";
+  role: GroupRole;
   contributionStatus:
     | "active"
     | "pending"
@@ -42,15 +43,15 @@ const GroupMemberships: React.FC<GroupMembershipsProps> = ({
   };
 
   const getRoleBadge = (role: Group["role"]) => {
-    const colors = {
-      member: "bg-gray-100 text-gray-700",
-      treasurer: "bg-blue-100 text-blue-700",
-      secretary: "bg-purple-100 text-purple-700",
-      chairman: "bg-amber-100 text-amber-700",
-      coordinator: "bg-indigo-100 text-indigo-700",
-      admin: "bg-rose-100 text-rose-700",
+    const colors: Record<GroupRole, string> = {
+      [GROUP_ROLE.MEMBER]: "bg-gray-100 text-gray-700",
+      [GROUP_ROLE.TREASURER]: "bg-blue-100 text-blue-700",
+      [GROUP_ROLE.SECRETARY]: "bg-purple-100 text-purple-700",
+      [GROUP_ROLE.CHAIRMAN]: "bg-amber-100 text-amber-700",
+      [GROUP_ROLE.COORDINATOR]: "bg-indigo-100 text-indigo-700",
+      [GROUP_ROLE.ADMIN]: "bg-rose-100 text-rose-700",
     };
-    return colors[role];
+    return colors[role] ?? "bg-gray-100 text-gray-700";
   };
 
   const getStatusColor = (status: Group["contributionStatus"]) => {

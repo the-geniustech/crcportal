@@ -57,6 +57,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
     "",
   ]);
   const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
+  const [showSlowRequestHint, setShowSlowRequestHint] = useState(false);
   const [groupSearch, setGroupSearch] = useState("");
   const [selectedGroup, setSelectedGroup] = useState<{
     id: string;
@@ -126,7 +127,18 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setTwoFactorError(null);
     setGroupSearch("");
     setSelectedGroup(null);
+    setShowSlowRequestHint(false);
   }, [initialMode, isOpen]);
+
+  useEffect(() => {
+    if (isSubmitting && mode === "login" && authMethod === "email") {
+      setShowSlowRequestHint(false);
+      const timer = setTimeout(() => setShowSlowRequestHint(true), 8000);
+      return () => clearTimeout(timer);
+    }
+    setShowSlowRequestHint(false);
+    return undefined;
+  }, [isSubmitting, mode, authMethod]);
 
   // Countdown timer for OTP resend
   useEffect(() => {
@@ -1572,6 +1584,12 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   "Send Reset Link"
                 )}
               </button>
+              {showSlowRequestHint && (
+                <p className="mt-2 text-amber-600 text-xs">
+                  This is taking longer than usual. The server may be waking up —
+                  please keep this window open.
+                </p>
+              )}
             </form>
           ) : null}
 

@@ -96,6 +96,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { hasUserRole } from "@/lib/auth";
 import type { AdminGroupRow } from "@/lib/admin";
 import type { BackendGroup } from "@/lib/groups";
+import { USER_ROLE } from "@/lib/roles";
 
 // Sample data
 type ApplicantStatus = "pending" | "approved" | "rejected";
@@ -241,15 +242,13 @@ export default function Admin() {
 
   const isAdminAuthorized = hasUserRole(
     user,
-    "admin",
-    "groupCoordinator",
-    "group_coordinator",
+    USER_ROLE.ADMIN,
+    USER_ROLE.GROUP_COORDINATOR,
   );
-  const isAdmin = hasUserRole(user, "admin");
+  const isAdmin = hasUserRole(user, USER_ROLE.ADMIN);
   const isCoordinator = hasUserRole(
     user,
-    "groupCoordinator",
-    "group_coordinator",
+    USER_ROLE.GROUP_COORDINATOR,
   );
   const canAccessCoordinatorPanels = isCoordinator || isAdmin;
 

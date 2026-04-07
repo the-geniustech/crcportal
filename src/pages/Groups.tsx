@@ -17,6 +17,7 @@ import { useGroupMeetingsQuery } from "@/hooks/groups/useGroupMeetingsQuery";
 import { useGroupContributionsQuery } from "@/hooks/groups/useGroupContributionsQuery";
 import { useGroupLoansQuery } from "@/hooks/groups/useGroupLoansQuery";
 import { Users, TrendingUp, Award } from "lucide-react";
+import { GROUP_ROLE, type GroupRole } from "@/lib/roles";
 
 type GroupUI = {
   id: string;
@@ -41,7 +42,7 @@ type Member = {
   id: string;
   name: string;
   avatar: string;
-  role?: string;
+  role?: GroupRole;
   joinedDate?: string;
   totalContributed?: number;
   memberSerial?: string | null;
@@ -211,7 +212,7 @@ const GroupsContent: React.FC = () => {
     };
   }, [selectedGroup]);
 
-  const selectedMembershipRole = useMemo(() => {
+  const selectedMembershipRole = useMemo<GroupRole | null>(() => {
     if (!selectedGroup) return null;
     const memberships = myGroupsQuery.data ?? [];
     const match = memberships.find((membership) => {
@@ -293,10 +294,12 @@ const GroupsContent: React.FC = () => {
           : "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png";
 
       const role = (() => {
-        if (m.role === "coordinator") return "admin";
-        if (m.role === "treasurer") return "treasurer";
-        if (m.role === "secretary") return "secretary";
-        return "member";
+        if (m.role === GROUP_ROLE.COORDINATOR) return GROUP_ROLE.COORDINATOR;
+        if (m.role === GROUP_ROLE.TREASURER) return GROUP_ROLE.TREASURER;
+        if (m.role === GROUP_ROLE.SECRETARY) return GROUP_ROLE.SECRETARY;
+        if (m.role === GROUP_ROLE.ADMIN) return GROUP_ROLE.ADMIN;
+        if (m.role === GROUP_ROLE.CHAIRMAN) return GROUP_ROLE.CHAIRMAN;
+        return GROUP_ROLE.MEMBER;
       })();
 
       const contributionSettings =

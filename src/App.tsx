@@ -27,6 +27,7 @@ import AuthCallback from "./pages/AuthCallback";
 import ResetPassword from "./pages/ResetPassword";
 import VerifyEmail from "./pages/VerifyEmail";
 import Settings from "./pages/Settings";
+import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 import RequireAuth from "./components/auth/RequireAuth";
 import { AuthProvider } from "./contexts/AuthContext";
@@ -55,6 +56,7 @@ const router = createBrowserRouter(
         <Route path="/payments" element={<Payments />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/notifications" element={<Notifications />} />
         <Route path="/withdrawals" element={<Withdrawals />} />
         <Route path="/guarantor" element={<GuarantorDashboard />} />
         <Route path="/credit-score" element={<CreditScore />} />
