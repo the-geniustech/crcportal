@@ -177,7 +177,7 @@ export default function LoanDocumentUpload({
     const previewUrl = URL.createObjectURL(file);
     const newDoc: Document = {
       id: `${docType.id}_${Date.now()}`,
-      name: file.name,
+      name: `${docType.name} - ${file.name}`,
       type: file.type,
       size: file.size,
       status: 'uploading',
@@ -224,7 +224,7 @@ export default function LoanDocumentUpload({
 
   const getRequiredDocs = () => {
     return requiredDocuments.filter(doc => {
-      if (doc.id === 'collateral_docs' && loanAmount < 500000) return false;
+      if (doc.id === 'collateral_docs') return loanAmount >= 500000;
       return doc.required;
     });
   };

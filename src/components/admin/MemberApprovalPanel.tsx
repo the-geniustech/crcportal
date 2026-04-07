@@ -1,7 +1,16 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from "react";
 import { Check, X, Eye, Clock, User, Mail, Phone, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import {
   Dialog,
   DialogContent,
@@ -27,13 +36,51 @@ interface MemberApprovalPanelProps {
   onReject: (id: string, notes: string) => void;
 }
 
+const buildPageItems = (currentPage: number, totalPages: number) => {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+  }
+  const pages: Array<number | "ellipsis"> = [1];
+  if (currentPage > 3) pages.push("ellipsis");
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  for (let i = start; i <= end; i += 1) pages.push(i);
+  if (currentPage < totalPages - 2) pages.push("ellipsis");
+  pages.push(totalPages);
+  return pages;
+};
+
 export default function MemberApprovalPanel({ applicants, onApprove, onReject }: MemberApprovalPanelProps) {
   const [selectedApplicant, setSelectedApplicant] = useState<Applicant | null>(null);
   const [reviewNotes, setReviewNotes] = useState('');
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [reviewAction, setReviewAction] = useState<'approve' | 'reject' | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 6;
 
   const pendingApplicants = applicants.filter(a => a.status === 'pending');
+  const total = pendingApplicants.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageStart = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(currentPage * pageSize, total);
+  const pagedApplicants = pendingApplicants.slice(
+    (currentPage - 1) * pageSize,
+    pageEnd,
+  );
+  const pageItems = useMemo(
+    () => buildPageItems(currentPage, totalPages),
+    [currentPage, totalPages],
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [pendingApplicants.length]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const handleReview = (applicant: Applicant, action: 'approve' | 'reject') => {
     setSelectedApplicant(applicant);
@@ -76,7 +123,7 @@ export default function MemberApprovalPanel({ applicants, onApprove, onReject }:
             <p>All applications have been reviewed</p>
           </div>
         ) : (
-          pendingApplicants.map((applicant) => (
+          pagedApplicants.map((applicant) => (
             <div key={applicant.id} className="p-4 hover:bg-gray-50 transition-colors">
               <div className="flex items-start justify-between">
                 <div className="flex items-start gap-3">
@@ -127,6 +174,58 @@ export default function MemberApprovalPanel({ applicants, onApprove, onReject }:
           ))
         )}
       </div>
+
+      {pendingApplicants.length > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+          <p className="text-sm text-gray-500">
+            Showing {pageStart}-{pageEnd} of {total} applications
+          </p>
+          <Pagination className="mx-0 w-auto">
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setCurrentPage((prev) => Math.max(1, prev - 1));
+                  }}
+                />
+              </PaginationItem>
+              {pageItems.map((page, index) =>
+                page === "ellipsis" ? (
+                  <PaginationItem key={`ellipsis-${index}`}>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                ) : (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      href="#"
+                      isActive={page === currentPage}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setCurrentPage(page);
+                      }}
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ),
+              )}
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setCurrentPage((prev) =>
+                      Math.min(totalPages, prev + 1),
+                    );
+                  }}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
 
       {/* Review Confirmation Modal */}
       <Dialog open={showReviewModal} onOpenChange={setShowReviewModal}>

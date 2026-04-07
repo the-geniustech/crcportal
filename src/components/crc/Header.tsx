@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { hasUserRole } from "@/lib/auth";
 
 interface HeaderProps {
   onLoginClick: () => void;
@@ -243,9 +244,12 @@ const Header: React.FC<HeaderProps> = ({ onLoginClick, onGetStartedClick }) => {
                         Payments
                       </a>
 
-                      {user.role === "groupCoordinator" ||
-                      user.role === "group_coordinator" ||
-                      user.role === "admin" ? (
+                      {hasUserRole(
+                        user,
+                        "admin",
+                        "groupCoordinator",
+                        "group_coordinator",
+                      ) ? (
                         <a
                           href="/admin"
                           className="flex items-center gap-3 hover:bg-gray-50 px-4 py-2 w-full text-gray-700 text-left"

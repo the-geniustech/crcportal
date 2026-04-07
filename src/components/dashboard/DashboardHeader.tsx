@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useNavigate, useLocation, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { hasUserRole } from "@/lib/auth";
 
 const notificationTypes = new Set([
   "payment_reminder",
@@ -425,9 +426,12 @@ const DashboardHeader: React.FC = () => {
                       </svg>
                       My Groups
                     </button> */}
-                    {user?.role === "groupCoordinator" ||
-                    user?.role === "group_coordinator" ||
-                    user?.role === "admin" ? (
+                    {hasUserRole(
+                      user,
+                      "admin",
+                      "groupCoordinator",
+                      "group_coordinator",
+                    ) ? (
                       <button
                         onClick={() => navigate("/admin")}
                         className="flex items-center gap-3 hover:bg-gray-50 px-4 py-2 w-full text-gray-700 text-left"

@@ -69,8 +69,26 @@ export type BackendLoanApplication = {
   nextPaymentDueDate?: string | null;
   nextPaymentAmount?: number | null;
   nextPaymentStatus?: "paid" | "pending" | "upcoming" | "overdue" | null;
+  latestEditRequest?: LoanEditRequest | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+export type LoanEditChange = {
+  field: string;
+  label: string;
+  from?: string | number | null;
+  to?: string | number | null;
+};
+
+export type LoanEditRequest = {
+  id: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  requestedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewNotes?: string | null;
+  changes?: LoanEditChange[];
+  documents?: BackendLoanDocument[];
 };
 
 export type BackendLoanGuarantor = {
@@ -300,6 +318,31 @@ export async function updateLoanDraft(
 export async function deleteLoanDraft(applicationId: string): Promise<void> {
   try {
     await api.delete(`/loans/applications/${applicationId}/draft`);
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function createLoanEditRequest(
+  applicationId: string,
+  payload: {
+    loanAmount?: number;
+    loanPurpose?: string;
+    purposeDescription?: string;
+    repaymentPeriod?: number;
+    documents?: BackendLoanDocument[];
+    guarantors?: BackendLoanGuarantorInfo[];
+    bankAccountId?: string;
+  },
+): Promise<{ editRequest: LoanEditRequest }> {
+  try {
+    const res = await api.post(
+      `/loans/applications/${applicationId}/edit-requests`,
+      payload,
+    );
+    return {
+      editRequest: res.data?.data?.editRequest as LoanEditRequest,
+    };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }

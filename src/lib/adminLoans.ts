@@ -30,6 +30,23 @@ export type AdminLoanGuarantor = {
   } | null;
 };
 
+export type LoanEditChange = {
+  field: string;
+  label: string;
+  from?: string | number | null;
+  to?: string | number | null;
+};
+
+export type LoanEditRequest = {
+  id: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  requestedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewNotes?: string | null;
+  changes?: LoanEditChange[];
+  documents?: AdminLoanDocument[];
+};
+
 export type AdminLoanApplication = {
   _id: string;
   userId: string;
@@ -65,6 +82,7 @@ export type AdminLoanApplication = {
   payoutOtpResentAt?: string | null;
   guarantors?: AdminLoanGuarantor[];
   documents?: AdminLoanDocument[];
+  latestEditRequest?: LoanEditRequest | null;
   status:
     | "draft"
     | "pending"
@@ -87,13 +105,30 @@ export type AdminLoanApplication = {
 export type AdminLoanListResponse = {
   applications: AdminLoanApplication[];
   otpResendCooldownSeconds: number;
+  page: number;
+  limit: number;
+  total: number;
+  summary?: {
+    pendingCount: number;
+    underReviewCount: number;
+    approvedCount: number;
+    totalRequested: number;
+  };
 };
 
 export async function listAdminLoanApplications(
-  params: { status?: string; search?: string } = {},
+  params: {
+    status?: string;
+    search?: string;
+    groupId?: string;
+    year?: number | string;
+    month?: number | string;
+    page?: number;
+    limit?: number;
+  } = {},
 ): Promise<AdminLoanListResponse> {
-  const apiParams =
-    params.status === "all" ? { search: params.search } : params;
+  const { status, ...rest } = params;
+  const apiParams = status === "all" || !status ? rest : params;
 
   try {
     const res = await api.get("/admin/loans/applications", { params: apiParams });
@@ -103,6 +138,66 @@ export async function listAdminLoanApplications(
         0,
         Number(res.data?.data?.otpResendCooldownSeconds) || 0,
       ),
+      page: Number(res.data?.page ?? 1),
+      limit: Number(res.data?.limit ?? 50),
+      total: Number(res.data?.total ?? 0),
+      summary: res.data?.data?.summary as AdminLoanListResponse["summary"],
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function exportAdminLoanApplications(params: {
+  status?: string;
+  search?: string;
+  groupId?: string;
+  year?: number | string;
+  month?: number | string;
+} = {}): Promise<Blob> {
+  const { status, ...rest } = params;
+  const apiParams = status === "all" || !status ? rest : params;
+
+  try {
+    const res = await api.get("/admin/loans/applications/export", {
+      params: apiParams,
+      responseType: "blob",
+    });
+    const mimeType = (res.headers?.["content-type"] as string) || "text/csv";
+    return new Blob([res.data], { type: mimeType });
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function reconcileAdminLoanApplication(
+  applicationId: string,
+  payload?: { notes?: string },
+) {
+  try {
+    const res = await api.patch(
+      `/admin/loans/applications/${applicationId}/reconcile`,
+      payload ?? {},
+    );
+    return res.data?.data?.application as AdminLoanApplication;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function reviewAdminLoanEditRequest(
+  applicationId: string,
+  requestId: string,
+  payload: { status: "approved" | "rejected"; reviewNotes?: string },
+) {
+  try {
+    const res = await api.patch(
+      `/admin/loans/applications/${applicationId}/edit-requests/${requestId}`,
+      payload,
+    );
+    return {
+      application: res.data?.data?.application as AdminLoanApplication,
+      editRequest: res.data?.data?.editRequest as LoanEditRequest,
     };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));

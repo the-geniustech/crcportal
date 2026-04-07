@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -16,9 +16,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { useAdminFinancialReportsQuery } from "@/hooks/admin/useAdminFinancialReportsQuery";
 
 type Period = "3months" | "6months" | "12months";
+
+const buildPageItems = (currentPage: number, totalPages: number) => {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+  }
+  const pages: Array<number | "ellipsis"> = [1];
+  if (currentPage > 3) pages.push("ellipsis");
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  for (let i = start; i <= end; i += 1) pages.push(i);
+  if (currentPage < totalPages - 2) pages.push("ellipsis");
+  pages.push(totalPages);
+  return pages;
+};
 
 function formatPct(value: number) {
   const v = Number.isFinite(value) ? value : 0;
@@ -47,8 +70,17 @@ function formatCompactCurrency(value: number, maximumFractionDigits = 1) {
 
 export default function FinancialReports() {
   const [selectedPeriod, setSelectedPeriod] = useState<Period>("6months");
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 8;
+  const reportEndMonth =
+    selectedYear === currentYear ? currentMonth : 12;
   const reportsQuery = useAdminFinancialReportsQuery({
     period: selectedPeriod,
+    year: selectedYear,
+    month: reportEndMonth,
   });
 
   const monthlyData = useMemo(
@@ -107,6 +139,44 @@ export default function FinancialReports() {
       })
       .slice(0, 5);
   }, [groupPerformance]);
+
+  const total = groupPerformance.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageStart = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(currentPage * pageSize, total);
+  const pagedGroups = groupPerformance.slice(
+    (currentPage - 1) * pageSize,
+    pageEnd,
+  );
+  const pageItems = useMemo(
+    () => buildPageItems(currentPage, totalPages),
+    [currentPage, totalPages],
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedPeriod, selectedYear]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const yearOptions = useMemo(() => {
+    return Array.from({ length: 6 }, (_v, i) => currentYear - i);
+  }, [currentYear]);
+
+  const ytdLabel = useMemo(() => {
+    const monthLabel = new Date(Date.UTC(2020, reportEndMonth - 1, 1)).toLocaleDateString(
+      "en-US",
+      { month: "short" },
+    );
+    if (selectedYear === currentYear) {
+      return `YTD ${selectedYear} (Jan-${monthLabel})`;
+    }
+    return `YTD ${selectedYear}`;
+  }, [selectedYear, currentYear, reportEndMonth]);
 
   return (
     <div className="space-y-6">
@@ -217,6 +287,21 @@ export default function FinancialReports() {
               Financial Overview
             </h3>
             <div className="flex gap-2">
+              <Select
+                value={String(selectedYear)}
+                onValueChange={(value) => setSelectedYear(Number(value))}
+              >
+                <SelectTrigger className="w-28">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {yearOptions.map((year) => (
+                    <SelectItem key={year} value={String(year)}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
                 <SelectTrigger className="w-32">
                   <SelectValue />
@@ -299,9 +384,12 @@ export default function FinancialReports() {
 
         {/* Group Performance */}
         <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-xl">
-          <h3 className="mb-4 font-semibold text-gray-900 text-lg">
-            Group Performance
-          </h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-900 text-lg">
+              Group Performance
+            </h3>
+            <span className="text-xs text-gray-500">{ytdLabel}</span>
+          </div>
 
           <div className="space-y-6">
             {!reportsQuery.isLoading && groupPerformance.length === 0 && (
@@ -360,7 +448,7 @@ export default function FinancialReports() {
               <div className="space-y-2">
                 {groupPerformance.length > 0 && needsAttention.length === 0 && (
                   <div className="bg-emerald-50 p-2 rounded-lg text-emerald-700 text-xs">
-                    All groups are on track for this period.
+                    All groups are on track year-to-date.
                   </div>
                 )}
                 {needsAttention.map((group, index) => (
@@ -395,9 +483,12 @@ export default function FinancialReports() {
       {/* Detailed Table */}
       <div className="bg-white shadow-sm border border-gray-100 rounded-xl overflow-hidden">
         <div className="flex justify-between items-center p-4 border-gray-100 border-b">
-          <h3 className="font-semibold text-gray-900 text-lg">
-            All Groups Performance
-          </h3>
+          <div>
+            <h3 className="font-semibold text-gray-900 text-lg">
+              All Groups Performance
+            </h3>
+            <p className="text-xs text-gray-500">{ytdLabel}</p>
+          </div>
           <Button variant="outline" className="gap-2" disabled>
             <Download className="w-4 h-4" />
             Export Report
@@ -414,10 +505,10 @@ export default function FinancialReports() {
                   Members
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
-                  Collected (Period)
+                  Collected (YTD)
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
-                  Expected (Period)
+                  Expected (YTD)
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Active Loans
@@ -431,7 +522,7 @@ export default function FinancialReports() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {groupPerformance.map((group, index) => (
+              {pagedGroups.map((group, index) => (
                 <tr key={index} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-900">
                     {group.groupName}
@@ -489,6 +580,57 @@ export default function FinancialReports() {
             </tbody>
           </table>
         </div>
+        {total > 0 && totalPages > 1 && (
+          <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
+            <p className="text-sm text-gray-500">
+              Showing {pageStart}-{pageEnd} of {total} groups
+            </p>
+            <Pagination className="mx-0 w-auto">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    href="#"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setCurrentPage((prev) => Math.max(1, prev - 1));
+                    }}
+                  />
+                </PaginationItem>
+                {pageItems.map((page, index) =>
+                  page === "ellipsis" ? (
+                    <PaginationItem key={`ellipsis-${index}`}>
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  ) : (
+                    <PaginationItem key={page}>
+                      <PaginationLink
+                        href="#"
+                        isActive={page === currentPage}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setCurrentPage(page);
+                        }}
+                      >
+                        {page}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ),
+                )}
+                <PaginationItem>
+                  <PaginationNext
+                    href="#"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setCurrentPage((prev) =>
+                        Math.min(totalPages, prev + 1),
+                      );
+                    }}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
+          </div>
+        )}
       </div>
     </div>
   );

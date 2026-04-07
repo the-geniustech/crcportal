@@ -39,6 +39,8 @@ interface LoanBankDetailsProps {
   onSelectAccount: (id: string) => void;
   onContinue: () => void;
   onBack: () => void;
+  currentAccount?: BankAccount | null;
+  autoSelectOnEmpty?: boolean;
 }
 
 export default function LoanBankDetails({
@@ -49,6 +51,8 @@ export default function LoanBankDetails({
   onSelectAccount,
   onContinue,
   onBack,
+  currentAccount = null,
+  autoSelectOnEmpty = true,
 }: LoanBankDetailsProps) {
   const { toast } = useToast();
   const createBankAccountMutation = useCreateMyBankAccountMutation();
@@ -75,6 +79,7 @@ export default function LoanBankDetails({
   });
 
   useEffect(() => {
+    if (!autoSelectOnEmpty) return;
     if (selectedAccountId) return;
     if (bankAccounts.length === 0) return;
     const primary = bankAccounts.find((acc) => acc.isPrimary);
@@ -147,7 +152,11 @@ export default function LoanBankDetails({
     }
   };
 
-  const canContinue = Boolean(selectedAccountId);
+  const selectedFromList = bankAccounts.some(
+    (account) => account.id === selectedAccountId,
+  );
+  const showCurrentAccount = Boolean(currentAccount && !selectedFromList);
+  const canContinue = Boolean(selectedAccountId) || showCurrentAccount;
   const bankListLoading = banksQuery.isLoading;
   const bankListError = banksQuery.isError;
 
@@ -168,7 +177,25 @@ export default function LoanBankDetails({
           </div>
         </div>
 
-        <div className="space-y-3">
+          <div className="space-y-3">
+            {showCurrentAccount && currentAccount && (
+              <div className="bg-slate-50 p-4 border border-slate-200 rounded-lg">
+                <p className="text-slate-500 text-xs uppercase tracking-wide">
+                  Current Disbursement Account
+                </p>
+                <p className="mt-2 font-semibold text-slate-900">
+                  {currentAccount.bankName}
+                </p>
+                <p className="text-slate-600 text-sm">
+                  {currentAccount.accountNumber} -{" "}
+                  {currentAccount.accountName}
+                </p>
+                <p className="mt-2 text-slate-500 text-xs">
+                  Select a different account below to update it.
+                </p>
+              </div>
+            )}
+
           <div className="flex justify-between items-center">
             <Label>Select Bank Account</Label>
             {!showAddAccount && (
@@ -194,7 +221,9 @@ export default function LoanBankDetails({
             <div className="bg-amber-50 p-4 border border-amber-200 rounded-lg">
               <p className="flex items-center gap-2 text-amber-800 text-sm">
                 <AlertCircle className="w-4 h-4" />
-                No bank accounts found. Add one to continue.
+                {showCurrentAccount
+                  ? "No saved bank accounts yet. You can keep the current account or add a new one below."
+                  : "No bank accounts found. Add one to continue."}
               </p>
             </div>
           ) : (

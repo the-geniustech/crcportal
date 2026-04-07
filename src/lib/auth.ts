@@ -2,17 +2,20 @@ import { api, getApiErrorMessage } from "./api/client";
 import { clearTokens, getRefreshToken, getTokens, setTokens } from "./auth/tokens";
 import { emitAuthEvent, onAuthEvent } from "./auth/events";
 
+export type UserRole =
+  | "member"
+  | "groupCoordinator"
+  | "groupGuarantor"
+  | "admin"
+  | "group_coordinator"
+  | "group_guarantor";
+
 export type AuthUser = {
   id: string;
   email?: string | null;
   phone?: string | null;
-  role:
-    | "member"
-    | "groupCoordinator"
-    | "groupGuarantor"
-    | "admin"
-    | "group_coordinator"
-    | "group_guarantor";
+  role: UserRole;
+  roles: UserRole[];
 };
 
 export type AuthSession = {
@@ -122,25 +125,91 @@ type BackendUser = {
     | "groupCoordinator"
     | "groupGuarantor"
     | "admin"
+    | "coordinator"
     | "group_coordinator"
     | "group_guarantor"
     | null;
+  roles?: Array<
+    | "member"
+    | "groupCoordinator"
+    | "groupGuarantor"
+    | "admin"
+    | "coordinator"
+    | "group_coordinator"
+    | "group_guarantor"
+  > | null;
 };
 
+export function normalizeUserRole(value?: string | null): UserRole | null {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  if (lower === "coordinator") {
+    return "groupCoordinator";
+  }
+  if (lower === "group_coordinator" || lower === "groupcoordinator") {
+    return "groupCoordinator";
+  }
+  if (lower === "group_guarantor" || lower === "groupguarantor") {
+    return "groupGuarantor";
+  }
+  if (lower === "admin") return "admin";
+  if (lower === "member") return "member";
+  if (raw === "groupCoordinator" || raw === "groupGuarantor") return raw as UserRole;
+  return null;
+}
+
+export function getUserRoles(user?: BackendUser | AuthUser | null): UserRole[] {
+  const roles = new Set<UserRole>();
+  if (user && Array.isArray((user as BackendUser).roles)) {
+    (user as BackendUser).roles?.forEach((role) => {
+      const normalized = normalizeUserRole(role as string);
+      if (normalized) roles.add(normalized);
+    });
+  }
+  if (user && (user as BackendUser).role) {
+    const normalized = normalizeUserRole((user as BackendUser).role as string);
+    if (normalized) roles.add(normalized);
+  }
+  if (roles.size === 0) roles.add("member");
+  return Array.from(roles);
+}
+
+export function pickPrimaryRole(roles: UserRole[]): UserRole {
+  const priority: UserRole[] = [
+    "admin",
+    "groupCoordinator",
+    "groupGuarantor",
+    "member",
+  ];
+  for (const role of priority) {
+    if (roles.includes(role)) return role;
+  }
+  return roles[0] ?? "member";
+}
+
+export function hasUserRole(
+  user: BackendUser | AuthUser | null | undefined,
+  ...roles: UserRole[]
+): boolean {
+  if (!user) return false;
+  const resolved = getUserRoles(user);
+  const desired = roles
+    .map((role) => normalizeUserRole(role))
+    .filter(Boolean) as UserRole[];
+  return desired.some((role) => resolved.includes(role));
+}
+
 function mapBackendUser(u: BackendUser | null | undefined): AuthUser {
-  const role = String(u?.role ?? "member");
+  const roles = getUserRoles(u);
+  const role = pickPrimaryRole(roles);
   return {
     id: u?.id || u?._id || "",
     email: u?.email ?? null,
     phone: u?.phone ?? null,
-    role: (role === "admin" ||
-    role === "member" ||
-    role === "groupCoordinator" ||
-    role === "groupGuarantor" ||
-    role === "group_coordinator" ||
-    role === "group_guarantor"
-      ? role
-      : "member") as AuthUser["role"],
+    role,
+    roles,
   };
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -93,6 +93,7 @@ import CreateGroupModal, {
 } from "@/components/groups/CreateGroupModal";
 import GroupManagementPanel from "@/components/groups/GroupManagementPanel";
 import { useAuth } from "@/contexts/AuthContext";
+import { hasUserRole } from "@/lib/auth";
 import type { AdminGroupRow } from "@/lib/admin";
 import type { BackendGroup } from "@/lib/groups";
 
@@ -238,13 +239,18 @@ export default function Admin() {
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
 
-  const isAdminAuthorized =
-    user?.role === "admin" ||
-    user?.role === "groupCoordinator" ||
-    user?.role === "group_coordinator";
-  const isAdmin = user?.role === "admin";
-  const isCoordinator =
-    user?.role === "groupCoordinator" || user?.role === "group_coordinator";
+  const isAdminAuthorized = hasUserRole(
+    user,
+    "admin",
+    "groupCoordinator",
+    "group_coordinator",
+  );
+  const isAdmin = hasUserRole(user, "admin");
+  const isCoordinator = hasUserRole(
+    user,
+    "groupCoordinator",
+    "group_coordinator",
+  );
   const canAccessCoordinatorPanels = isCoordinator || isAdmin;
 
   const memberApprovalsQuery = useMemberApprovalsQuery(
@@ -297,8 +303,8 @@ export default function Admin() {
   );
   const coordinatorPageValue = coordinatorMeta?.page ?? coordinatorPage;
   const contributionTypeTotalsYtd = groupSummary?.contributionTypeTotalsYtd;
-  const canAssignCoordinator = user?.role === "admin";
-  const canDeleteGroup = user?.role === "admin";
+  const canAssignCoordinator = isAdmin;
+  const canDeleteGroup = isAdmin;
   const activeGroupId = groupActionTarget?._id;
   const groupModalOpen = showGroupSettingsPanel;
   const coordinatorTargetId = coordinatorActionTarget?._id;
@@ -630,8 +636,6 @@ export default function Admin() {
   const verifyLoanTransferMutation =
     useVerifyAdminLoanDisbursementTransferMutation();
   const loanApplications = adminLoanAppsQuery.data?.applications ?? [];
-  const loanOtpResendCooldownSeconds =
-    adminLoanAppsQuery.data?.otpResendCooldownSeconds ?? 0;
   const createAnnouncementMutation = useCreateAdminAnnouncementMutation();
   const smsStatsQuery = useAdminSmsStatsQuery();
   const smsTemplatesQuery = useAdminSmsTemplatesQuery();
@@ -651,122 +655,102 @@ export default function Admin() {
     limit: 500,
   });
 
-  const loanApplicationsForPanel = loanApplications
-    .filter((a) =>
-      ["pending", "under_review", "approved", "rejected", "disbursed"].includes(
-        String(a.status),
-      ),
-    )
-    .map((a) => {
-      const guarantor =
-        Array.isArray(a.guarantors) && a.guarantors.length > 0
-          ? a.guarantors[0]
-          : null;
-      return {
-        id: a._id,
-        applicantName: a.applicant?.fullName || "Applicant",
-        applicantEmail: a.applicant?.email || "",
-        applicantPhone: a.applicant?.phone || "",
-        groupName: a.groupName || "—",
-        loanCode: a.loanCode ?? null,
-        loanNumber: a.loanNumber ?? null,
-        loanAmount: Number(a.loanAmount || 0),
-        loanPurpose: String(a.loanPurpose || ""),
-        purposeDescription: a.purposeDescription ?? "",
-        loanType: a.loanType ?? null,
-        repaymentPeriod: Number(a.repaymentPeriod || 0),
-        interestRate: a.interestRate ?? null,
-        interestRateType: a.interestRateType ?? null,
-        approvedAmount: a.approvedAmount ?? null,
-        approvedInterestRate: a.approvedInterestRate ?? null,
-        approvedAt: a.approvedAt ?? null,
-        disbursedAt: a.disbursedAt ?? null,
-        repaymentStartDate: a.repaymentStartDate ?? null,
-        monthlyPayment: a.monthlyPayment ?? null,
-        totalRepayable: a.totalRepayable ?? null,
-        remainingBalance: a.remainingBalance ?? null,
-        monthlyIncome: Number(a.monthlyIncome || 0),
-        disbursementBankAccountId: a.disbursementBankAccountId
-          ? String(a.disbursementBankAccountId)
-          : null,
-        disbursementBankName: a.disbursementBankName ?? null,
-        disbursementBankCode: a.disbursementBankCode ?? null,
-        disbursementAccountNumber: a.disbursementAccountNumber ?? null,
-        disbursementAccountName: a.disbursementAccountName ?? null,
-        payoutReference: a.payoutReference ?? null,
-        payoutGateway: a.payoutGateway ?? null,
-        payoutTransferCode: a.payoutTransferCode ?? null,
-        payoutStatus: a.payoutStatus ?? null,
-        payoutOtpResentAt: a.payoutOtpResentAt ?? null,
-        guarantorName: guarantor?.name || "—",
-        guarantorPhone: guarantor?.phone || "—",
-        guarantors: Array.isArray(a.guarantors) ? a.guarantors : [],
-        documents: Array.isArray(a.documents) ? a.documents : [],
-        status: a.status as LoanApplicationStatus,
-        createdAt: a.createdAt,
-        reviewNotes: a.reviewNotes ?? undefined,
-      };
-    });
-
-  const totalMembers =
-    groupSummary?.totalMembers ??
-    manageableGroups.reduce(
-      (sum, g) => sum + Number(g.activeMemberCount ?? g.memberCount ?? 0),
-      0,
-    );
-  const pendingApprovals = applicants.filter(
-    (a) => a.status === "pending",
-  ).length;
-  const pendingLoans = loanApplications.filter(
-    (l) => l.status === "pending" || l.status === "under_review",
-  ).length;
-  const activeLoans = loanApplications.filter(
-    (l) => String(l.status) === "disbursed",
-  ).length;
-  const totalContributionsYtd = contributionTypeTotalsYtd
-    ? Object.values(contributionTypeTotalsYtd).reduce(
-        (sum, v) => sum + Number(v || 0),
-        0,
-      )
-    : 0;
-  const defaulters = contributions.filter(
-    (c) => c.status === "defaulted",
-  ).length;
-  const upcomingMeetings = upcomingMeetingsQuery.data?.length ?? 0;
-  const recentCompletedMeetings = recentCompletedMeetingsQuery.data ?? [];
-  const attendanceTotals = recentCompletedMeetings.reduce(
-    (acc, m) => {
-      const total = Number(m.totalMembers || 0);
-      const attended = Number(m.present || 0) + Number(m.late || 0);
-      return { total: acc.total + total, attended: acc.attended + attended };
-    },
-    { total: 0, attended: 0 },
-  );
-  const attendanceRate =
-    attendanceTotals.total > 0
-      ? Math.round((attendanceTotals.attended / attendanceTotals.total) * 100)
-      : 0;
-
-  const stats = {
-    totalMembers,
-    pendingApprovals,
-    activeLoans,
-    pendingLoans,
-    totalContributions: totalContributionsYtd,
-    defaulters,
-    upcomingMeetings,
-    attendanceRate,
-  };
+  const loanGroupOptions = manageableGroups.map((group) => ({
+    id: String(group._id),
+    name: String(group.groupName || group.group_name || "Group"),
+  }));
 
   const formatCompactNaira = (amount: number) => {
     const n = Number(amount || 0);
-    if (!Number.isFinite(n)) return "₦0";
+    if (!Number.isFinite(n)) return "â‚¦0";
     const abs = Math.abs(n);
-    if (abs >= 1_000_000_000) return `₦${(n / 1_000_000_000).toFixed(1)}B`;
-    if (abs >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
-    if (abs >= 1_000) return `₦${(n / 1_000).toFixed(1)}K`;
-    return `₦${Math.round(n).toLocaleString()}`;
+    if (abs >= 1_000_000_000) return `â‚¦${(n / 1_000_000_000).toFixed(1)}B`;
+    if (abs >= 1_000_000) return `â‚¦${(n / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `â‚¦${(n / 1_000).toFixed(1)}K`;
+    return `â‚¦${Math.round(n).toLocaleString()}`;
   };
+
+  const stats = useMemo(() => {
+    const pendingApprovals = applicants.length;
+    const defaulters = contributions.filter(
+      (record) => record.status === "defaulted",
+    ).length;
+
+    const loanSummary = adminLoanAppsQuery.data?.summary;
+    const pendingLoans =
+      loanSummary
+        ? (loanSummary.pendingCount ?? 0) + (loanSummary.underReviewCount ?? 0)
+        : loanApplications.filter((loan) =>
+            ["pending", "under_review"].includes(String(loan.status)),
+          ).length;
+
+    const activeLoans = loanApplications.filter((loan) =>
+      ["disbursed", "defaulted"].includes(String(loan.status)),
+    ).length;
+
+    const totalMembers =
+      typeof groupSummary?.totalMembers === "number"
+        ? groupSummary.totalMembers
+        : manageableGroups.reduce(
+            (sum, group) =>
+              sum +
+              Number(group.memberCount ?? group.activeMemberCount ?? 0),
+            0,
+          );
+
+    const ytdContributionTotals = groupSummary?.contributionTypeTotalsYtd;
+    const ytdContributions = ytdContributionTotals
+      ? Object.values(ytdContributionTotals).reduce(
+          (sum, value) => sum + Number(value || 0),
+          0,
+        )
+      : null;
+    const totalContributions =
+      ytdContributions !== null
+        ? ytdContributions
+        : typeof groupSummary?.totalCollected === "number"
+          ? groupSummary.totalCollected
+          : contributions.reduce(
+              (sum, record) => sum + Number(record.paidAmount ?? 0),
+              0,
+            );
+
+    const upcomingMeetings = (upcomingMeetingsQuery.data ?? []).length;
+    const recentMeetings = recentCompletedMeetingsQuery.data ?? [];
+    const totalPresent = recentMeetings.reduce(
+      (sum, meeting) => sum + Number(meeting.present ?? 0),
+      0,
+    );
+    const totalExpected = recentMeetings.reduce(
+      (sum, meeting) => sum + Number(meeting.totalMembers ?? 0),
+      0,
+    );
+    const attendanceRate =
+      totalExpected > 0
+        ? Math.round((totalPresent / totalExpected) * 100)
+        : 0;
+
+    return {
+      totalMembers,
+      pendingApprovals,
+      activeLoans,
+      pendingLoans,
+      totalContributions,
+      defaulters,
+      upcomingMeetings,
+      attendanceRate,
+    };
+  }, [
+    applicants,
+    contributions,
+    adminLoanAppsQuery.data?.summary,
+    loanApplications,
+    groupSummary?.totalMembers,
+    groupSummary?.totalCollected,
+    manageableGroups,
+    upcomingMeetingsQuery.data,
+    recentCompletedMeetingsQuery.data,
+  ]);
 
   const menuItems = useMemo(() => {
     const items = [
@@ -1090,7 +1074,7 @@ export default function Admin() {
 
       toast({
         title: "Announcement Sent",
-        description: `Email: ${emailSent} sent • SMS: ${smsSent} sent`,
+        description: `Email: ${emailSent} sent â€¢ SMS: ${smsSent} sent`,
       });
 
       setShowAnnouncementModal(false);
@@ -1600,7 +1584,6 @@ export default function Admin() {
 
           {activeTab === "loans" && canAccessCoordinatorPanels && (
             <LoanReviewPanel
-              applications={loanApplicationsForPanel}
               onApprove={handleLoanApprove}
               onReject={handleLoanReject}
               onStartReview={handleStartReview}
@@ -1608,7 +1591,7 @@ export default function Admin() {
               onVerifyTransfer={handleLoanVerifyTransfer}
               onFinalizeOtp={handleLoanFinalizeOtp}
               onResendOtp={handleLoanResendOtp}
-              otpResendCooldownSeconds={loanOtpResendCooldownSeconds}
+              groupOptions={loanGroupOptions}
               canDisburse={isAdmin}
               canFinalizeOtp={isAdmin}
             />
@@ -1626,7 +1609,7 @@ export default function Admin() {
                     Contribution Groups Management
                   </h3>
                   <p className="text-gray-500 text-sm">
-                    {user.role === "admin"
+                    {isAdmin
                       ? `Manage all ${groupSummary?.totalGroups ?? manageableGroups.length} contribution groups`
                       : `Manage your coordinated groups (${manageableGroups.length})`}
                   </p>
@@ -2983,3 +2966,4 @@ export default function Admin() {
     </div>
   );
 }
+

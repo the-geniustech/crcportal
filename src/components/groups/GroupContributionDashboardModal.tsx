@@ -21,6 +21,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useGroupContributionTargetsQuery } from "@/hooks/groups/useGroupContributionTargetsQuery";
 import { useContributionSettingsQuery } from "@/hooks/profile/useContributionSettingsQuery";
 import { useAuth } from "@/contexts/AuthContext";
+import { hasUserRole } from "@/lib/auth";
 import {
   ContributionTypeConfig,
   ContributionTypeOptions,
@@ -165,9 +166,7 @@ const GroupContributionDashboardModal: React.FC<
     normalizedMemberRole,
   );
   const canViewAll =
-    user?.role === "admin" ||
-    user?.role === "groupCoordinator" ||
-    user?.role === "group_coordinator" ||
+    hasUserRole(user, "admin", "groupCoordinator", "group_coordinator") ||
     hasElevatedMembership;
   const scopedMemberId = profile?.id ? String(profile.id) : null;
   const scopedMembers = useMemo(() => {

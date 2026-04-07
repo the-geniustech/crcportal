@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { hasUserRole } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminGroupsQuery } from "@/hooks/admin/useAdminGroupsQuery";
 import { useAdminContributionTrackingQuery } from "@/hooks/admin/useAdminContributionTrackingQuery";
@@ -201,9 +202,13 @@ const ContributionGroupsContent: React.FC = () => {
   const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
   const { toast } = useToast();
-  const canAssignCoordinator = user?.role === "admin";
-  const isAllowedUser =
-    user?.role === "admin" || user?.role === "groupCoordinator";
+  const canAssignCoordinator = hasUserRole(user, "admin");
+  const isAllowedUser = hasUserRole(
+    user,
+    "admin",
+    "groupCoordinator",
+    "group_coordinator",
+  );
 
   // State
   const [groups, setGroups] = useState<Group[]>([]);

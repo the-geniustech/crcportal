@@ -24,6 +24,7 @@ import {
   normalizeContributionType,
   type ContributionTypeCanonical,
 } from "@/lib/contributionPolicy";
+import { hasUserRole } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import { useGroupVotesQuery } from "@/hooks/groups/useGroupVotesQuery";
@@ -207,24 +208,22 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     showVoteParticipantsModal,
   );
 
-  const canManageVotes =
-    user?.role === "admin" ||
-    user?.role === "groupCoordinator" ||
-    user?.role === "group_coordinator";
+  const canManageVotes = hasUserRole(
+    user,
+    "admin",
+    "groupCoordinator",
+    "group_coordinator",
+  );
 
   const normalizedMemberRole = String(currentMemberRole || "").toLowerCase();
   const hasElevatedMembership = ["coordinator", "treasurer", "secretary", "admin"].includes(
     normalizedMemberRole,
   );
   const canViewAll =
-    user?.role === "admin" ||
-    user?.role === "groupCoordinator" ||
-    user?.role === "group_coordinator" ||
+    hasUserRole(user, "admin", "groupCoordinator", "group_coordinator") ||
     hasElevatedMembership;
   const canManageReminderSettings =
-    user?.role === "admin" ||
-    user?.role === "groupCoordinator" ||
-    user?.role === "group_coordinator" ||
+    hasUserRole(user, "admin", "groupCoordinator", "group_coordinator") ||
     ["coordinator", "admin"].includes(normalizedMemberRole);
   const canSendReminders =
     canManageReminderSettings || normalizedMemberRole === "treasurer";

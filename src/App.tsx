@@ -2,7 +2,13 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import {
+  createBrowserRouter,
+  createRoutesFromElements,
+  Route,
+  Navigate,
+  RouterProvider,
+} from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
 import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
@@ -28,6 +34,37 @@ import { SocketProvider } from "./contexts/SocketContext";
 
 const queryClient = new QueryClient();
 
+const router = createBrowserRouter(
+  createRoutesFromElements(
+    <>
+      <Route path="/" element={<Index />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
+      <Route path="/verify-email" element={<VerifyEmail />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route element={<RequireAuth />}>
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/groups" element={<Groups />} />
+        {/* <Route
+          path="/contribution-groups"
+          element={<ContributionGroups />}
+        /> */}
+        <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
+        <Route path="/admin/:tab" element={<Admin />} />
+        <Route path="/loan-application" element={<LoanApplication />} />
+        <Route path="/loans" element={<Loans />} />
+        <Route path="/payments" element={<Payments />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/withdrawals" element={<Withdrawals />} />
+        <Route path="/guarantor" element={<GuarantorDashboard />} />
+        <Route path="/credit-score" element={<CreditScore />} />
+        <Route path="/calendar" element={<Calendar />} />
+        <Route path="*" element={<NotFound />} />
+      </Route>
+    </>,
+  ),
+);
+
 const App = () => (
   <ThemeProvider defaultTheme="light">
     <QueryClientProvider client={queryClient}>
@@ -36,40 +73,7 @@ const App = () => (
           <TooltipProvider>
             <Toaster />
             <Sonner />
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<Index />} />
-                <Route path="/auth/callback" element={<AuthCallback />} />
-                <Route path="/verify-email" element={<VerifyEmail />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route element={<RequireAuth />}>
-                  <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/groups" element={<Groups />} />
-                  {/* <Route
-                    path="/contribution-groups"
-                    element={<ContributionGroups />}
-                  /> */}
-                  <Route
-                    path="/admin"
-                    element={<Navigate to="/admin/overview" replace />}
-                  />
-                  <Route path="/admin/:tab" element={<Admin />} />
-                  <Route
-                    path="/loan-application"
-                    element={<LoanApplication />}
-                  />
-                  <Route path="/loans" element={<Loans />} />
-                  <Route path="/payments" element={<Payments />} />
-                  <Route path="/profile" element={<Profile />} />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route path="/withdrawals" element={<Withdrawals />} />
-                  <Route path="/guarantor" element={<GuarantorDashboard />} />
-                  <Route path="/credit-score" element={<CreditScore />} />
-                  <Route path="/calendar" element={<Calendar />} />
-                  <Route path="*" element={<NotFound />} />
-                </Route>
-              </Routes>
-            </BrowserRouter>
+            <RouterProvider router={router} />
           </TooltipProvider>
         </SocketProvider>
       </AuthProvider>

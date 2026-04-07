@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle,
@@ -12,6 +12,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import {
   Select,
   SelectContent,
@@ -62,6 +71,20 @@ interface ContributionTrackerProps {
   canManageActions?: boolean;
 }
 
+const buildPageItems = (currentPage: number, totalPages: number) => {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+  }
+  const pages: Array<number | "ellipsis"> = [1];
+  if (currentPage > 3) pages.push("ellipsis");
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  for (let i = start; i <= end; i += 1) pages.push(i);
+  if (currentPage < totalPages - 2) pages.push("ellipsis");
+  pages.push(totalPages);
+  return pages;
+};
+
 export default function ContributionTracker({
   contributions,
   onMarkPaid,
@@ -75,6 +98,8 @@ export default function ContributionTracker({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [groupFilter, setGroupFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
   const [reminderOpen, setReminderOpen] = useState(false);
   const [reminderTargets, setReminderTargets] = useState<ContributionRecord[]>(
     [],
@@ -85,6 +110,10 @@ export default function ContributionTracker({
     notification: true,
   });
   const [sendingReminder, setSendingReminder] = useState(false);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, groupFilter, year, month]);
 
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -121,6 +150,25 @@ export default function ContributionTracker({
     const matchesGroup = groupFilter === "all" || c.groupName === groupFilter;
     return matchesSearch && matchesStatus && matchesGroup;
   });
+
+  const total = filteredContributions.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageStart = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(currentPage * pageSize, total);
+  const pagedContributions = filteredContributions.slice(
+    (currentPage - 1) * pageSize,
+    pageEnd,
+  );
+  const pageItems = useMemo(
+    () => buildPageItems(currentPage, totalPages),
+    [currentPage, totalPages],
+  );
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const defaulters = contributions.filter((c) => c.status === "defaulted");
   const exportCsv = () => {
@@ -497,7 +545,7 @@ export default function ContributionTracker({
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredContributions.map((record) => (
+              {pagedContributions.map((record) => (
                 <tr key={record.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3">
                     <div>
@@ -573,6 +621,58 @@ export default function ContributionTracker({
           </table>
         </div>
       </div>
+
+      {total > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between border border-gray-100 bg-white px-4 py-3 rounded-xl">
+          <p className="text-sm text-gray-500">
+            Showing {pageStart}-{pageEnd} of {total} records
+          </p>
+          <Pagination className="mx-0 w-auto">
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setCurrentPage((prev) => Math.max(1, prev - 1));
+                  }}
+                />
+              </PaginationItem>
+              {pageItems.map((page, index) =>
+                page === "ellipsis" ? (
+                  <PaginationItem key={`ellipsis-${index}`}>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                ) : (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      href="#"
+                      isActive={page === currentPage}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setCurrentPage(page);
+                      }}
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ),
+              )}
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setCurrentPage((prev) =>
+                      Math.min(totalPages, prev + 1),
+                    );
+                  }}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
 
       <Dialog open={reminderOpen} onOpenChange={setReminderOpen}>
         <DialogContent className="max-w-md">

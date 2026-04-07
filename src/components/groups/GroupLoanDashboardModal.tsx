@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
+import { hasUserRole } from "@/lib/auth";
 import {
   LOAN_FACILITIES,
   formatInterestLabel,
@@ -244,9 +245,7 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
     normalizedMemberRole,
   );
   const canViewAll =
-    user?.role === "admin" ||
-    user?.role === "groupCoordinator" ||
-    user?.role === "group_coordinator" ||
+    hasUserRole(user, "admin", "groupCoordinator", "group_coordinator") ||
     hasElevatedMembership;
   const scopedBorrowerId = profile?.id ? String(profile.id) : null;
   const scopedLoans = useMemo(() => {

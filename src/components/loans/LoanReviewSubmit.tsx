@@ -69,6 +69,8 @@ interface LoanReviewSubmitProps {
   onBack: () => void;
   onEditStep: (step: number) => void;
   isSubmitting: boolean;
+  submitLabel?: string;
+  requireBankAccount?: boolean;
 }
 
 const purposeLabels: { [key: string]: string } = {
@@ -101,6 +103,8 @@ export default function LoanReviewSubmit({
   onBack,
   onEditStep,
   isSubmitting,
+  submitLabel,
+  requireBankAccount = true,
 }: LoanReviewSubmitProps) {
   const [expandedSections, setExpandedSections] = useState<string[]>([
     "summary",
@@ -122,7 +126,10 @@ export default function LoanReviewSubmit({
   const isSectionExpanded = (section: string) =>
     expandedSections.includes(section);
 
-  const canSubmit = agreedToTerms && Boolean(bankAccount) && !isSubmitting;
+  const canSubmit =
+    agreedToTerms &&
+    (!requireBankAccount || Boolean(bankAccount)) &&
+    !isSubmitting;
   const facility = getLoanFacility(loanType);
   const interestLabel = formatInterestLabel(
     interestRate,
@@ -155,12 +162,12 @@ export default function LoanReviewSubmit({
         <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
           <div className="bg-white/10 p-4 rounded-xl">
             <p className="text-emerald-100 text-sm">Loan Amount</p>
-            <p className="font-bold text-2xl">â‚¦{loanAmount.toLocaleString()}</p>
+            <p className="font-bold text-2xl">₦{loanAmount.toLocaleString()}</p>
           </div>
           <div className="bg-white/10 p-4 rounded-xl">
             <p className="text-emerald-100 text-sm">Monthly Payment</p>
             <p className="font-bold text-2xl">
-              â‚¦{monthlyPayment.toLocaleString()}
+              ₦{monthlyPayment.toLocaleString()}
             </p>
           </div>
           <div className="bg-white/10 p-4 rounded-xl">
@@ -240,13 +247,13 @@ export default function LoanReviewSubmit({
               <div className="bg-blue-50 p-4 border border-blue-100 rounded-xl">
                 <p className="mb-1 text-blue-600 text-sm">Total Interest</p>
                 <p className="font-bold text-blue-900 text-xl">
-                  â‚¦{totalInterest.toLocaleString()}
+                  ₦{totalInterest.toLocaleString()}
                 </p>
               </div>
               <div className="bg-emerald-50 p-4 border border-emerald-100 rounded-xl">
                 <p className="mb-1 text-emerald-600 text-sm">Total Repayment</p>
                 <p className="font-bold text-emerald-900 text-xl">
-                  â‚¦{totalPayment.toLocaleString()}
+                  ₦{totalPayment.toLocaleString()}
                 </p>
               </div>
               <div className="bg-purple-50 p-4 border border-purple-100 rounded-xl">
@@ -510,7 +517,7 @@ export default function LoanReviewSubmit({
         {isSectionExpanded("bank") && (
           <div className="p-6">
             {bankAccount ? (
-              <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+              <div className="bg-emerald-50 p-4 border border-emerald-100 rounded-xl">
                 <p className="font-semibold text-emerald-900">
                   {bankAccount.bankName}
                 </p>
@@ -518,7 +525,7 @@ export default function LoanReviewSubmit({
                   {bankAccount.accountNumber} â€¢ {bankAccount.accountName}
                 </p>
                 {bankAccount.isPrimary && (
-                  <span className="inline-block mt-2 bg-emerald-100 text-emerald-700 text-xs font-medium px-2 py-0.5 rounded-full">
+                  <span className="inline-block bg-emerald-100 mt-2 px-2 py-0.5 rounded-full font-medium text-emerald-700 text-xs">
                     Primary
                   </span>
                 )}
@@ -631,7 +638,7 @@ export default function LoanReviewSubmit({
           ) : (
             <>
               <CheckCircle className="w-5 h-5" />
-              Submit Application
+              {submitLabel ?? "Submit Application"}
             </>
           )}
         </button>

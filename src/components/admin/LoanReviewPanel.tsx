@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import {
   CreditCard,
   Clock,
@@ -14,6 +14,10 @@ import {
   Phone,
   Building2,
   Info,
+  Search,
+  Filter,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -48,7 +52,11 @@ import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
 import {
   downloadAdminLoanApplicationPdf,
   emailAdminLoanApplicationPdf,
+  exportAdminLoanApplications,
 } from "@/lib/adminLoans";
+import { useAdminLoanApplicationsQuery } from "@/hooks/admin/useAdminLoanApplicationsQuery";
+import { useReconcileAdminLoanApplicationMutation } from "@/hooks/admin/useReconcileAdminLoanApplicationMutation";
+import { useReviewAdminLoanEditRequestMutation } from "@/hooks/admin/useReviewAdminLoanEditRequestMutation";
 import type { NotificationPreferences } from "@/lib/notificationPreferences";
 
 interface LoanDocument {
@@ -80,6 +88,23 @@ interface LoanGuarantor {
   } | null;
 }
 
+interface LoanEditChange {
+  field: string;
+  label: string;
+  from?: string | number | null;
+  to?: string | number | null;
+}
+
+interface LoanEditRequest {
+  id: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  requestedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewNotes?: string | null;
+  changes?: LoanEditChange[];
+  documents?: LoanDocument[];
+}
+
 interface AdminBankAccount {
   id: string;
   bankName: string;
@@ -94,6 +119,7 @@ interface LoanApplication {
   applicantName: string;
   applicantEmail: string;
   applicantPhone?: string;
+  groupId?: string | null;
   groupName: string;
   loanCode?: string | null;
   loanNumber?: number | null;
@@ -112,7 +138,6 @@ interface LoanApplication {
   monthlyPayment?: number | null;
   totalRepayable?: number | null;
   remainingBalance?: number | null;
-  monthlyIncome: number;
   disbursementBankAccountId?: string | null;
   disbursementBankName?: string | null;
   disbursementBankCode?: string | null;
@@ -123,10 +148,12 @@ interface LoanApplication {
   payoutTransferCode?: string | null;
   payoutStatus?: string | null;
   payoutOtpResentAt?: string | null;
+  monthlyIncome: number;
   guarantorName: string;
   guarantorPhone: string;
   guarantors?: LoanGuarantor[];
   documents?: LoanDocument[];
+  latestEditRequest?: LoanEditRequest | null;
   status:
     | "draft"
     | "pending"
@@ -152,7 +179,6 @@ type LoanPayoutUpdate = {
 };
 
 interface LoanReviewPanelProps {
-  applications: LoanApplication[];
   onApprove: (
     id: string,
     notes: string,
@@ -179,13 +205,12 @@ interface LoanReviewPanelProps {
     id: string,
     transferCode: string,
   ) => Promise<{ application: LoanPayoutUpdate; retryAfter?: number }>;
-  otpResendCooldownSeconds: number;
+  groupOptions?: { id: string; name: string }[];
   canDisburse?: boolean;
   canFinalizeOtp?: boolean;
 }
 
 export default function LoanReviewPanel({
-  applications,
   onApprove,
   onReject,
   onStartReview,
@@ -193,7 +218,7 @@ export default function LoanReviewPanel({
   onVerifyTransfer,
   onFinalizeOtp,
   onResendOtp,
-  otpResendCooldownSeconds,
+  groupOptions = [],
   canDisburse = true,
   canFinalizeOtp = true,
 }: LoanReviewPanelProps) {
@@ -204,11 +229,24 @@ export default function LoanReviewPanel({
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showDisburseModal, setShowDisburseModal] = useState(false);
+  const [showEditReviewModal, setShowEditReviewModal] = useState(false);
   const [reviewNotes, setReviewNotes] = useState("");
   const [reviewAction, setReviewAction] = useState<"approve" | "reject" | null>(
     null,
   );
+  const [editReviewNotes, setEditReviewNotes] = useState("");
+  const [editReviewAction, setEditReviewAction] = useState<
+    "approved" | "rejected" | null
+  >(null);
+  const [editRequestTarget, setEditRequestTarget] =
+    useState<LoanApplication | null>(null);
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [groupFilter, setGroupFilter] = useState("all");
+  const [yearFilter, setYearFilter] = useState("all");
+  const [monthFilter, setMonthFilter] = useState("all");
+  const [currentPage, setCurrentPage] = useState(1);
   const [repaymentStartDate, setRepaymentStartDate] = useState("");
   const [selectedDisbursementAccountId, setSelectedDisbursementAccountId] =
     useState("");
@@ -216,10 +254,13 @@ export default function LoanReviewPanel({
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isPrintingPdf, setIsPrintingPdf] = useState(false);
   const [isEmailingPdf, setIsEmailingPdf] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [otpTarget, setOtpTarget] = useState<LoanApplication | null>(null);
   const [otpCode, setOtpCode] = useState("");
   const [transferCode, setTransferCode] = useState("");
-  const [otpAction, setOtpAction] = useState<"finalize" | "resend" | null>(null);
+  const [otpAction, setOtpAction] = useState<"finalize" | "resend" | null>(
+    null,
+  );
   const [resendCooldownSeconds, setResendCooldownSeconds] = useState(0);
   const [verifyTargetId, setVerifyTargetId] = useState<string | null>(null);
   const [recipientOptions, setRecipientOptions] = useState({
@@ -228,9 +269,134 @@ export default function LoanReviewPanel({
     extraEmails: "",
   });
   const [recipientDirty, setRecipientDirty] = useState(false);
+  const [docPreviewOpen, setDocPreviewOpen] = useState(false);
+  const [docPreviewItems, setDocPreviewItems] = useState<LoanDocument[]>([]);
+  const [docPreviewIndex, setDocPreviewIndex] = useState(0);
 
   const preferencesQuery = useNotificationPreferencesQuery();
   const updatePreferencesMutation = useUpdateNotificationPreferencesMutation();
+  const reconcileLoanMutation = useReconcileAdminLoanApplicationMutation();
+  const reviewEditRequestMutation = useReviewAdminLoanEditRequestMutation();
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchQuery(searchInput.trim());
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, groupFilter, yearFilter, monthFilter, searchQuery]);
+
+  const loansQuery = useAdminLoanApplicationsQuery({
+    status: statusFilter,
+    search: searchQuery || undefined,
+    groupId: groupFilter !== "all" ? groupFilter : undefined,
+    year: yearFilter !== "all" ? yearFilter : undefined,
+    month: monthFilter !== "all" ? monthFilter : undefined,
+    page: currentPage,
+    limit: 10,
+  });
+
+  const applications = useMemo(() => {
+    const raw = loansQuery.data?.applications ?? [];
+    return raw.map((a) => {
+      const guarantor =
+        Array.isArray(a.guarantors) && a.guarantors.length > 0
+          ? a.guarantors[0]
+          : null;
+      return {
+        id: a._id,
+        applicantName: a.applicant?.fullName || "Applicant",
+        applicantEmail: a.applicant?.email || "",
+        applicantPhone: a.applicant?.phone || "",
+        groupId: a.groupId ?? null,
+        groupName: a.groupName || "—",
+        loanCode: a.loanCode ?? null,
+        loanNumber: a.loanNumber ?? null,
+        loanAmount: Number(a.loanAmount || 0),
+        loanPurpose: String(a.loanPurpose || ""),
+        purposeDescription: a.purposeDescription ?? "",
+        loanType: a.loanType ?? null,
+        repaymentPeriod: Number(a.repaymentPeriod || 0),
+        interestRate: a.interestRate ?? null,
+        interestRateType: a.interestRateType ?? null,
+        approvedAmount: a.approvedAmount ?? null,
+        approvedInterestRate: a.approvedInterestRate ?? null,
+        approvedAt: a.approvedAt ?? null,
+        disbursedAt: a.disbursedAt ?? null,
+        repaymentStartDate: a.repaymentStartDate ?? null,
+        monthlyPayment: a.monthlyPayment ?? null,
+        totalRepayable: a.totalRepayable ?? null,
+        remainingBalance: a.remainingBalance ?? null,
+        monthlyIncome: Number(a.monthlyIncome || 0),
+        guarantorName: guarantor?.name || "—",
+        guarantorPhone: guarantor?.phone || "—",
+        guarantors: Array.isArray(a.guarantors) ? a.guarantors : [],
+        documents: Array.isArray(a.documents) ? a.documents : [],
+        status: a.status as LoanApplication["status"],
+        createdAt: a.createdAt,
+        reviewNotes: a.reviewNotes ?? undefined,
+        latestEditRequest: a.latestEditRequest ?? null,
+        disbursementBankAccountId: a.disbursementBankAccountId ?? null,
+        disbursementBankName: a.disbursementBankName ?? null,
+        disbursementBankCode: a.disbursementBankCode ?? null,
+        disbursementAccountNumber: a.disbursementAccountNumber ?? null,
+        disbursementAccountName: a.disbursementAccountName ?? null,
+        payoutReference: a.payoutReference ?? null,
+        payoutGateway: a.payoutGateway ?? null,
+        payoutTransferCode: a.payoutTransferCode ?? null,
+        payoutStatus: a.payoutStatus ?? null,
+        payoutOtpResentAt: a.payoutOtpResentAt ?? null,
+      };
+    });
+  }, [loansQuery.data?.applications]);
+
+  const otpResendCooldownSeconds =
+    loansQuery.data?.otpResendCooldownSeconds ?? 0;
+  const total = loansQuery.data?.total ?? applications.length;
+  const limit = loansQuery.data?.limit ?? 10;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const summary = loansQuery.data?.summary;
+  const pageStart = total === 0 ? 0 : (currentPage - 1) * limit + 1;
+  const pageEnd = Math.min(currentPage * limit, total);
+
+  const groupSelectOptions = useMemo(() => {
+    if (groupOptions.length > 0) {
+      return groupOptions;
+    }
+    const dedup = new Map<string, string>();
+    applications.forEach((app) => {
+      if (app.groupId && app.groupName) {
+        dedup.set(app.groupId, app.groupName);
+      }
+    });
+    return Array.from(dedup.entries()).map(([id, name]) => ({ id, name }));
+  }, [applications, groupOptions]);
+
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 6 }, (_, idx) => currentYear - idx);
+  }, []);
+
+  const monthOptions = useMemo(
+    () => [
+      { value: 1, label: "January" },
+      { value: 2, label: "February" },
+      { value: 3, label: "March" },
+      { value: 4, label: "April" },
+      { value: 5, label: "May" },
+      { value: 6, label: "June" },
+      { value: 7, label: "July" },
+      { value: 8, label: "August" },
+      { value: 9, label: "September" },
+      { value: 10, label: "October" },
+      { value: 11, label: "November" },
+      { value: 12, label: "December" },
+    ],
+    [],
+  );
   const bankAccountsQuery = useAdminLoanBankAccountsQuery(
     selectedLoan?.id ?? null,
     showDisburseModal && Boolean(selectedLoan?.id),
@@ -251,26 +417,27 @@ export default function LoanReviewPanel({
     bankAccounts.find((acc) => acc.id === selectedDisbursementAccountId) ||
     null;
 
-  const pendingCount = applications.filter(
-    (a) => a.status === "pending",
-  ).length;
-  const underReviewCount = applications.filter(
-    (a) => a.status === "under_review",
-  ).length;
-  const approvedCount = applications.filter(
-    (a) => a.status === "approved" || a.status === "disbursed",
-  ).length;
-  const totalRequested = applications
-    .filter((a) => a.status === "pending" || a.status === "under_review")
-    .reduce((sum, a) => sum + a.loanAmount, 0);
+  const pendingCount =
+    summary?.pendingCount ??
+    applications.filter((a) => a.status === "pending").length;
+  const underReviewCount =
+    summary?.underReviewCount ??
+    applications.filter((a) => a.status === "under_review").length;
+  const approvedCount =
+    summary?.approvedCount ??
+    applications.filter(
+      (a) => a.status === "approved" || a.status === "disbursed",
+    ).length;
+  const totalRequested =
+    summary?.totalRequested ??
+    applications
+      .filter((a) => a.status === "pending" || a.status === "under_review")
+      .reduce((sum, a) => sum + a.loanAmount, 0);
 
-  const filteredApplications = applications.filter(
-    (a) => statusFilter === "all" || a.status === statusFilter,
-  );
+  const filteredApplications = applications;
 
   const otpBusy = otpAction !== null;
-  const resendDisabled =
-    !otpTarget || otpBusy || resendCooldownSeconds > 0;
+  const resendDisabled = !otpTarget || otpBusy || resendCooldownSeconds > 0;
   const resendLabel =
     resendCooldownSeconds > 0
       ? `Resend OTP (${resendCooldownSeconds}s)`
@@ -442,7 +609,10 @@ export default function LoanReviewPanel({
       });
     }
 
-    if (recipientOptions.sendGuarantors && Array.isArray(selectedLoan.guarantors)) {
+    if (
+      recipientOptions.sendGuarantors &&
+      Array.isArray(selectedLoan.guarantors)
+    ) {
       selectedLoan.guarantors.forEach((g) => {
         if (g?.email && isValidEmail(g.email)) {
           recipients.push({
@@ -462,7 +632,10 @@ export default function LoanReviewPanel({
       });
     });
 
-    const unique = new Map<string, { label: string; name?: string; email: string }>();
+    const unique = new Map<
+      string,
+      { label: string; name?: string; email: string }
+    >();
     recipients.forEach((recipient) => {
       if (!unique.has(recipient.email)) {
         unique.set(recipient.email, recipient);
@@ -513,6 +686,22 @@ export default function LoanReviewPanel({
       return "bg-red-100 text-red-700";
     }
     return "bg-gray-100 text-gray-600";
+  };
+
+  const openDocPreview = (docs: LoanDocument[] = [], index = 0) => {
+    const safeDocs = Array.isArray(docs) ? docs : [];
+    const safeIndex = safeDocs.length
+      ? Math.min(Math.max(0, index), safeDocs.length - 1)
+      : 0;
+    setDocPreviewItems(safeDocs);
+    setDocPreviewIndex(safeIndex);
+    setDocPreviewOpen(true);
+  };
+
+  const closeDocPreview = () => {
+    setDocPreviewOpen(false);
+    setDocPreviewItems([]);
+    setDocPreviewIndex(0);
   };
 
   const getRiskTone = (dtiValue: number | null) => {
@@ -593,7 +782,9 @@ export default function LoanReviewPanel({
         ? selectedLoan.disbursementBankAccountId
         : null;
     const primary = bankAccounts.find((acc) => acc.isPrimary)?.id || null;
-    setSelectedDisbursementAccountId(preferred || primary || bankAccounts[0].id);
+    setSelectedDisbursementAccountId(
+      preferred || primary || bankAccounts[0].id,
+    );
   }, [
     bankAccounts,
     selectedDisbursementAccountId,
@@ -706,6 +897,104 @@ export default function LoanReviewPanel({
       });
     } finally {
       setIsEmailingPdf(false);
+    }
+  };
+
+  const handleExportCsv = async () => {
+    setIsExporting(true);
+    try {
+      const blob = await exportAdminLoanApplications({
+        status: statusFilter,
+        search: searchQuery || undefined,
+        groupId: groupFilter !== "all" ? groupFilter : undefined,
+        year: yearFilter !== "all" ? yearFilter : undefined,
+        month: monthFilter !== "all" ? monthFilter : undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `loan-applications-${new Date().toISOString().slice(0, 10)}.csv`;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Export ready",
+        description: "Loan applications export has been downloaded.",
+      });
+    } catch (error: unknown) {
+      toast({
+        title: "Export failed",
+        description:
+          (error as Error).message || "Unable to export loan applications.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleReconcileLoan = async (loan: LoanApplication) => {
+    const confirmReconcile = window.confirm(
+      "Reconcile this rejected loan and return it to pending review?",
+    );
+    if (!confirmReconcile) return;
+    try {
+      await reconcileLoanMutation.mutateAsync({ applicationId: loan.id });
+      toast({
+        title: "Loan reconciled",
+        description: "Loan application is back in the pending queue.",
+      });
+    } catch (error: unknown) {
+      toast({
+        title: "Reconcile failed",
+        description:
+          (error as Error).message ||
+          "Unable to reconcile this loan application.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const openEditReview = (
+    loan: LoanApplication,
+    action: "approved" | "rejected",
+  ) => {
+    setEditRequestTarget(loan);
+    setEditReviewAction(action);
+    setEditReviewNotes("");
+    setShowEditReviewModal(true);
+  };
+
+  const confirmEditReview = async () => {
+    if (!editRequestTarget || !editReviewAction) return;
+    const requestId = editRequestTarget.latestEditRequest?.id;
+    if (!requestId) return;
+    try {
+      await reviewEditRequestMutation.mutateAsync({
+        applicationId: editRequestTarget.id,
+        requestId,
+        status: editReviewAction,
+        reviewNotes: editReviewNotes || undefined,
+      });
+      toast({
+        title:
+          editReviewAction === "approved"
+            ? "Edit approved"
+            : "Edit rejected",
+        description:
+          editReviewAction === "approved"
+            ? "The requested edits have been applied."
+            : "The edit request has been rejected.",
+      });
+      setShowEditReviewModal(false);
+      setEditRequestTarget(null);
+    } catch (error: unknown) {
+      toast({
+        title: "Edit request failed",
+        description:
+          (error as Error).message ||
+          "Unable to review this edit request.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -927,7 +1216,8 @@ export default function LoanReviewPanel({
     if (!otpCode.trim()) {
       toast({
         title: "OTP Required",
-        description: "Enter the OTP sent by Paystack to finalize this transfer.",
+        description:
+          "Enter the OTP sent by Paystack to finalize this transfer.",
         variant: "destructive",
       });
       return;
@@ -974,8 +1264,7 @@ export default function LoanReviewPanel({
     } catch (error: unknown) {
       toast({
         title: "Finalize Failed",
-        description:
-          (error as Error).message || "Failed to finalize transfer",
+        description: (error as Error).message || "Failed to finalize transfer",
         variant: "destructive",
       });
     } finally {
@@ -1025,8 +1314,7 @@ export default function LoanReviewPanel({
       }
       toast({
         title: "Resend Failed",
-        description:
-          (error as Error).message || "Failed to resend OTP",
+        description: (error as Error).message || "Failed to resend OTP",
         variant: "destructive",
       });
     } finally {
@@ -1092,27 +1380,125 @@ export default function LoanReviewPanel({
 
       {/* Filter and Table */}
       <div className="bg-white shadow-sm border border-gray-100 rounded-xl">
-        <div className="flex justify-between items-center p-4 border-gray-100 border-b">
-          <h3 className="font-semibold text-gray-900 text-lg">
-            Loan Applications
-          </h3>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-40">
-              <SelectValue placeholder="Filter" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="pending">Pending</SelectItem>
-              <SelectItem value="under_review">Under Review</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="rejected">Rejected</SelectItem>
-              <SelectItem value="disbursed">Disbursed</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="space-y-3 p-4 border-gray-100 border-b">
+          <div className="flex flex-wrap justify-between items-center gap-3">
+            <h3 className="font-semibold text-gray-900 text-lg">
+              Loan Applications
+            </h3>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={handleExportCsv}
+              disabled={isExporting || applications.length === 0}
+            >
+              <Download className="w-4 h-4" />
+              {isExporting ? "Exporting..." : "Export CSV"}
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <Input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Search by applicant, group, purpose or code"
+                className="pl-9"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-gray-400" />
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-36">
+                  <SelectValue placeholder="Status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="under_review">Under Review</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                  <SelectItem value="disbursed">Disbursed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <Select value={groupFilter} onValueChange={setGroupFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="All Groups" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Groups</SelectItem>
+                {groupSelectOptions.map((group) => (
+                  <SelectItem key={group.id} value={group.id}>
+                    {group.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={yearFilter} onValueChange={setYearFilter}>
+              <SelectTrigger className="w-28">
+                <SelectValue placeholder="Year" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Years</SelectItem>
+                {yearOptions.map((year) => (
+                  <SelectItem key={year} value={String(year)}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={monthFilter} onValueChange={setMonthFilter}>
+              <SelectTrigger className="w-32">
+                <SelectValue placeholder="Month" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Months</SelectItem>
+                {monthOptions.map((month) => (
+                  <SelectItem key={month.value} value={String(month.value)}>
+                    {month.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearchInput("");
+                setStatusFilter("all");
+                setGroupFilter("all");
+                setYearFilter("all");
+                setMonthFilter("all");
+              }}
+            >
+              Reset
+            </Button>
+          </div>
         </div>
 
         <div className="divide-y divide-gray-100 max-h-[500px] overflow-y-auto">
-          {filteredApplications.map((loan) => {
+          {loansQuery.isLoading && (
+            <div className="p-8 text-center text-gray-500 text-sm">
+              Loading loan applications…
+            </div>
+          )}
+          {loansQuery.isError && (
+            <div className="p-8 text-center text-red-500 text-sm">
+              {(loansQuery.error as Error)?.message ||
+                "Unable to load loan applications."}
+            </div>
+          )}
+          {!loansQuery.isLoading &&
+            !loansQuery.isError &&
+            filteredApplications.length === 0 && (
+              <div className="p-8 text-center text-gray-500 text-sm">
+                No loans match the selected filters.
+              </div>
+            )}
+          {!loansQuery.isLoading &&
+            !loansQuery.isError &&
+            filteredApplications.map((loan) => {
             const rateInfo = resolveRateInfo(loan);
             const interestLabel = formatInterestLabel(
               rateInfo.rate,
@@ -1120,6 +1506,8 @@ export default function LoanReviewPanel({
               rateInfo.facility?.interestRateRange,
             );
             const facilityLabel = rateInfo.facility?.name || "General Loan";
+            const hasEditRequest =
+              loan.latestEditRequest?.status === "pending";
 
             return (
               <div
@@ -1156,6 +1544,11 @@ export default function LoanReviewPanel({
                   </div>
                   <div className="flex items-center gap-2">
                     {getStatusBadge(loan.status)}
+                    {hasEditRequest && (
+                      <Badge className="bg-indigo-100 text-indigo-700">
+                        Edit Requested
+                      </Badge>
+                    )}
                     <Button
                       size="sm"
                       variant="outline"
@@ -1240,11 +1633,11 @@ export default function LoanReviewPanel({
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span
-                                  className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 cursor-help"
+                                  className="inline-flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded-full text-amber-700 text-xs cursor-help"
                                   tabIndex={0}
                                 >
                                   Admin action required
-                                  <Info className="h-3 w-3" />
+                                  <Info className="w-3 h-3" />
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>
@@ -1258,11 +1651,11 @@ export default function LoanReviewPanel({
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span
-                                  className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs text-amber-700 cursor-help"
+                                  className="inline-flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded-full text-amber-700 text-xs cursor-help"
                                   tabIndex={0}
                                 >
                                   Admin action required
-                                  <Info className="h-3 w-3" />
+                                  <Info className="w-3 h-3" />
                                 </span>
                               </TooltipTrigger>
                               <TooltipContent>
@@ -1272,10 +1665,20 @@ export default function LoanReviewPanel({
                           )}
                       </>
                     )}
+                    {loan.status === "rejected" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-amber-200 text-amber-700"
+                        onClick={() => handleReconcileLoan(loan)}
+                      >
+                        Reconcile
+                      </Button>
+                    )}
                   </div>
                 </div>
                 {(loan.payoutStatus || loan.payoutTransferCode) && (
-                  <div className="flex flex-wrap justify-end gap-3 mt-2 text-xs text-gray-500">
+                  <div className="flex flex-wrap justify-end gap-3 mt-2 text-gray-500 text-xs">
                     {loan.payoutStatus && (
                       <span className="text-amber-600">
                         Payout Status: {loan.payoutStatus.toUpperCase()}
@@ -1290,6 +1693,36 @@ export default function LoanReviewPanel({
             );
           })}
         </div>
+        {totalPages > 1 && (
+          <div className="flex flex-wrap justify-between items-center gap-3 px-4 py-3 border-gray-100 border-t">
+            <p className="text-gray-500 text-sm">
+              Showing {pageStart}-{pageEnd} of {total} loans
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+              >
+                Previous
+              </Button>
+              <span className="text-gray-500 text-sm">
+                Page {currentPage} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  setCurrentPage((p) => Math.min(totalPages, p + 1))
+                }
+                disabled={currentPage === totalPages}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Detail Modal */}
@@ -1344,7 +1777,7 @@ export default function LoanReviewPanel({
                           {facilityLabel}
                         </p>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                      <div className="flex flex-wrap items-center gap-2 bg-white shadow-sm px-3 py-2 border border-slate-200 rounded-xl">
                         {getStatusBadge(selectedLoan.status)}
                         <Button
                           variant="outline"
@@ -1533,8 +1966,9 @@ export default function LoanReviewPanel({
                                 className="bg-slate-100 px-2.5 py-1 rounded-full text-slate-600 text-xs"
                               >
                                 {recipient.label}
-                                {recipient.name ? ` · ${recipient.name}` : ""}{" "}
-                                — {recipient.email}
+                                {recipient.name
+                                  ? ` · ${recipient.name}`
+                                  : ""} — {recipient.email}
                               </span>
                             ))}
                           </div>
@@ -1734,6 +2168,120 @@ export default function LoanReviewPanel({
                       </div>
                     </div>
 
+                    {selectedLoan.latestEditRequest && (
+                      <div className="bg-white shadow-sm p-5 border border-gray-100 rounded-xl">
+                        <div className="flex flex-wrap justify-between items-center gap-3">
+                          <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
+                            <FileText className="w-4 h-4 text-indigo-500" />
+                            Edit Request
+                          </div>
+                          <Badge
+                            className={
+                              selectedLoan.latestEditRequest.status ===
+                              "approved"
+                                ? "bg-emerald-100 text-emerald-700"
+                                : selectedLoan.latestEditRequest.status ===
+                                    "rejected"
+                                  ? "bg-red-100 text-red-700"
+                                  : "bg-amber-100 text-amber-700"
+                            }
+                          >
+                            {selectedLoan.latestEditRequest.status.replace(
+                              /_/g,
+                              " ",
+                            )}
+                          </Badge>
+                        </div>
+                        <p className="mt-2 text-gray-500 text-xs">
+                          Requested{" "}
+                          {formatDate(
+                            selectedLoan.latestEditRequest.requestedAt,
+                          )}
+                        </p>
+                        <div className="mt-4 space-y-2">
+                          {(selectedLoan.latestEditRequest.changes ?? []).map(
+                            (change, index) => (
+                              <div
+                                key={`${change.field}-${index}`}
+                                className="flex flex-wrap justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"
+                              >
+                                <div className="font-medium text-gray-700">
+                                  {change.label}
+                                </div>
+                                <div className="text-gray-500">
+                                  <span className="line-through text-gray-400">
+                                    {change.from ?? "—"}
+                                  </span>{" "}
+                                  →{" "}
+                                  <span className="font-medium text-gray-900">
+                                    {change.to ?? "—"}
+                                  </span>
+                                </div>
+                              </div>
+                            ),
+                          )}
+                          {(selectedLoan.latestEditRequest.changes ?? [])
+                            .length === 0 && (
+                            <p className="text-gray-500 text-sm">
+                              No changes recorded.
+                            </p>
+                          )}
+                        </div>
+                        {(selectedLoan.latestEditRequest.documents ?? [])
+                          .length > 0 && (
+                          <div className="mt-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2 text-xs text-slate-500">
+                            <span className="font-semibold text-slate-600">
+                              {selectedLoan.latestEditRequest.documents?.length}{" "}
+                              document
+                              {selectedLoan.latestEditRequest.documents &&
+                              selectedLoan.latestEditRequest.documents.length >
+                                1
+                                ? "s"
+                                : ""}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 px-3 text-xs"
+                              onClick={() =>
+                                openDocPreview(
+                                  selectedLoan.latestEditRequest?.documents ??
+                                    [],
+                                  0,
+                                )
+                              }
+                            >
+                              Preview Docs
+                            </Button>
+                          </div>
+                        )}
+                        {selectedLoan.latestEditRequest.status ===
+                          "pending" && (
+                          <div className="flex flex-wrap gap-2 mt-4">
+                            <Button
+                              size="sm"
+                              className="bg-emerald-600 hover:bg-emerald-700"
+                              onClick={() =>
+                                openEditReview(selectedLoan, "approved")
+                              }
+                            >
+                              Approve Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-red-200 text-red-600"
+                              onClick={() =>
+                                openEditReview(selectedLoan, "rejected")
+                              }
+                            >
+                              Reject Edit
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div className="bg-white shadow-sm p-5 border border-gray-100 rounded-xl">
                       <div className="flex items-center gap-2 text-gray-500 text-xs uppercase tracking-wide">
                         <User className="w-4 h-4 text-emerald-500" />
@@ -1760,13 +2308,13 @@ export default function LoanReviewPanel({
                                 {g.phone || g.email || "—"}
                               </p>
                               {g.signature && (
-                                <div className="mt-2 rounded-lg border border-gray-200 bg-white p-2">
-                                  <p className="text-[10px] font-semibold uppercase text-gray-400">
+                                <div className="bg-white mt-2 p-2 border border-gray-200 rounded-lg">
+                                  <p className="font-semibold text-[10px] text-gray-400 uppercase">
                                     Signature
                                   </p>
                                   {g.signature.method === "text" ? (
                                     <p
-                                      className="text-base text-gray-800"
+                                      className="text-gray-800 text-base"
                                       style={{
                                         fontFamily:
                                           g.signature.font || "cursive",
@@ -1778,7 +2326,7 @@ export default function LoanReviewPanel({
                                     <img
                                       src={g.signature.imageUrl}
                                       alt="Guarantor signature"
-                                      className="mt-1 h-10 w-auto object-contain"
+                                      className="mt-1 w-auto h-10 object-contain"
                                     />
                                   ) : null}
                                   <p className="mt-1 text-[10px] text-gray-400">
@@ -1874,6 +2422,226 @@ export default function LoanReviewPanel({
         </DialogContent>
       </Dialog>
 
+      {/* Document Preview Modal */}
+      <Dialog
+        open={docPreviewOpen}
+        onOpenChange={(open) => (open ? setDocPreviewOpen(true) : closeDocPreview())}
+      >
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Document Preview</DialogTitle>
+          </DialogHeader>
+          {docPreviewItems.length === 0 ? (
+            <div className="py-10 text-center text-sm text-gray-500">
+              No documents available for preview.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                <span>
+                  Document {docPreviewIndex + 1} of {docPreviewItems.length}
+                </span>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() =>
+                      setDocPreviewIndex((prev) => Math.max(0, prev - 1))
+                    }
+                    disabled={docPreviewIndex === 0}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() =>
+                      setDocPreviewIndex((prev) =>
+                        Math.min(docPreviewItems.length - 1, prev + 1),
+                      )
+                    }
+                    disabled={docPreviewIndex >= docPreviewItems.length - 1}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
+                <span className="font-medium text-slate-600">
+                  {docPreviewItems[docPreviewIndex]?.name || "Document"}
+                </span>
+                {docPreviewItems[docPreviewIndex]?.url && (
+                  <a
+                    href={docPreviewItems[docPreviewIndex]?.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-emerald-700 hover:text-emerald-800"
+                  >
+                    Open in new tab
+                  </a>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-gray-100 bg-slate-50 p-4">
+                {docPreviewItems[docPreviewIndex]?.url ? (
+                  docPreviewItems[docPreviewIndex]?.type?.startsWith(
+                    "image/",
+                  ) ? (
+                    <img
+                      src={docPreviewItems[docPreviewIndex]?.url}
+                      alt={docPreviewItems[docPreviewIndex]?.name || "Preview"}
+                      className="max-h-[420px] w-full rounded-lg object-contain"
+                    />
+                  ) : (
+                    <iframe
+                      title="Document preview"
+                      src={docPreviewItems[docPreviewIndex]?.url}
+                      className="h-[420px] w-full rounded-lg border-0 bg-white"
+                    />
+                  )
+                ) : (
+                  <div className="flex h-[320px] items-center justify-center text-sm text-gray-400">
+                    Preview unavailable. Use download to view the file.
+                  </div>
+                )}
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {docPreviewItems.map((doc, idx) => (
+                  <button
+                    key={`${doc.name}-${idx}`}
+                    type="button"
+                    onClick={() => setDocPreviewIndex(idx)}
+                    className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-left text-xs ${
+                      idx === docPreviewIndex
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-slate-100 bg-white text-slate-600 hover:border-emerald-200"
+                    }`}
+                  >
+                    <FileText className="h-4 w-4" />
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">
+                        {doc.name || "Document"}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        {doc.type || "file"} • {formatFileSize(doc.size || 0)}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Request Review Modal */}
+      <Dialog open={showEditReviewModal} onOpenChange={setShowEditReviewModal}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editReviewAction === "approved"
+                ? "Approve Edit Request"
+                : "Reject Edit Request"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {editRequestTarget && (
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <p className="font-medium text-gray-900">
+                  {editRequestTarget.applicantName}
+                </p>
+                <p className="text-sm text-gray-500">
+                  {editRequestTarget.loanPurpose}
+                </p>
+                <div className="mt-3 space-y-2 text-sm">
+                  {(editRequestTarget.latestEditRequest?.changes ?? []).map(
+                    (change, index) => (
+                      <div
+                        key={`${change.field}-${index}`}
+                        className="flex flex-wrap justify-between gap-2"
+                      >
+                        <span className="font-medium text-gray-700">
+                          {change.label}
+                        </span>
+                        <span className="text-gray-500">
+                          {change.from ?? "—"} →{" "}
+                          <span className="font-semibold text-gray-900">
+                            {change.to ?? "—"}
+                          </span>
+                        </span>
+                      </div>
+                    ),
+                  )}
+                </div>
+                {(editRequestTarget.latestEditRequest?.documents ?? []).length >
+                  0 && (
+                  <div className="mt-4 flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                    <span className="font-semibold text-slate-600">
+                      {editRequestTarget.latestEditRequest?.documents?.length}{" "}
+                      document
+                      {editRequestTarget.latestEditRequest?.documents &&
+                      editRequestTarget.latestEditRequest.documents.length > 1
+                        ? "s"
+                        : ""}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-3 text-xs"
+                      onClick={() =>
+                        openDocPreview(
+                          editRequestTarget.latestEditRequest?.documents ?? [],
+                          0,
+                        )
+                      }
+                    >
+                      Preview Docs
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            <div>
+              <label className="block mb-2 font-medium text-gray-700 text-sm">
+                Notes (Optional)
+              </label>
+              <Textarea
+                value={editReviewNotes}
+                onChange={(e) => setEditReviewNotes(e.target.value)}
+                placeholder="Add notes about this decision..."
+                rows={3}
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setShowEditReviewModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                className={`flex-1 ${
+                  editReviewAction === "approved"
+                    ? "bg-emerald-600 hover:bg-emerald-700"
+                    : "bg-red-600 hover:bg-red-700"
+                }`}
+                onClick={confirmEditReview}
+                disabled={reviewEditRequestMutation.isPending}
+              >
+                {reviewEditRequestMutation.isPending
+                  ? "Saving..."
+                  : editReviewAction === "approved"
+                    ? "Approve Edit"
+                    : "Reject Edit"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Review Modal */}
       <Dialog open={showReviewModal} onOpenChange={setShowReviewModal}>
         <DialogContent>
@@ -1964,135 +2732,135 @@ export default function LoanReviewPanel({
       {/* Disburse Modal */}
       {canDisburse && (
         <Dialog open={showDisburseModal} onOpenChange={setShowDisburseModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Disburse Loan</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {selectedLoan && (
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <p className="font-medium">{selectedLoan.applicantName}</p>
-                <p className="font-bold text-purple-600 text-lg">
-                  {formatCurrency(
-                    selectedLoan.approvedAmount ?? selectedLoan.loanAmount,
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Disburse Loan</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              {selectedLoan && (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <p className="font-medium">{selectedLoan.applicantName}</p>
+                  <p className="font-bold text-purple-600 text-lg">
+                    {formatCurrency(
+                      selectedLoan.approvedAmount ?? selectedLoan.loanAmount,
+                    )}
+                  </p>
+                  <p className="text-gray-600 text-sm">
+                    {selectedLoan.loanPurpose}
+                  </p>
+                </div>
+              )}
+              {selectedLoan && (
+                <div className="bg-slate-50 p-3 rounded-lg text-slate-600 text-sm">
+                  {selectedDisbursementAccount ? (
+                    <div>
+                      <p className="font-medium text-slate-700">
+                        Disbursement Account
+                      </p>
+                      <p className="mt-1 text-slate-600 text-sm">
+                        {selectedDisbursementAccount.bankName} •{" "}
+                        {selectedDisbursementAccount.accountNumber} •{" "}
+                        {selectedDisbursementAccount.accountName}
+                      </p>
+                    </div>
+                  ) : bankAccountsLoading ? (
+                    <p>Loading borrower bank accounts...</p>
+                  ) : bankAccountsError ? (
+                    <p>
+                      Unable to load borrower bank accounts right now. Please
+                      retry.
+                    </p>
+                  ) : bankAccounts.length === 0 ? (
+                    <p>
+                      Borrower has no bank accounts on file. Ask them to add one
+                      before disbursement.
+                    </p>
+                  ) : (
+                    <p>Select a bank account below for disbursement.</p>
                   )}
-                </p>
-                <p className="text-gray-600 text-sm">
-                  {selectedLoan.loanPurpose}
-                </p>
-              </div>
-            )}
-            {selectedLoan && (
-              <div className="bg-slate-50 p-3 rounded-lg text-slate-600 text-sm">
-                {selectedDisbursementAccount ? (
-                  <div>
-                    <p className="font-medium text-slate-700">
-                      Disbursement Account
-                    </p>
-                    <p className="mt-1 text-slate-600 text-sm">
-                      {selectedDisbursementAccount.bankName} •{" "}
-                      {selectedDisbursementAccount.accountNumber} •{" "}
-                      {selectedDisbursementAccount.accountName}
-                    </p>
-                  </div>
-                ) : bankAccountsLoading ? (
-                  <p>Loading borrower bank accounts...</p>
-                ) : bankAccountsError ? (
-                  <p>
-                    Unable to load borrower bank accounts right now. Please
-                    retry.
+                </div>
+              )}
+              <div className="space-y-2">
+                <label className="block font-medium text-gray-700 text-sm">
+                  Bank Account for Disbursement
+                </label>
+                <Select
+                  value={selectedDisbursementAccountId}
+                  onValueChange={setSelectedDisbursementAccountId}
+                  disabled={bankAccountsLoading || bankAccounts.length === 0}
+                >
+                  <SelectTrigger>
+                    <SelectValue
+                      placeholder={
+                        bankAccountsLoading
+                          ? "Loading accounts..."
+                          : bankAccounts.length === 0
+                            ? "No bank accounts found"
+                            : "Select bank account"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {bankAccounts.map((account) => (
+                      <SelectItem key={account.id} value={account.id}>
+                        {account.bankName} • {account.accountNumber} •{" "}
+                        {account.accountName}
+                        {account.isPrimary ? " (Primary)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {bankAccounts.length === 0 && !bankAccountsLoading && (
+                  <p className="text-amber-600 text-xs">
+                    The borrower must add a bank account before you can disburse
+                    this loan.
                   </p>
-                ) : bankAccounts.length === 0 ? (
-                  <p>
-                    Borrower has no bank accounts on file. Ask them to add one
-                    before disbursement.
+                )}
+                {bankAccountsError && !bankAccountsLoading && (
+                  <p className="text-red-600 text-xs">
+                    Unable to load bank accounts. Please retry in a moment.
                   </p>
-                ) : (
-                  <p>Select a bank account below for disbursement.</p>
                 )}
               </div>
-            )}
-            <div className="space-y-2">
-              <label className="block font-medium text-gray-700 text-sm">
-                Bank Account for Disbursement
-              </label>
-              <Select
-                value={selectedDisbursementAccountId}
-                onValueChange={setSelectedDisbursementAccountId}
-                disabled={bankAccountsLoading || bankAccounts.length === 0}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      bankAccountsLoading
-                        ? "Loading accounts..."
-                        : bankAccounts.length === 0
-                          ? "No bank accounts found"
-                          : "Select bank account"
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {bankAccounts.map((account) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.bankName} • {account.accountNumber} •{" "}
-                      {account.accountName}
-                      {account.isPrimary ? " (Primary)" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {bankAccounts.length === 0 && !bankAccountsLoading && (
-                <p className="text-xs text-amber-600">
-                  The borrower must add a bank account before you can disburse
-                  this loan.
+              <div className="space-y-2">
+                <label className="block font-medium text-gray-700 text-sm">
+                  Repayment Start Date (optional)
+                </label>
+                <input
+                  type="date"
+                  value={repaymentStartDate}
+                  onChange={(e) => setRepaymentStartDate(e.target.value)}
+                  className="px-3 py-2 border rounded-md w-full text-sm"
+                />
+                <p className="text-gray-500 text-xs">
+                  Leave empty to start next month. Guarantors must have accepted
+                  100% liability before disbursement.
                 </p>
-              )}
-              {bankAccountsError && !bankAccountsLoading && (
-                <p className="text-xs text-red-600">
-                  Unable to load bank accounts. Please retry in a moment.
-                </p>
-              )}
+              </div>
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setShowDisburseModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-purple-600 hover:bg-purple-700"
+                  onClick={confirmDisburse}
+                  disabled={
+                    bankAccountsLoading ||
+                    bankAccountsError ||
+                    bankAccounts.length === 0 ||
+                    !selectedDisbursementAccountId
+                  }
+                >
+                  Confirm Disbursement
+                </Button>
+              </div>
             </div>
-            <div className="space-y-2">
-              <label className="block font-medium text-gray-700 text-sm">
-                Repayment Start Date (optional)
-              </label>
-              <input
-                type="date"
-                value={repaymentStartDate}
-                onChange={(e) => setRepaymentStartDate(e.target.value)}
-                className="px-3 py-2 border rounded-md w-full text-sm"
-              />
-              <p className="text-gray-500 text-xs">
-                Leave empty to start next month. Guarantors must have accepted
-                100% liability before disbursement.
-              </p>
-            </div>
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => setShowDisburseModal(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="flex-1 bg-purple-600 hover:bg-purple-700"
-                onClick={confirmDisburse}
-                disabled={
-                  bankAccountsLoading ||
-                  bankAccountsError ||
-                  bankAccounts.length === 0 ||
-                  !selectedDisbursementAccountId
-                }
-              >
-                Confirm Disbursement
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
       )}
 
       {/* OTP Finalization Modal */}
@@ -2183,3 +2951,4 @@ export default function LoanReviewPanel({
     </div>
   );
 }
+

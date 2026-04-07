@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +9,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { useToast } from "@/hooks/use-toast";
 import { useWithdrawalsAdminQuery } from "@/hooks/finance/useWithdrawalsAdminQuery";
 import {
@@ -64,6 +73,20 @@ interface WithdrawalApprovalPanelProps {
   canFinalizeOtp?: boolean;
 }
 
+const buildPageItems = (currentPage: number, totalPages: number) => {
+  if (totalPages <= 5) {
+    return Array.from({ length: totalPages }, (_, idx) => idx + 1);
+  }
+  const pages: Array<number | "ellipsis"> = [1];
+  if (currentPage > 3) pages.push("ellipsis");
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  for (let i = start; i <= end; i += 1) pages.push(i);
+  if (currentPage < totalPages - 2) pages.push("ellipsis");
+  pages.push(totalPages);
+  return pages;
+};
+
 export default function WithdrawalApprovalPanel({
   canCompletePayout = true,
   canFinalizeOtp = true,
@@ -74,6 +97,8 @@ export default function WithdrawalApprovalPanel({
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filter, setFilter] = useState("pending");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 6;
   const [selectedWithdrawal, setSelectedWithdrawal] =
     useState<WithdrawalRequest | null>(null);
   const [adminNotes, setAdminNotes] = useState("");
@@ -427,6 +452,29 @@ export default function WithdrawalApprovalPanel({
     return matchesSearch && matchesFilter;
   });
 
+  const total = filteredWithdrawals.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const pageStart = total === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const pageEnd = Math.min(currentPage * pageSize, total);
+  const pagedWithdrawals = filteredWithdrawals.slice(
+    (currentPage - 1) * pageSize,
+    pageEnd,
+  );
+  const pageItems = useMemo(
+    () => buildPageItems(currentPage, totalPages),
+    [currentPage, totalPages],
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, filter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
   const stats = {
     pending: withdrawals.filter((w) => w.status === "pending").length,
     approved: withdrawals.filter((w) => w.status === "approved").length,
@@ -593,7 +641,7 @@ export default function WithdrawalApprovalPanel({
             </div>
           ) : (
             <div className="space-y-4">
-              {filteredWithdrawals.map((withdrawal) => (
+              {pagedWithdrawals.map((withdrawal) => (
                 <div
                   key={withdrawal.id}
                   className="hover:bg-gray-50 p-4 border rounded-lg transition-colors"
@@ -804,6 +852,58 @@ export default function WithdrawalApprovalPanel({
           )}
         </CardContent>
       </Card>
+
+      {total > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between border border-gray-100 bg-white px-4 py-3 rounded-xl">
+          <p className="text-sm text-gray-500">
+            Showing {pageStart}-{pageEnd} of {total} requests
+          </p>
+          <Pagination className="mx-0 w-auto">
+            <PaginationContent>
+              <PaginationItem>
+                <PaginationPrevious
+                  href="#"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setCurrentPage((prev) => Math.max(1, prev - 1));
+                  }}
+                />
+              </PaginationItem>
+              {pageItems.map((page, index) =>
+                page === "ellipsis" ? (
+                  <PaginationItem key={`ellipsis-${index}`}>
+                    <PaginationEllipsis />
+                  </PaginationItem>
+                ) : (
+                  <PaginationItem key={page}>
+                    <PaginationLink
+                      href="#"
+                      isActive={page === currentPage}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        setCurrentPage(page);
+                      }}
+                    >
+                      {page}
+                    </PaginationLink>
+                  </PaginationItem>
+                ),
+              )}
+              <PaginationItem>
+                <PaginationNext
+                  href="#"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setCurrentPage((prev) =>
+                      Math.min(totalPages, prev + 1),
+                    );
+                  }}
+                />
+              </PaginationItem>
+            </PaginationContent>
+          </Pagination>
+        </div>
+      )}
 
       {/* Review Modal */}
       {selectedWithdrawal && (

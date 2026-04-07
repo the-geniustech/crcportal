@@ -7,6 +7,13 @@ import LoanRepaymentTracker from "@/components/loans/LoanRepaymentTracker";
 import LoanCalculator from "@/components/loans/LoanCalculator";
 import LoanFaqModal from "@/components/loans/LoanFaqModal";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useMyLoanApplicationsQuery } from "@/hooks/loans/useMyLoanApplicationsQuery";
 import { useLoanScheduleQuery } from "@/hooks/loans/useLoanScheduleQuery";
@@ -30,6 +37,8 @@ import {
   Award,
   Edit2,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useDeleteLoanDraftMutation } from "@/hooks/loans/useDeleteLoanDraftMutation";
 
@@ -62,6 +71,14 @@ type PaymentScheduleItemVM = {
   lateFee?: number;
 };
 
+const EDIT_REQUEST_BLOCKED_STATUSES = new Set([
+  "draft",
+  "disbursed",
+  "completed",
+  "defaulted",
+  "cancelled",
+]);
+
 function toYmd(date: Date | string | null | undefined): string {
   if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;
@@ -76,6 +93,13 @@ function addMonths(date: Date, months: number): Date {
   d.setMonth(d.getMonth() + months);
   if (d.getDate() < day) d.setDate(0);
   return d;
+}
+
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function mapLoanVm(
@@ -153,6 +177,11 @@ function LoansContent() {
   const [activeTab, setActiveTab] = useState(initialTab);
   const [selectedLoan, setSelectedLoan] = useState<LoanScheduleVM | null>(null);
   const [showLoanFaq, setShowLoanFaq] = useState(false);
+  const [docPreviewOpen, setDocPreviewOpen] = useState(false);
+  const [docPreviewItems, setDocPreviewItems] = useState<
+    BackendLoanApplication["documents"]
+  >([]);
+  const [docPreviewIndex, setDocPreviewIndex] = useState(0);
 
   const applications = myAppsQuery.data ?? [];
   const activeLoanApps = applications.filter(
@@ -236,6 +265,39 @@ function LoansContent() {
     }
   };
 
+  const formatEditValue = (field: string, value: string | number | null) => {
+    if (value === null || value === undefined || value === "") return "-";
+    if (field === "loanAmount") {
+      const amount = Number(value);
+      return Number.isFinite(amount)
+        ? `NGN ${amount.toLocaleString()}`
+        : String(value);
+    }
+    if (field === "repaymentPeriod") {
+      return `${value} months`;
+    }
+    return String(value);
+  };
+
+  const openDocPreview = (
+    docs: BackendLoanApplication["documents"] = [],
+    index = 0,
+  ) => {
+    const safeDocs = Array.isArray(docs) ? docs : [];
+    const safeIndex = safeDocs.length
+      ? Math.min(Math.max(0, index), safeDocs.length - 1)
+      : 0;
+    setDocPreviewItems(safeDocs);
+    setDocPreviewIndex(safeIndex);
+    setDocPreviewOpen(true);
+  };
+
+  const closeDocPreview = () => {
+    setDocPreviewOpen(false);
+    setDocPreviewItems([]);
+    setDocPreviewIndex(0);
+  };
+
   return (
     <div className="bg-gradient-to-br from-gray-50 to-emerald-50 min-h-screen">
       <DashboardHeader />
@@ -302,7 +364,7 @@ function LoansContent() {
               </div>
               <div>
                 <p className="font-bold text-gray-900 text-2xl">
-                  â‚¦
+                  ₦
                   {(
                     activeLoanApps.reduce(
                       (sum, l) => sum + Number(l.remainingBalance || 0),
@@ -327,7 +389,7 @@ function LoansContent() {
                       p.status === "pending" ||
                       p.status === "overdue" ||
                       p.status === "upcoming",
-                  )?.dueDate || "â€”"}
+                  )?.dueDate || "No upcoming payment"}
                 </p>
                 <p className="text-gray-500 text-sm">Next Payment</p>
               </div>
@@ -411,7 +473,7 @@ function LoansContent() {
                             {vm.purpose}
                           </p>
                           <p className="text-gray-500 text-sm">
-                            â‚¦{vm.loanAmount.toLocaleString()}
+                            ₦{vm.loanAmount.toLocaleString()}
                           </p>
                         </button>
                       );
@@ -502,13 +564,13 @@ function LoansContent() {
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Loan Amount</p>
                           <p className="font-semibold text-gray-900">
-                            â‚¦{principal.toLocaleString()}
+                            ₦{principal.toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Repaid So Far</p>
                           <p className="font-semibold text-emerald-600">
-                            â‚¦{totalPaid.toLocaleString()}
+                            ₦{totalPaid.toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
@@ -570,6 +632,16 @@ function LoansContent() {
                     rateType,
                     facility?.interestRateRange,
                   );
+                  const editRequest = app.latestEditRequest;
+                  const canRequestEdit =
+                    !EDIT_REQUEST_BLOCKED_STATUSES.has(String(app.status)) &&
+                    editRequest?.status !== "pending";
+                  const editStatusTone =
+                    editRequest?.status === "approved"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : editRequest?.status === "rejected"
+                        ? "bg-red-100 text-red-700"
+                        : "bg-amber-100 text-amber-700";
 
                   return (
                     <div
@@ -601,7 +673,7 @@ function LoansContent() {
                             Requested Amount
                           </p>
                           <p className="font-semibold text-gray-900">
-                            â‚¦{Number(app.loanAmount || 0).toLocaleString()}
+                            ₦{Number(app.loanAmount || 0).toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
@@ -622,6 +694,108 @@ function LoansContent() {
                             {toYmd(app.createdAt || "")}
                           </p>
                         </div>
+                      </div>
+
+                      {editRequest && (
+                        <div className="bg-slate-50 mt-4 p-4 border border-slate-100 rounded-xl">
+                          <div className="flex flex-wrap justify-between items-center gap-2">
+                            <p className="font-semibold text-slate-500 text-xs uppercase tracking-wide">
+                              Edit Request
+                            </p>
+                            <Badge className={editStatusTone}>
+                              {editRequest.status.replace(/_/g, " ")}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-slate-500 text-xs">
+                            Requested {toYmd(editRequest.requestedAt || "")}
+                          </p>
+                          <div className="space-y-2 mt-3 text-sm">
+                            {(editRequest.changes ?? []).map(
+                              (change, index) => (
+                                <div
+                                  key={`${change.field}-${index}`}
+                                  className="flex flex-wrap justify-between gap-2 bg-white px-3 py-2 border border-white rounded-lg"
+                                >
+                                  <span className="font-medium text-slate-600">
+                                    {change.label}
+                                  </span>
+                                  <span className="text-slate-500">
+                                    <span className="text-slate-400 line-through">
+                                      {formatEditValue(
+                                        change.field,
+                                        change.from ?? "-",
+                                      )}
+                                    </span>{" "}
+                                    →{" "}
+                                    <span className="font-semibold text-slate-900">
+                                      {formatEditValue(
+                                        change.field,
+                                        change.to ?? "-",
+                                      )}
+                                    </span>
+                                  </span>
+                                </div>
+                              ),
+                            )}
+                            {(editRequest.changes ?? []).length === 0 && (
+                              <p className="text-slate-500 text-sm">
+                                No change details were provided.
+                              </p>
+                            )}
+                          </div>
+                          {(editRequest.documents ?? []).length > 0 && (
+                            <div className="flex flex-wrap justify-between items-center gap-2 bg-white mt-4 px-3 py-2 border border-slate-100 rounded-lg text-slate-500 text-xs">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-semibold text-slate-600">
+                                  {editRequest.documents?.length} document
+                                  {editRequest.documents &&
+                                  editRequest.documents.length > 1
+                                    ? "s"
+                                    : ""}
+                                </span>
+                                <span className="text-slate-400">
+                                  ready to review
+                                </span>
+                              </div>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="px-3 h-7 text-xs"
+                                onClick={() =>
+                                  openDocPreview(editRequest.documents, 0)
+                                }
+                              >
+                                View Documents
+                              </Button>
+                            </div>
+                          )}
+                          {editRequest.reviewNotes && (
+                            <p className="mt-3 text-slate-500 text-xs">
+                              Admin note: {editRequest.reviewNotes}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex flex-wrap gap-2 mt-4">
+                        {canRequestEdit && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-2 border-emerald-200 text-emerald-700"
+                            onClick={() =>
+                              navigate(`/loan-application?edit=${app._id}`)
+                            }
+                          >
+                            <Edit2 className="w-4 h-4" />
+                            Request Edit
+                          </Button>
+                        )}
+                        {editRequest?.status === "pending" && (
+                          <span className="text-amber-600 text-xs">
+                            Edit request awaiting approval
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
@@ -692,7 +866,7 @@ function LoansContent() {
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Amount</p>
                           <p className="font-semibold text-gray-900">
-                            â‚¦{Number(app.loanAmount || 0).toLocaleString()}
+                            ₦{Number(app.loanAmount || 0).toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
@@ -771,6 +945,124 @@ function LoansContent() {
             </div>
           </div>
         </div>
+
+        <Dialog
+          open={docPreviewOpen}
+          onOpenChange={(open) =>
+            open ? setDocPreviewOpen(true) : closeDocPreview()
+          }
+        >
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle>Supporting Documents</DialogTitle>
+            </DialogHeader>
+            {docPreviewItems.length === 0 ? (
+              <div className="py-10 text-slate-500 text-sm text-center">
+                No documents attached to this edit request.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="flex flex-wrap justify-between items-center gap-2 text-slate-500 text-xs">
+                  <span>
+                    Document {docPreviewIndex + 1} of {docPreviewItems.length}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        setDocPreviewIndex((prev) => Math.max(0, prev - 1))
+                      }
+                      disabled={docPreviewIndex === 0}
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() =>
+                        setDocPreviewIndex((prev) =>
+                          Math.min(docPreviewItems.length - 1, prev + 1),
+                        )
+                      }
+                      disabled={docPreviewIndex >= docPreviewItems.length - 1}
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap justify-between items-center gap-2 text-slate-500 text-xs">
+                  <span className="font-medium text-slate-600">
+                    {docPreviewItems[docPreviewIndex]?.name || "Document"}
+                  </span>
+                  {docPreviewItems[docPreviewIndex]?.url && (
+                    <a
+                      href={docPreviewItems[docPreviewIndex]?.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium text-emerald-700 hover:text-emerald-800"
+                    >
+                      Open in new tab
+                    </a>
+                  )}
+                </div>
+
+                <div className="bg-slate-50 p-4 border border-slate-100 rounded-xl">
+                  {docPreviewItems[docPreviewIndex]?.url ? (
+                    docPreviewItems[docPreviewIndex]?.type?.startsWith(
+                      "image/",
+                    ) ? (
+                      <img
+                        src={docPreviewItems[docPreviewIndex]?.url}
+                        alt={
+                          docPreviewItems[docPreviewIndex]?.name || "Preview"
+                        }
+                        className="rounded-lg w-full max-h-[420px] object-contain"
+                      />
+                    ) : (
+                      <iframe
+                        title="Document preview"
+                        src={docPreviewItems[docPreviewIndex]?.url}
+                        className="bg-white border-0 rounded-lg w-full h-[420px]"
+                      />
+                    )
+                  ) : (
+                    <div className="flex justify-center items-center h-[320px] text-slate-400 text-sm">
+                      Preview unavailable. Download the document to view.
+                    </div>
+                  )}
+                </div>
+
+                <div className="gap-2 grid sm:grid-cols-2 lg:grid-cols-3">
+                  {docPreviewItems.map((doc, idx) => (
+                    <button
+                      key={`${doc?.name}-${idx}`}
+                      type="button"
+                      onClick={() => setDocPreviewIndex(idx)}
+                      className={`flex items-center gap-3 rounded-lg border px-3 py-2 text-left text-xs ${
+                        idx === docPreviewIndex
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-slate-100 bg-white text-slate-600 hover:border-emerald-200"
+                      }`}
+                    >
+                      <FileText className="w-4 h-4" />
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">
+                          {doc?.name || "Document"}
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {doc?.type || "file"} •{" "}
+                          {formatFileSize(doc?.size || 0)}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         <LoanFaqModal open={showLoanFaq} onOpenChange={setShowLoanFaq} />
       </main>
