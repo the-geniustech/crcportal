@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 
 const Footer: React.FC = () => {
   const currentYear = new Date().getFullYear();
@@ -183,7 +183,7 @@ const Footer: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-gray-500 text-sm">
-              © {currentYear} CRC Connect. All rights reserved.
+              Â© {currentYear} CRC Connect. All rights reserved.
             </p>
             <div className="flex flex-wrap items-center gap-6 text-sm">
               <a href="#" className="text-gray-500 hover:text-emerald-400 transition-colors">Privacy Policy</a>
@@ -198,3 +198,5 @@ const Footer: React.FC = () => {
 };
 
 export default Footer;
+
+

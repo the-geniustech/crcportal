@@ -5,6 +5,9 @@ import {
   Users,
   CreditCard,
   BarChart3,
+  FileText,
+  Percent,
+  PieChart,
   Calendar,
   Bell,
   LogOut,
@@ -85,6 +88,9 @@ import MemberApprovalPanel from "@/components/admin/MemberApprovalPanel";
 import ContributionTracker from "@/components/admin/ContributionTracker";
 import LoanReviewPanel from "@/components/admin/LoanReviewPanel";
 import FinancialReports from "@/components/admin/FinancialReports";
+import ContributionInterestSettings from "@/components/admin/ContributionInterestSettings";
+import ContributionIncomeSummary from "@/components/admin/ContributionIncomeSummary";
+import ContributionInterestSharing from "@/components/admin/ContributionInterestSharing";
 import AttendanceTracker from "@/components/admin/AttendanceTracker";
 import WithdrawalApprovalPanel from "@/components/admin/WithdrawalApprovalPanel";
 import GroupFilters from "@/components/groups/GroupFilters";
@@ -775,6 +781,9 @@ export default function Admin() {
       },
       { id: "withdrawals", label: "Withdrawals", icon: ArrowDownRight },
       { id: "reports", label: "Financial Reports", icon: BarChart3 },
+      { id: "interest-settings", label: "Interest Settings", icon: Percent },
+      { id: "summary-income", label: "Summary Of Income", icon: FileText },
+      { id: "interest-sharing", label: "Sharing Formula", icon: PieChart },
       { id: "attendance", label: "Attendance", icon: Calendar },
       { id: "coordinators", label: "Group Coordinators", icon: Users },
       { id: "announcements", label: "Announcements", icon: Bell },
@@ -782,15 +791,23 @@ export default function Admin() {
     ];
 
     const coordinatorOnly = new Set(["approvals"]);
+    const adminOnly = new Set([
+      "interest-settings",
+      "summary-income",
+      "interest-sharing",
+    ]);
 
-    return isCoordinator
-      ? items
-      : items.filter((item) => !coordinatorOnly.has(item.id));
+    if (isAdmin) {
+      return items.filter((item) => !coordinatorOnly.has(item.id));
+    }
+
+    return items.filter((item) => !adminOnly.has(item.id));
   }, [
     stats.pendingApprovals,
     stats.defaulters,
     stats.pendingLoans,
     isCoordinator,
+    isAdmin,
   ]);
 
   const activeTab = menuItems.some((item) => item.id === tab)
@@ -1597,6 +1614,18 @@ export default function Admin() {
           )}
 
           {activeTab === "reports" && <FinancialReports />}
+
+          {activeTab === "interest-settings" && isAdmin && (
+            <ContributionInterestSettings />
+          )}
+
+          {activeTab === "summary-income" && isAdmin && (
+            <ContributionIncomeSummary />
+          )}
+
+          {activeTab === "interest-sharing" && isAdmin && (
+            <ContributionInterestSharing />
+          )}
 
           {activeTab === "attendance" && <AttendanceTracker />}
 
@@ -2965,4 +2994,6 @@ export default function Admin() {
     </div>
   );
 }
+
+
 

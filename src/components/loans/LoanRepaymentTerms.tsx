@@ -1,7 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Calendar, Calculator, TrendingDown, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { buildAmortizationSchedule, calculateLoanSummary } from "@/lib/loanMath";
 import type { LoanInterestRateType } from "@/lib/loanPolicy";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface RepaymentOption {
   months: number;
@@ -72,12 +79,29 @@ export default function LoanRepaymentTerms({
     }));
   };
 
-  const availableTerms = termOptions && termOptions.length > 0 ? termOptions : [3, 6, 9, 10, 18, 24];
+  const availableTerms = useMemo(() => {
+    const baseTerms = Array.isArray(termOptions)
+      ? termOptions
+      : Array.from({ length: 10 }, (_, i) => i + 1);
+    return baseTerms
+      .filter((term) => term >= 1 && term <= 10)
+      .sort((a, b) => a - b);
+  }, [termOptions]);
+
+  useEffect(() => {
+    if (availableTerms.length === 0) return;
+    if (availableTerms.includes(selectedTerm)) return;
+    onTermChange(availableTerms[0]);
+  }, [availableTerms, onTermChange, selectedTerm]);
+
   const repaymentOptions = availableTerms.map(months => calculateRepayment(loanAmount, interestRate, months));
+  const activeTerm = availableTerms.includes(selectedTerm)
+    ? selectedTerm
+    : repaymentOptions[0]?.months ?? 1;
   const selectedOption =
-    repaymentOptions.find(o => o.months === selectedTerm) ||
+    repaymentOptions.find(o => o.months === activeTerm) ||
     repaymentOptions[0];
-  const amortizationSchedule = generateAmortizationSchedule(loanAmount, interestRate, selectedTerm);
+  const amortizationSchedule = generateAmortizationSchedule(loanAmount, interestRate, activeTerm);
   
   const displayedSchedule = showFullSchedule ? amortizationSchedule : amortizationSchedule.slice(0, 6);
 
@@ -128,36 +152,57 @@ export default function LoanRepaymentTerms({
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {repaymentOptions.map((option) => (
-            <button
-              key={option.months}
-              onClick={() => onTermChange(option.months)}
-              className={`p-4 rounded-xl border-2 text-left transition-all ${
-                selectedTerm === option.months
-                  ? 'border-blue-500 bg-blue-50'
-                  : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
-              }`}
+        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px] items-start">
+          <div className="space-y-3">
+            <label className="text-sm font-medium text-gray-700">
+              Repayment Term (Months)
+            </label>
+            <Select
+              value={String(activeTerm)}
+              onValueChange={(value) => onTermChange(Number(value))}
             >
-              <div className="flex items-center justify-between mb-2">
-                <span className={`text-2xl font-bold ${selectedTerm === option.months ? 'text-blue-600' : 'text-gray-900'}`}>
-                  {option.months}
-                </span>
-                <span className="text-sm text-gray-500">months</span>
+              <SelectTrigger className="w-full md:max-w-xs">
+                <SelectValue placeholder="Select repayment term" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableTerms.map((months) => (
+                  <SelectItem key={months} value={String(months)}>
+                    {months} month{months > 1 ? "s" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-500">
+              Showing terms that fit within the current repayment window.
+            </p>
+          </div>
+          {selectedOption && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide">
+                Selected Term Summary
+              </p>
+              <div className="mt-3 space-y-2 text-sm text-blue-900">
+                <div className="flex items-center justify-between">
+                  <span className="text-blue-700">Monthly Payment</span>
+                  <span className="font-semibold">
+                    ₦{selectedOption.monthlyPayment.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-blue-700">Total Interest</span>
+                  <span className="font-semibold text-amber-600">
+                    ₦{selectedOption.totalInterest.toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between pt-2 border-t border-blue-100">
+                  <span className="text-blue-700">Total Repayment</span>
+                  <span className="font-semibold">
+                    ₦{selectedOption.totalPayment.toLocaleString()}
+                  </span>
+                </div>
               </div>
-              <div className="space-y-1">
-                <p className="text-sm text-gray-500">Monthly Payment</p>
-                <p className={`text-lg font-semibold ${selectedTerm === option.months ? 'text-blue-900' : 'text-gray-900'}`}>
-                  ₦{option.monthlyPayment.toLocaleString()}
-                </p>
-              </div>
-              <div className="mt-2 pt-2 border-t border-gray-100">
-                <p className="text-xs text-gray-500">
-                  Total Interest: <span className="font-medium text-amber-600">₦{option.totalInterest.toLocaleString()}</span>
-                </p>
-              </div>
-            </button>
-          ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -192,7 +237,7 @@ export default function LoanRepaymentTerms({
             <Info className="w-4 h-4 text-emerald-200" />
             <p className="text-sm text-emerald-100">
               First payment due: <span className="font-semibold text-white">{getMonthName(1)}</span> | 
-              Final payment: <span className="font-semibold text-white">{getMonthName(selectedTerm)}</span>
+              Final payment: <span className="font-semibold text-white">{getMonthName(activeTerm)}</span>
             </p>
           </div>
         </div>

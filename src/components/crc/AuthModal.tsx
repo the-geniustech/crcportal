@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+﻿import React, { useState, useEffect, useRef, useMemo } from "react";
+import SignupPoliciesModal from "@/components/auth/SignupPoliciesModal";
 import {
   signUp,
   signIn,
@@ -78,6 +79,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [acceptedPolicies, setAcceptedPolicies] = useState(false);
+  const [policyModalOpen, setPolicyModalOpen] = useState(false);
+  const [policyModalTab, setPolicyModalTab] = useState<"terms" | "privacy">("terms");
 
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const twoFactorInputRefs = useRef<(HTMLInputElement | null)[]>([]);
@@ -128,6 +132,8 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setGroupSearch("");
     setSelectedGroup(null);
     setShowSlowRequestHint(false);
+    setAcceptedPolicies(false);
+    setPolicyModalOpen(false);
   }, [initialMode, isOpen]);
 
   useEffect(() => {
@@ -189,6 +195,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
         if (formData.password !== formData.confirmPassword) {
           newErrors.confirmPassword = "Passwords do not match";
         }
+        if (!acceptedPolicies) {
+          newErrors.terms = "You must agree before creating an account";
+        }
       }
 
       if (!formData.email.trim()) newErrors.email = "Email is required";
@@ -212,6 +221,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
       if (mode === "signup" && !formData.fullName.trim()) {
         newErrors.fullName = "Full name is required";
+      }
+      if (mode === "signup" && !acceptedPolicies) {
+        newErrors.terms = "You must agree before creating an account";
       }
     }
 
@@ -279,7 +291,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
         }
 
         if (error) {
-          console.log("Error!! 💥: ", error);
+          console.log("Error!! ðŸ’¥: ", error);
           // Check if it's an email confirmation issue
           if (
             error.message.includes("Email not confirmed") ||
@@ -697,6 +709,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setTwoFactorError(null);
     setGroupSearch("");
     setSelectedGroup(null);
+    setAcceptedPolicies(false);
   };
 
   const switchMode = (newMode: "login" | "signup" | "forgot-password") => {
@@ -706,12 +719,14 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setOtpStep("input");
     setPinId(null);
     setGoogleAuthMessage(null);
+    setAcceptedPolicies(false);
     setShowEmailConfirmation(false);
     setTwoFactorToken(null);
     setTwoFactorCode(["", "", "", "", "", ""]);
     setTwoFactorError(null);
     setGroupSearch("");
     setSelectedGroup(null);
+    setAcceptedPolicies(false);
   };
 
   const showGoogleButton = isGoogleAvailable === true;
@@ -1340,9 +1355,9 @@ const AuthModal: React.FC<AuthModalProps> = ({
                             Selected Group
                           </p>
                           <p className="text-sm font-semibold text-emerald-900">
-                            Group {selectedGroup.groupNumber ?? "—"}{" "}
+                            Group {selectedGroup.groupNumber ?? "â€”"}{" "}
                             {selectedGroup.groupName
-                              ? `• ${selectedGroup.groupName}`
+                              ? `â€¢ ${selectedGroup.groupName}`
                               : ""}
                           </p>
                           {selectedGroup.location && (
@@ -1407,7 +1422,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                                   <p className="text-sm font-semibold text-gray-900">
                                     Group {group.groupNumber}{" "}
                                     {group.groupName
-                                      ? `• ${group.groupName}`
+                                      ? `â€¢ ${group.groupName}`
                                       : ""}
                                   </p>
                                   <p className="text-xs text-gray-500">
@@ -1423,11 +1438,11 @@ const AuthModal: React.FC<AuthModalProps> = ({
                                     <span>
                                       {typeof group.memberCount === "number"
                                         ? group.memberCount
-                                        : "—"}
+                                        : "â€”"}
                                       /
                                       {typeof group.maxMembers === "number"
                                         ? group.maxMembers
-                                        : "—"}{" "}
+                                        : "â€”"}{" "}
                                       members
                                     </span>
                                   )}
@@ -1447,7 +1462,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                     )}
 
                     <p className="text-xs text-gray-500">
-                      We’ll send a join request to the selected group after
+                      Weâ€™ll send a join request to the selected group after
                       signup.
                     </p>
                   </div>
@@ -1466,7 +1481,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                     value={formData.password}
                     onChange={handleChange}
                     className={`w-full px-4 py-3 rounded-xl border ${errors.password ? "border-red-500" : "border-gray-200"} focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
-                    placeholder="••••••••"
+                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   />
                   {errors.password && (
                     <p className="mt-1 text-red-500 text-sm">
@@ -1487,7 +1502,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     className={`w-full px-4 py-3 rounded-xl border ${errors.confirmPassword ? "border-red-500" : "border-gray-200"} focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
-                    placeholder="••••••••"
+                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
                   />
                   {errors.confirmPassword && (
                     <p className="mt-1 text-red-500 text-sm">
@@ -1519,22 +1534,49 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
               {/* Terms Agreement (signup) */}
               {mode === "signup" && (
-                <label className="flex items-start gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-1 border-gray-300 rounded focus:ring-emerald-500 w-4 h-4 text-emerald-500"
-                  />
-                  <span className="text-gray-600 text-sm">
-                    I agree to the{" "}
-                    <a href="#" className="text-emerald-600 hover:underline">
-                      Terms of Service
-                    </a>{" "}
-                    and{" "}
-                    <a href="#" className="text-emerald-600 hover:underline">
-                      Privacy Policy
-                    </a>
-                  </span>
-                </label>
+                <div className="space-y-2">
+                  <div className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      id="signup-policy-consent"
+                      className="mt-1 border-gray-300 rounded focus:ring-emerald-500 w-4 h-4 text-emerald-500"
+                      checked={acceptedPolicies}
+                      onChange={(e) => setAcceptedPolicies(e.target.checked)}
+                    />
+                    <div className="text-gray-600 text-sm">
+                      <label
+                        htmlFor="signup-policy-consent"
+                        className="cursor-pointer"
+                      >
+                        I agree to the{" "}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPolicyModalTab("terms");
+                          setPolicyModalOpen(true);
+                        }}
+                        className="font-semibold text-emerald-600 hover:underline"
+                      >
+                        Terms of Service
+                      </button>{" "}
+                      and{" "}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPolicyModalTab("privacy");
+                          setPolicyModalOpen(true);
+                        }}
+                        className="font-semibold text-emerald-600 hover:underline"
+                      >
+                        Privacy Policy
+                      </button>
+                    </div>
+                  </div>
+                  {errors.terms && (
+                    <p className="text-xs text-red-500">{errors.terms}</p>
+                  )}
+                </div>
               )}
 
               {/* Submit Button */}
@@ -1586,7 +1628,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
               </button>
               {showSlowRequestHint && (
                 <p className="mt-2 text-amber-600 text-xs">
-                  This is taking longer than usual. The server may be waking up —
+                  This is taking longer than usual. The server may be waking up â€”
                   please keep this window open.
                 </p>
               )}
@@ -1707,8 +1749,18 @@ const AuthModal: React.FC<AuthModalProps> = ({
           )}
         </div>
       </div>
+      <SignupPoliciesModal
+        open={policyModalOpen}
+        onOpenChange={setPolicyModalOpen}
+        defaultTab={policyModalTab}
+      />
     </div>
   );
 };
 
 export default AuthModal;
+
+
+
+
+

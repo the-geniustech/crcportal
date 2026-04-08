@@ -19,16 +19,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useGroupContributionTargetsQuery } from "@/hooks/groups/useGroupContributionTargetsQuery";
+import { useGroupContributionInterestLedgerQuery } from "@/hooks/groups/useGroupContributionInterestLedgerQuery";
 import { useContributionSettingsQuery } from "@/hooks/profile/useContributionSettingsQuery";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasUserRole } from "@/lib/auth";
 import {
   ContributionTypeConfig,
   ContributionTypeOptions,
-  CONTRIBUTION_INTEREST_PER_UNIT,
   CONTRIBUTION_UNIT_BASE,
-  calculateContributionInterest,
-  calculateContributionInterestForType,
   calculateContributionUnits,
   normalizeContributionType,
   type ContributionTypeCanonical,
@@ -114,7 +112,7 @@ const INTEREST_META = {
   value: "interest",
   label: "Interest Earned",
   description:
-    "Interest accrued at NGN 35 per NGN 1,000 across contribution types.",
+    "Interest earned based on monthly rates configured by the admin.",
 } as const;
 
 const DASHBOARD_TYPES: Array<{
@@ -195,10 +193,6 @@ const GroupContributionDashboardModal: React.FC<
           contribution.contributionType,
         );
         const resolvedType = normalizedType || "revolving";
-        const computedInterest = calculateContributionInterestForType(
-          contribution.contributionType,
-          amount,
-        );
         return {
           memberId: contribution.memberId,
           month: Number(contribution.month),
@@ -212,7 +206,7 @@ const GroupContributionDashboardModal: React.FC<
             typeof contribution.interestAmount === "number" &&
             contribution.interestAmount > 0
               ? contribution.interestAmount
-              : computedInterest,
+              : 0,
           status: contribution.status,
           type: resolvedType,
         };
@@ -248,6 +242,26 @@ const GroupContributionDashboardModal: React.FC<
   });
 
   const selectedYear = resolvedSelectedYear ?? internalYear;
+
+  const interestLedgerQuery = useGroupContributionInterestLedgerQuery(
+    group?.id,
+    { year: selectedYear, contributionType: selectedInterestType },
+    isOpen && selectedType === "interest",
+  );
+
+  const normalizedInterestEntries = useMemo(() => {
+    const entries = interestLedgerQuery.data?.entries ?? [];
+    return entries.map((entry) => ({
+      memberId: entry.memberId,
+      month: Number(entry.month),
+      year: Number(entry.year),
+      amount: 0,
+      units: undefined,
+      interestAmount: Number(entry.interestAmount ?? 0),
+      status: "verified" as const,
+      type: selectedInterestType,
+    }));
+  }, [interestLedgerQuery.data?.entries, selectedInterestType]);
 
   useEffect(() => {
     if (resolvedSelectedYear !== null) {
@@ -296,18 +310,12 @@ const GroupContributionDashboardModal: React.FC<
   };
 
   const expectedMonthlyBase = getExpectedMonthlyBase(effectiveType);
-  const expectedMonthly =
-    selectedType === "interest"
-      ? calculateContributionInterest(expectedMonthlyBase)
-      : expectedMonthlyBase;
+  const expectedMonthly = expectedMonthlyBase;
   const unitAmountForType =
     unitAmounts?.[effectiveType] ??
     ContributionTypeConfig[effectiveType]?.unitAmount ??
     CONTRIBUTION_UNIT_BASE;
-  const resolvedUnitAmount =
-    selectedType === "interest"
-      ? CONTRIBUTION_INTEREST_PER_UNIT
-      : unitAmountForType;
+  const resolvedUnitAmount = unitAmountForType;
 
   const resolveMemberUnits = (
     member: GroupMember,
@@ -324,6 +332,7 @@ const GroupContributionDashboardModal: React.FC<
     member: GroupMember,
     type: ContributionTypeCanonical,
   ) => {
+    if (selectedType === "interest") return 0;
     const units = resolveMemberUnits(member, type);
     if (units && resolvedUnitAmount) {
       return units * resolvedUnitAmount;
@@ -331,16 +340,19 @@ const GroupContributionDashboardModal: React.FC<
     return expectedMonthly;
   };
 
+  const contributionDataset =
+    selectedType === "interest" ? normalizedInterestEntries : normalizedContributions;
+
   const filteredContributions = useMemo(
     () =>
-      normalizedContributions.filter(
+      contributionDataset.filter(
         (contribution) =>
           contribution.year === selectedYear &&
           contribution.type === effectiveType &&
           contribution.month >= 1 &&
           contribution.month <= 12,
       ),
-    [normalizedContributions, selectedYear, effectiveType],
+    [contributionDataset, selectedYear, effectiveType],
   );
 
   const memberMonthMap = useMemo(() => {
@@ -429,10 +441,6 @@ const GroupContributionDashboardModal: React.FC<
   }, [allMemberRows, searchQuery]);
 
   const collectionSummary = useMemo(() => {
-    const expectedTotal = allMemberRows.reduce(
-      (sum, row) => sum + row.expectedYtd,
-      0,
-    );
     const collectedTotal = filteredContributions
       .filter(
         (contribution) =>
@@ -446,14 +454,19 @@ const GroupContributionDashboardModal: React.FC<
             : Number(contribution.amount ?? 0);
         return sum + value;
       }, 0);
+    const expectedTotal =
+      selectedType === "interest"
+        ? collectedTotal
+        : allMemberRows.reduce((sum, row) => sum + row.expectedYtd, 0);
     const arrears = Math.max(expectedTotal - collectedTotal, 0);
     const collectionRate =
       expectedTotal > 0
         ? Math.round((collectedTotal / expectedTotal) * 100)
         : 0;
-    const membersInArrears = allMemberRows.filter(
-      (row) => row.arrears > 0,
-    ).length;
+    const membersInArrears =
+      selectedType === "interest"
+        ? 0
+        : allMemberRows.filter((row) => row.arrears > 0).length;
     return {
       expectedTotal,
       collectedTotal,
@@ -479,13 +492,18 @@ const GroupContributionDashboardModal: React.FC<
 
   const averageExpectedMonthly = useMemo(() => {
     const denominator = totalMembers * monthsToDate;
-    if (!denominator) return expectedMonthly;
+    if (!denominator) return selectedType === "interest" ? 0 : expectedMonthly;
+    if (selectedType === "interest") {
+      return collectionSummary.collectedTotal / denominator;
+    }
     return collectionSummary.expectedTotal / denominator;
   }, [
     collectionSummary.expectedTotal,
+    collectionSummary.collectedTotal,
     expectedMonthly,
     monthsToDate,
     totalMembers,
+    selectedType,
   ]);
 
   const totalsByType = useMemo(() => {
@@ -559,15 +577,20 @@ const GroupContributionDashboardModal: React.FC<
           label: `Interest Earned \u00b7 ${
             ContributionTypeConfig[selectedInterestType]?.label ?? "Contribution"
           }`,
-          description: `Interest accrued at NGN 35 per NGN 1,000 for ${
+          description: `Interest earned using the monthly rate schedule for ${
             ContributionTypeConfig[selectedInterestType]?.label ?? "contributions"
           }.`,
         }
       : ContributionTypeConfig[selectedType];
+  const interestLedgerLoading = interestLedgerQuery.isLoading;
   const isSummaryLoading =
-    membersLoading || contributionsLoading || targetsQuery.isLoading;
+    membersLoading ||
+    targetsQuery.isLoading ||
+    (selectedType === "interest" ? interestLedgerLoading : contributionsLoading);
   const isSettingsLoading = contributionSettingsQuery.isLoading;
-  const isTableLoading = membersLoading || contributionsLoading;
+  const isTableLoading =
+    membersLoading ||
+    (selectedType === "interest" ? interestLedgerLoading : contributionsLoading);
   const settingsUnits = contributionSettingsQuery.data?.units ?? null;
   const settingsYear = contributionSettingsQuery.data?.year ?? currentYear;
   const formatUnitsLabel = (value: number | null | undefined) => {

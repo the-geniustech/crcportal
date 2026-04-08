@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+﻿import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation, useBlocker } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -302,7 +302,11 @@ const LoanApplicationContent: React.FC = () => {
     for (const m of memberships) {
       const g = typeof m.groupId === "object" ? m.groupId : null;
       const id = typeof m.groupId === "string" ? m.groupId : g?._id;
-      const name = g?.groupName || g?.group_name || m?.groupName || "CRC Group";
+      const name =
+        g?.groupName ||
+        g?.group_name ||
+        m?.groupName ||
+        "CRC Group";
       if (id) {
         out.push({
           id: String(id),
@@ -358,9 +362,7 @@ const LoanApplicationContent: React.FC = () => {
   );
   const termOptions = (() => {
     const baseOptions = getLoanTermOptions(loanType, addMonths(new Date(), 1));
-    const unique = new Set(baseOptions);
-    unique.add(10);
-    return Array.from(unique).sort((a, b) => a - b);
+    return Array.from(new Set(baseOptions)).sort((a, b) => a - b);
   })();
 
   const groupMembersQuery = useGroupMembersQuery(selectedGroup || undefined);
@@ -529,7 +531,7 @@ const LoanApplicationContent: React.FC = () => {
     if (prefilledData?.amount || prefilledData?.term) {
       toast({
         title: "Calculator Data Applied",
-        description: `Loan amount: ₦${(prefilledData.amount || 100000).toLocaleString()}, Term: ${prefilledData.term || 10} months`,
+        description: `Loan amount: â‚¦${(prefilledData.amount || 100000).toLocaleString()}, Term: ${prefilledData.term || 10} months`,
       });
     }
   }, [prefilledData?.amount, prefilledData?.term, toast, isEditMode]);
@@ -1473,7 +1475,7 @@ const LoanApplicationContent: React.FC = () => {
                 Your loan calculator selections have been pre-filled:
                 <span className="font-semibold">
                   {" "}
-                  ₦{(prefilledData.amount || 100000).toLocaleString()}
+                  â‚¦{(prefilledData.amount || 100000).toLocaleString()}
                 </span>{" "}
                 for
                 <span className="font-semibold">
@@ -1748,7 +1750,7 @@ const LoanApplicationContent: React.FC = () => {
                                 {doc.name}
                               </p>
                               <p className="text-xs text-slate-500">
-                                {formatEditFileSize(doc.size)} •{" "}
+                                {formatEditFileSize(doc.size)} â€¢{" "}
                                 {doc.type || "document"}
                               </p>
                             </div>
@@ -2012,7 +2014,7 @@ const LoanApplicationContent: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-gray-600">Amount</span>
                 <span className="font-medium">
-                  ₦{loanAmount.toLocaleString()}
+                  â‚¦{loanAmount.toLocaleString()}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -2033,20 +2035,20 @@ const LoanApplicationContent: React.FC = () => {
                 <div className="flex justify-between">
                   <span className="text-gray-600">Monthly Payment</span>
                   <span className="font-bold text-emerald-600">
-                    ₦{repaymentDetails.monthlyPayment.toLocaleString()}
+                    â‚¦{repaymentDetails.monthlyPayment.toLocaleString()}
                   </span>
                 </div>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Total Interest</span>
                 <span className="font-medium text-amber-600">
-                  ₦{repaymentDetails.totalInterest.toLocaleString()}
+                  â‚¦{repaymentDetails.totalInterest.toLocaleString()}
                 </span>
               </div>
               <div className="flex justify-between pt-3 border-t">
                 <span className="text-gray-600">Total Repayment</span>
                 <span className="font-bold">
-                  ₦{repaymentDetails.totalPayment.toLocaleString()}
+                  â‚¦{repaymentDetails.totalPayment.toLocaleString()}
                 </span>
               </div>
             </div>
@@ -2186,3 +2188,5 @@ const LoanApplication: React.FC = () => {
 };
 
 export default LoanApplication;
+
+

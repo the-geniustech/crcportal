@@ -239,6 +239,8 @@ export type BackendContribution = {
   month: number;
   year: number;
   amount: number;
+  units?: number | null;
+  interestAmount?: number | null;
   contributionType?: ContributionTypeValue | null;
   status: "pending" | "completed" | "verified" | "overdue";
   paymentReference?: string | null;
@@ -263,6 +265,38 @@ export async function listGroupContributions(
   try {
     const res = await api.get(`/groups/${groupId}/contributions`, { params });
     return (res.data?.data?.contributions ?? []) as BackendContribution[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type BackendContributionInterestEntry = {
+  memberId: string;
+  memberName?: string | null;
+  memberSerial?: string | null;
+  month: number;
+  year: number;
+  interestAmount: number;
+};
+
+export async function getGroupContributionInterestLedger(
+  groupId: string,
+  params: { year?: number; contributionType?: string } = {},
+): Promise<{
+  year: number;
+  contributionType: string;
+  entries: BackendContributionInterestEntry[];
+}> {
+  try {
+    const res = await api.get(
+      `/groups/${groupId}/contributions/interest-ledger`,
+      { params },
+    );
+    return res.data?.data as {
+      year: number;
+      contributionType: string;
+      entries: BackendContributionInterestEntry[];
+    };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }

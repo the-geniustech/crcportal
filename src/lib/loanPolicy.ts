@@ -59,7 +59,7 @@ export const LOAN_FACILITIES: LoanFacility[] = [
   },
 ];
 
-export const DEFAULT_TERMS = [3, 6, 9, 10, 18, 24];
+export const DEFAULT_TERMS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 export const BRIDGING_TERMS = [1, 2, 3];
 export const SOFT_TERMS = [10];
 

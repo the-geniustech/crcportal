@@ -623,8 +623,8 @@ export default function ContributionTracker({
       </div>
 
       {total > 0 && totalPages > 1 && (
-        <div className="flex items-center justify-between border border-gray-100 bg-white px-4 py-3 rounded-xl">
-          <p className="text-sm text-gray-500">
+        <div className="flex justify-between items-center bg-white px-4 py-3 border border-gray-100 rounded-xl">
+          <p className="text-gray-500 text-sm">
             Showing {pageStart}-{pageEnd} of {total} records
           </p>
           <Pagination className="mx-0 w-auto">
@@ -663,9 +663,7 @@ export default function ContributionTracker({
                   href="#"
                   onClick={(event) => {
                     event.preventDefault();
-                    setCurrentPage((prev) =>
-                      Math.min(totalPages, prev + 1),
-                    );
+                    setCurrentPage((prev) => Math.min(totalPages, prev + 1));
                   }}
                 />
               </PaginationItem>

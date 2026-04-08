@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 
 interface CTASectionProps {
   onGetStartedClick: () => void;
@@ -80,3 +80,5 @@ const CTASection: React.FC<CTASectionProps> = ({ onGetStartedClick }) => {
 };
 
 export default CTASection;
+
+

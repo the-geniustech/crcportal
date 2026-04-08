@@ -89,7 +89,7 @@ const LoanTermsModal: React.FC<LoanTermsModalProps> = ({
                   </p>
                   <p className="text-sm text-emerald-800">
                     This document outlines the rules and regulations for
-                    membership in Champion Revolving Contributions (CRC).
+                    membership in Champions Revolving Contributions (CRC).
                   </p>
                 </div>
               </div>

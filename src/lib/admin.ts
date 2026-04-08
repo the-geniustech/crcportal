@@ -260,6 +260,160 @@ export async function getAdminFinancialReports(
   }
 }
 
+export type AdminContributionInterestRate = {
+  month: number;
+  label: string;
+  shortLabel?: string;
+  ratePerThousand: number;
+  ratePct: number;
+};
+
+export type AdminContributionInterestSettings = {
+  year: number;
+  rates: AdminContributionInterestRate[];
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+};
+
+export async function getAdminContributionInterestSettings(params: {
+  year?: number;
+} = {}) {
+  try {
+    const res = await api.get("/admin/contributions/interest-settings", {
+      params,
+    });
+    return res.data?.data as AdminContributionInterestSettings;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function updateAdminContributionInterestSettings(payload: {
+  year: number;
+  rates: Record<number, number> | Array<{ month: number; ratePerThousand: number }>;
+}) {
+  try {
+    const res = await api.put("/admin/contributions/interest-settings", payload);
+    return res.data?.data as AdminContributionInterestSettings;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminContributionIncomeRow = {
+  month: number;
+  label: string;
+  shortLabel?: string;
+  ratePerThousand: number;
+  ratePct: number;
+  contributions: number;
+  interest: number;
+  total: number;
+  cumulativeTotal: number;
+};
+
+export type AdminContributionIncomeSummary = {
+  year: number;
+  contributionType?: ContributionTypeCanonical | null;
+  monthsComputed?: number;
+  months: AdminContributionIncomeRow[];
+  totals: {
+    contributions: number;
+    interest: number;
+    total: number;
+  };
+};
+
+export async function getAdminContributionIncomeSummary(params: {
+  year?: number;
+  contributionType?: ContributionTypeCanonical;
+} = {}) {
+  try {
+    const res = await api.get("/admin/contributions/summary-income", {
+      params,
+    });
+    return res.data?.data as AdminContributionIncomeSummary;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminInterestSharingCategory = {
+  key: string;
+  label: string;
+  percentage: number;
+  amount: number;
+  amountShared: number;
+};
+
+export type AdminInterestSharingSummary = {
+  year: number;
+  contributionType?: ContributionTypeCanonical | null;
+  monthsComputed?: number;
+  totalInterest: number;
+  categories: AdminInterestSharingCategory[];
+};
+
+export async function getAdminContributionInterestSharing(params: {
+  year?: number;
+  contributionType?: ContributionTypeCanonical;
+} = {}) {
+  try {
+    const res = await api.get("/admin/contributions/interest-sharing", {
+      params,
+    });
+    return res.data?.data as AdminInterestSharingSummary;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+function extractFilename(value: unknown): string | null {
+  if (!value) return null;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  const match = /filename="?([^"]+)"?/i.exec(String(raw));
+  return match?.[1] || null;
+}
+
+export async function downloadAdminContributionIncomeSummary(params: {
+  year?: number;
+  contributionType?: ContributionTypeCanonical;
+  format: "csv" | "pdf";
+}): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const res = await api.get("/admin/contributions/summary-income/export", {
+      params,
+      responseType: "blob",
+    });
+    const filename =
+      extractFilename(res.headers?.["content-disposition"]) ||
+      `summary-income-${params.year ?? "all"}.${params.format}`;
+    return { blob: res.data as Blob, filename };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function downloadAdminContributionInterestSharing(params: {
+  year?: number;
+  contributionType?: ContributionTypeCanonical;
+  format: "csv" | "pdf";
+}): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const res = await api.get("/admin/contributions/interest-sharing/export", {
+      params,
+      responseType: "blob",
+    });
+    const filename =
+      extractFilename(res.headers?.["content-disposition"]) ||
+      `interest-sharing-${params.year ?? "all"}.${params.format}`;
+    return { blob: res.data as Blob, filename };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
 export type AdminAttendanceMeetingRow = {
   id: string;
   title: string;

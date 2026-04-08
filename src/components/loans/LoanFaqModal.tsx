@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import {
   Dialog,
   DialogContent,
@@ -160,3 +160,4 @@ const LoanFaqModal: React.FC<LoanFaqModalProps> = ({ open, onOpenChange }) => {
 };
 
 export default LoanFaqModal;
+

@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 const steps = [{
   step: 1,
   title: 'Join',
@@ -111,3 +111,4 @@ const HowItWorksSection: React.FC<HowItWorksSectionProps> = ({
     </section>;
 };
 export default HowItWorksSection;
+

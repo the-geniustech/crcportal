@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasUserRole } from "@/lib/auth";
 import { USER_ROLE } from "@/lib/roles";
@@ -463,3 +463,5 @@ const Header: React.FC<HeaderProps> = ({ onLoginClick, onGetStartedClick }) => {
 };
 
 export default Header;
+
+

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { verifyEmailToken } from "@/lib/auth";
 import { CONTACT_SUPPORT_HREF } from "@/lib/support";
@@ -185,3 +185,5 @@ const VerifyEmail: React.FC = () => {
 };
 
 export default VerifyEmail;
+
+

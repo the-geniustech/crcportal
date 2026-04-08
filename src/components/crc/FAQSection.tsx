@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useState } from 'react';
 
 const faqs = [
   {
@@ -116,3 +116,5 @@ const FAQSection: React.FC = () => {
 };
 
 export default FAQSection;
+
+

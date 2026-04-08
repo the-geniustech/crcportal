@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useResetPasswordMutation } from '@/hooks/auth/useResetPasswordMutation';
 import { CONTACT_SUPPORT_HREF } from "@/lib/support";
@@ -372,3 +372,5 @@ const ResetPassword: React.FC = () => {
 };
 
 export default ResetPassword;
+
+

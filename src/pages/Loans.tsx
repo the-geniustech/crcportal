@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+﻿import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
@@ -364,7 +364,7 @@ function LoansContent() {
               </div>
               <div>
                 <p className="font-bold text-gray-900 text-2xl">
-                  ₦
+                  â‚¦
                   {(
                     activeLoanApps.reduce(
                       (sum, l) => sum + Number(l.remainingBalance || 0),
@@ -473,7 +473,7 @@ function LoansContent() {
                             {vm.purpose}
                           </p>
                           <p className="text-gray-500 text-sm">
-                            ₦{vm.loanAmount.toLocaleString()}
+                            â‚¦{vm.loanAmount.toLocaleString()}
                           </p>
                         </button>
                       );
@@ -564,13 +564,13 @@ function LoansContent() {
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Loan Amount</p>
                           <p className="font-semibold text-gray-900">
-                            ₦{principal.toLocaleString()}
+                            â‚¦{principal.toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Repaid So Far</p>
                           <p className="font-semibold text-emerald-600">
-                            ₦{totalPaid.toLocaleString()}
+                            â‚¦{totalPaid.toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
@@ -673,7 +673,7 @@ function LoansContent() {
                             Requested Amount
                           </p>
                           <p className="font-semibold text-gray-900">
-                            ₦{Number(app.loanAmount || 0).toLocaleString()}
+                            â‚¦{Number(app.loanAmount || 0).toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
@@ -726,7 +726,7 @@ function LoansContent() {
                                         change.from ?? "-",
                                       )}
                                     </span>{" "}
-                                    →{" "}
+                                    â†’{" "}
                                     <span className="font-semibold text-slate-900">
                                       {formatEditValue(
                                         change.field,
@@ -866,7 +866,7 @@ function LoansContent() {
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Amount</p>
                           <p className="font-semibold text-gray-900">
-                            ₦{Number(app.loanAmount || 0).toLocaleString()}
+                            â‚¦{Number(app.loanAmount || 0).toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
@@ -884,7 +884,7 @@ function LoansContent() {
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Last Saved</p>
                           <p className="font-semibold text-gray-900">
-                            {savedAt ? toYmd(savedAt) : "â€”"}
+                            {savedAt ? toYmd(savedAt) : "Ã¢â‚¬â€"}
                           </p>
                         </div>
                       </div>
@@ -1052,7 +1052,7 @@ function LoansContent() {
                           {doc?.name || "Document"}
                         </p>
                         <p className="text-[11px] text-slate-400">
-                          {doc?.type || "file"} •{" "}
+                          {doc?.type || "file"} â€¢{" "}
                           {formatFileSize(doc?.size || 0)}
                         </p>
                       </div>
@@ -1077,3 +1077,5 @@ export default function Loans() {
     </AuthProvider>
   );
 }
+
+

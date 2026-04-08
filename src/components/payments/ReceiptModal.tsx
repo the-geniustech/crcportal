@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+﻿import { useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -134,7 +134,7 @@ export default function ReceiptModal({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `CRC-Receipt-${transaction.reference}.pdf`;
+      a.download = `Champions-Revolving-Contributions-Receipt-${transaction.reference}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -184,10 +184,10 @@ export default function ReceiptModal({
             <div class="header">
               <div class="logo">CRC</div>
               <div class="subtitle">Cooperative Resource Center</div>
-              <div class="success-badge">✓ Payment Successful</div>
+              <div class="success-badge">âœ“ Payment Successful</div>
             </div>
 
-            <div class="amount">₦${transaction.amount.toLocaleString()}</div>
+            <div class="amount">â‚¦${transaction.amount.toLocaleString()}</div>
 
             <div class="details">
               <div class="detail-row">
@@ -255,7 +255,7 @@ export default function ReceiptModal({
   const handleShare = async () => {
     const shareData = {
       title: "CRC Payment Receipt",
-      text: `Payment Receipt - ₦${transaction.amount.toLocaleString()} - ${transaction.reference}`,
+      text: `Payment Receipt - â‚¦${transaction.amount.toLocaleString()} - ${transaction.reference}`,
       url: window.location.href,
     };
 
@@ -268,7 +268,7 @@ export default function ReceiptModal({
     } else {
       // Fallback: copy to clipboard
       navigator.clipboard.writeText(
-        `CRC Payment Receipt\nAmount: ₦${transaction.amount.toLocaleString()}\nReference: ${transaction.reference}\nDate: ${formatDate(transaction.date)}`,
+        `CRC Payment Receipt\nAmount: â‚¦${transaction.amount.toLocaleString()}\nReference: ${transaction.reference}\nDate: ${formatDate(transaction.date)}`,
       );
       toast({
         title: "Copied to Clipboard",
@@ -298,7 +298,7 @@ export default function ReceiptModal({
           {/* Amount */}
           <div className="text-center">
             <p className="font-bold text-gray-900 text-4xl">
-              ₦{transaction.amount.toLocaleString()}
+              â‚¦{transaction.amount.toLocaleString()}
             </p>
             <p className="mt-1 text-gray-500">{typeLabels[transaction.type]}</p>
           </div>
@@ -475,3 +475,4 @@ export default function ReceiptModal({
     </Dialog>
   );
 }
+

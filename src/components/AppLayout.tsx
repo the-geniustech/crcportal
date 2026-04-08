@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+﻿import React, { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import Header from "./crc/Header";
 import MarqueeBanner from "./crc/MarqueeBanner";
@@ -151,3 +151,5 @@ const AppLayout: React.FC = () => {
 };
 
 export default AppLayout;
+
+

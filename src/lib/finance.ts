@@ -25,6 +25,7 @@ export type BackendWithdrawalBalance = {
   reservedBalance: number;
   totalContributions?: number;
   totalWithdrawals?: number;
+  totalInterest?: number;
   groupId?: string | null;
   contributionType?: string | null;
 };

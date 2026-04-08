@@ -1,4 +1,4 @@
-import React from 'react';
+﻿import React from 'react';
 
 const ImpactSection: React.FC = () => {
   return (
@@ -36,7 +36,7 @@ const ImpactSection: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <p className="text-3xl font-bold mb-1">₦50M+</p>
+              <p className="text-3xl font-bold mb-1">â‚¦50M+</p>
               <p className="text-blue-100">Total Savings</p>
             </div>
 
@@ -46,7 +46,7 @@ const ImpactSection: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <p className="text-3xl font-bold mb-1">₦30M+</p>
+              <p className="text-3xl font-bold mb-1">â‚¦30M+</p>
               <p className="text-purple-100">Loans Disbursed</p>
             </div>
 
@@ -131,3 +131,5 @@ const ImpactSection: React.FC = () => {
 };
 
 export default ImpactSection;
+
+
