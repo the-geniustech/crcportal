@@ -186,9 +186,8 @@ const GroupsContent: React.FC = () => {
 
   const selectedGroupId = selectedGroup?.id;
   const currentYear = new Date().getFullYear();
-  const [selectedContributionYear, setSelectedContributionYear] = useState(
-    currentYear,
-  );
+  const [selectedContributionYear, setSelectedContributionYear] =
+    useState(currentYear);
   const groupMembersQuery = useGroupMembersQuery(selectedGroupId);
   const groupMeetingsQuery = useGroupMeetingsQuery(selectedGroupId);
   const groupContributionsQuery = useGroupContributionsQuery(
@@ -408,7 +407,6 @@ const GroupsContent: React.FC = () => {
     });
   }, [groupMeetingsQuery.data]);
 
-
   const contributionsForDetails: Contribution[] = useMemo(() => {
     const raw = groupCurrentYearContributionsQuery.data ?? [];
     if (raw.length === 0) return [];
@@ -432,7 +430,9 @@ const GroupsContent: React.FC = () => {
         year: c.year,
         amount: Number(c.amount ?? 0),
         units:
-          c.units === null || c.units === undefined ? undefined : Number(c.units),
+          c.units === null || c.units === undefined
+            ? undefined
+            : Number(c.units),
         interestAmount:
           c.interestAmount === null || c.interestAmount === undefined
             ? undefined
@@ -502,7 +502,9 @@ const GroupsContent: React.FC = () => {
         year: c.year,
         amount: Number(c.amount ?? 0),
         units:
-          c.units === null || c.units === undefined ? undefined : Number(c.units),
+          c.units === null || c.units === undefined
+            ? undefined
+            : Number(c.units),
         interestAmount:
           c.interestAmount === null || c.interestAmount === undefined
             ? undefined
@@ -891,10 +893,10 @@ const GroupsContent: React.FC = () => {
         <div className="flex md:flex-row flex-col md:justify-between md:items-center mb-8">
           <div>
             <h1 className="font-bold text-gray-900 text-2xl">
-              Cooperative Groups
+              Contributions Groups
             </h1>
             <p className="mt-1 text-gray-600">
-              View and manage your cooperative savings groups
+              View and manage your Contributions savings groups
             </p>
           </div>
         </div>

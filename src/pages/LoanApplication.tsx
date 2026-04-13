@@ -271,8 +271,9 @@ const LoanApplicationContent: React.FC = () => {
   const [guarantors, setGuarantors] = useState<Guarantor[]>([]);
   const [selectedBankAccountId, setSelectedBankAccountId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPrefilledNotice, setShowPrefilledNotice] =
-    useState(!!prefilledData && !isEditMode);
+  const [showPrefilledNotice, setShowPrefilledNotice] = useState(
+    !!prefilledData && !isEditMode,
+  );
   const [draftId, setDraftId] = useState<string | null>(draftIdParam);
   const [draftLoaded, setDraftLoaded] = useState(false);
   const [editLoaded, setEditLoaded] = useState(false);
@@ -302,11 +303,7 @@ const LoanApplicationContent: React.FC = () => {
     for (const m of memberships) {
       const g = typeof m.groupId === "object" ? m.groupId : null;
       const id = typeof m.groupId === "string" ? m.groupId : g?._id;
-      const name =
-        g?.groupName ||
-        g?.group_name ||
-        m?.groupName ||
-        "CRC Group";
+      const name = g?.groupName || g?.group_name || m?.groupName || "CRC Group";
       if (id) {
         out.push({
           id: String(id),
@@ -837,9 +834,7 @@ const LoanApplicationContent: React.FC = () => {
     };
   };
 
-  const normalizeGuarantorList = (
-    list: Array<Guarantor | BackendGuarantor>,
-  ) =>
+  const normalizeGuarantorList = (list: Array<Guarantor | BackendGuarantor>) =>
     list.map((g) => ({
       type: g.type,
       profileId: g.profileId ? String(g.profileId) : null,
@@ -1332,7 +1327,8 @@ const LoanApplicationContent: React.FC = () => {
         if (hasErroredDocs) {
           toast({
             title: "Document upload error",
-            description: "Please retry or remove failed uploads before submitting.",
+            description:
+              "Please retry or remove failed uploads before submitting.",
             variant: "destructive",
           });
           return;
@@ -1459,7 +1455,7 @@ const LoanApplicationContent: React.FC = () => {
           <p className="mt-2 text-gray-600">
             {isEditMode
               ? "Update the fields below and submit your changes for approval."
-              : "Complete the application form below to request a loan from your cooperative group"}
+              : "Complete the application form below to request a loan from your Contributions group"}
           </p>
         </div>
 
@@ -1509,54 +1505,56 @@ const LoanApplicationContent: React.FC = () => {
         <div className="bg-white shadow-sm mb-8 p-6 border border-gray-100 rounded-2xl">
           <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
             <div>
-            <div className="flex items-center gap-2">
-              <h2 className="font-semibold text-gray-900">
-                {isEditMode ? "Edit Request Progress" : "Application Progress"}
-              </h2>
-              {!isEditMode && draftId && (
-                <span className="bg-amber-100 px-2.5 py-0.5 rounded-full font-medium text-amber-700 text-xs">
-                  Draft
-                </span>
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold text-gray-900">
+                  {isEditMode
+                    ? "Edit Request Progress"
+                    : "Application Progress"}
+                </h2>
+                {!isEditMode && draftId && (
+                  <span className="bg-amber-100 px-2.5 py-0.5 rounded-full font-medium text-amber-700 text-xs">
+                    Draft
+                  </span>
+                )}
+              </div>
+              {!isEditMode && draftLastSavedAt && (
+                <p className="text-gray-500 text-xs">
+                  Last saved {formatDate(draftLastSavedAt)}
+                </p>
               )}
             </div>
-            {!isEditMode && draftLastSavedAt && (
-              <p className="text-gray-500 text-xs">
-                Last saved {formatDate(draftLastSavedAt)}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-gray-500 text-sm">
-              Step {currentStep + 1} of {activeSteps.length}
-            </span>
-            {!isEditMode && (
-              <>
-                <button
-                  onClick={() => handleSaveDraft(false)}
-                  disabled={isSavingDraft}
-                  className="hover:bg-emerald-50 disabled:opacity-60 px-3 py-1.5 border border-emerald-200 rounded-lg font-semibold text-emerald-700 text-xs"
-                >
-                  {isSavingDraft ? "Saving..." : "Save Draft"}
-                </button>
-                <button
-                  onClick={() => handleSaveDraft(true)}
-                  disabled={isSavingDraft}
-                  className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 px-3 py-1.5 rounded-lg font-semibold text-white text-xs"
-                >
-                  Save & Exit
-                </button>
-                {draftId && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-gray-500 text-sm">
+                Step {currentStep + 1} of {activeSteps.length}
+              </span>
+              {!isEditMode && (
+                <>
                   <button
-                    onClick={handleDeleteDraft}
-                    className="hover:bg-red-50 px-3 py-1.5 border border-red-200 rounded-lg font-semibold text-red-600 text-xs"
+                    onClick={() => handleSaveDraft(false)}
+                    disabled={isSavingDraft}
+                    className="hover:bg-emerald-50 disabled:opacity-60 px-3 py-1.5 border border-emerald-200 rounded-lg font-semibold text-emerald-700 text-xs"
                   >
-                    Delete Draft
+                    {isSavingDraft ? "Saving..." : "Save Draft"}
                   </button>
-                )}
-              </>
-            )}
+                  <button
+                    onClick={() => handleSaveDraft(true)}
+                    disabled={isSavingDraft}
+                    className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 px-3 py-1.5 rounded-lg font-semibold text-white text-xs"
+                  >
+                    Save & Exit
+                  </button>
+                  {draftId && (
+                    <button
+                      onClick={handleDeleteDraft}
+                      className="hover:bg-red-50 px-3 py-1.5 border border-red-200 rounded-lg font-semibold text-red-600 text-xs"
+                    >
+                      Delete Draft
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
 
           {/* Progress Bar */}
           <div className="bg-gray-100 mb-6 rounded-full h-2">
@@ -1636,16 +1634,16 @@ const LoanApplicationContent: React.FC = () => {
             <>
               {currentStep === 0 && (
                 <div className="space-y-6">
-                  <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
-                    <h3 className="text-lg font-semibold text-gray-900">
+                  <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-2xl">
+                    <h3 className="font-semibold text-gray-900 text-lg">
                       Edit Request Details
                     </h3>
-                    <p className="mt-1 text-sm text-gray-500">
+                    <p className="mt-1 text-gray-500 text-sm">
                       Update the fields below. Your request will be reviewed
                       before changes are applied.
                     </p>
                     {editQuery.data?.application && (
-                      <div className="mt-4 rounded-xl bg-gray-50 p-4 text-sm text-gray-600">
+                      <div className="bg-gray-50 mt-4 p-4 rounded-xl text-gray-600 text-sm">
                         <p className="font-medium text-gray-900">
                           {editQuery.data.application.loanPurpose}
                         </p>
@@ -1655,9 +1653,9 @@ const LoanApplicationContent: React.FC = () => {
                         </p>
                       </div>
                     )}
-                    <div className="mt-6 grid gap-4">
+                    <div className="gap-4 grid mt-6">
                       <div>
-                        <label className="text-sm font-medium text-gray-700">
+                        <label className="font-medium text-gray-700 text-sm">
                           Loan Amount
                         </label>
                         <Input
@@ -1670,7 +1668,7 @@ const LoanApplicationContent: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-gray-700">
+                        <label className="font-medium text-gray-700 text-sm">
                           Repayment Period (Months)
                         </label>
                         <Input
@@ -1683,7 +1681,7 @@ const LoanApplicationContent: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-gray-700">
+                        <label className="font-medium text-gray-700 text-sm">
                           Loan Purpose
                         </label>
                         <Input
@@ -1693,7 +1691,7 @@ const LoanApplicationContent: React.FC = () => {
                         />
                       </div>
                       <div>
-                        <label className="text-sm font-medium text-gray-700">
+                        <label className="font-medium text-gray-700 text-sm">
                           Purpose Description
                         </label>
                         <Textarea
@@ -1708,11 +1706,11 @@ const LoanApplicationContent: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-white border border-gray-100 rounded-2xl shadow-sm p-6">
-                    <h4 className="text-base font-semibold text-gray-900">
+                  <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-2xl">
+                    <h4 className="font-semibold text-gray-900 text-base">
                       Supporting Documents (Optional)
                     </h4>
-                    <p className="mt-1 text-xs text-gray-500">
+                    <p className="mt-1 text-gray-500 text-xs">
                       Attach images or PDFs to support your edit request. Max
                       10MB per file.
                     </p>
@@ -1739,34 +1737,34 @@ const LoanApplicationContent: React.FC = () => {
                     </div>
 
                     {documents.length > 0 ? (
-                      <div className="mt-4 space-y-2">
+                      <div className="space-y-2 mt-4">
                         {documents.map((doc) => (
                           <div
                             key={doc.id}
-                            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+                            className="flex flex-wrap justify-between items-center gap-2 bg-slate-50 px-3 py-2 border border-slate-100 rounded-lg"
                           >
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-slate-700">
+                              <p className="font-medium text-slate-700 text-sm truncate">
                                 {doc.name}
                               </p>
-                              <p className="text-xs text-slate-500">
+                              <p className="text-slate-500 text-xs">
                                 {formatEditFileSize(doc.size)} â€¢{" "}
                                 {doc.type || "document"}
                               </p>
                             </div>
                             <div className="flex items-center gap-2">
                               {doc.status === "uploading" && (
-                                <span className="text-xs text-amber-600">
+                                <span className="text-amber-600 text-xs">
                                   Uploading {doc.progress ?? 0}%
                                 </span>
                               )}
                               {doc.status === "uploaded" && (
-                                <span className="text-xs text-emerald-600">
+                                <span className="text-emerald-600 text-xs">
                                   Uploaded
                                 </span>
                               )}
                               {doc.status === "error" && (
-                                <span className="text-xs text-red-600">
+                                <span className="text-red-600 text-xs">
                                   Failed
                                 </span>
                               )}
@@ -1775,7 +1773,7 @@ const LoanApplicationContent: React.FC = () => {
                                   href={doc.url}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="text-xs font-medium text-emerald-700 hover:text-emerald-800"
+                                  className="font-medium text-emerald-700 hover:text-emerald-800 text-xs"
                                 >
                                   View
                                 </a>
@@ -1783,19 +1781,21 @@ const LoanApplicationContent: React.FC = () => {
                               {doc.status === "error" && (
                                 <button
                                   type="button"
-                                  className="inline-flex items-center gap-1 text-xs text-amber-600 hover:text-amber-700"
-                                  onClick={() => handleRetryEditDocument(doc.id)}
+                                  className="inline-flex items-center gap-1 text-amber-600 hover:text-amber-700 text-xs"
+                                  onClick={() =>
+                                    handleRetryEditDocument(doc.id)
+                                  }
                                 >
-                                  <RotateCw className="h-3 w-3" />
+                                  <RotateCw className="w-3 h-3" />
                                   Retry
                                 </button>
                               )}
                               <button
                                 type="button"
-                                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700"
+                                className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-700 text-xs"
                                 onClick={() => handleRemoveEditDocument(doc.id)}
                               >
-                                <X className="h-3 w-3" />
+                                <X className="w-3 h-3" />
                                 Remove
                               </button>
                             </div>
@@ -1803,7 +1803,7 @@ const LoanApplicationContent: React.FC = () => {
                         ))}
                       </div>
                     ) : (
-                      <div className="mt-4 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
+                      <div className="bg-slate-50 mt-4 px-3 py-4 border border-slate-200 border-dashed rounded-lg text-slate-500 text-xs text-center">
                         No supporting documents uploaded yet.
                       </div>
                     )}
@@ -2132,7 +2132,7 @@ const LoanApplicationContent: React.FC = () => {
                 {exitPromptDescription}
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <AlertDialogFooter className="flex flex-col sm:flex-row sm:justify-end gap-2">
+            <AlertDialogFooter className="flex sm:flex-row flex-col sm:justify-end gap-2">
               <AlertDialogCancel
                 onClick={handleExitStay}
                 disabled={isSavingDraft}
@@ -2155,7 +2155,7 @@ const LoanApplicationContent: React.FC = () => {
                     variant="outline"
                     onClick={handleExitDiscard}
                     disabled={isSavingDraft}
-                    className="border-red-200 text-red-600 hover:bg-red-50"
+                    className="hover:bg-red-50 border-red-200 text-red-600"
                   >
                     Discard
                   </Button>
@@ -2188,5 +2188,3 @@ const LoanApplication: React.FC = () => {
 };
 
 export default LoanApplication;
-
-

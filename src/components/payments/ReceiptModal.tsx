@@ -183,7 +183,7 @@ export default function ReceiptModal({
           <body>
             <div class="header">
               <div class="logo">CRC</div>
-              <div class="subtitle">Cooperative Resource Center</div>
+              <div class="subtitle">Champions Revolving Contributions</div>
               <div class="success-badge">âœ“ Payment Successful</div>
             </div>
 
@@ -429,7 +429,7 @@ export default function ReceiptModal({
           )}
 
           {isGeneratingPdf && (
-            <div className="flex items-center justify-center gap-2 text-gray-500 text-xs">
+            <div className="flex justify-center items-center gap-2 text-gray-500 text-xs">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
               <span>PDF is generating...</span>
             </div>
@@ -437,7 +437,7 @@ export default function ReceiptModal({
 
           {/* Organization Info */}
           <div className="space-y-1 text-gray-500 text-xs text-center">
-            <p className="font-medium">Cooperative Resource Center</p>
+            <p className="font-medium">Champions Revolving Contributions</p>
             <p>Ogun Baptist Conference Secretariat</p>
             <p>Olabisi Onabanjo Way, Idi Aba, Abeokuta</p>
           </div>
@@ -475,4 +475,3 @@ export default function ReceiptModal({
     </Dialog>
   );
 }
-
