@@ -252,10 +252,7 @@ export default function Admin() {
     USER_ROLE.GROUP_COORDINATOR,
   );
   const isAdmin = hasUserRole(user, USER_ROLE.ADMIN);
-  const isCoordinator = hasUserRole(
-    user,
-    USER_ROLE.GROUP_COORDINATOR,
-  );
+  const isCoordinator = hasUserRole(user, USER_ROLE.GROUP_COORDINATOR);
   const canAccessCoordinatorPanels = isCoordinator || isAdmin;
 
   const memberApprovalsQuery = useMemberApprovalsQuery(
@@ -635,8 +632,7 @@ export default function Admin() {
   );
   const reviewAdminLoanMutation = useReviewAdminLoanApplicationMutation();
   const disburseAdminLoanMutation = useDisburseAdminLoanApplicationMutation();
-  const finalizeLoanOtpMutation =
-    useFinalizeAdminLoanDisbursementOtpMutation();
+  const finalizeLoanOtpMutation = useFinalizeAdminLoanDisbursementOtpMutation();
   const resendLoanOtpMutation = useResendAdminLoanDisbursementOtpMutation();
   const verifyLoanTransferMutation =
     useVerifyAdminLoanDisbursementTransferMutation();
@@ -667,12 +663,12 @@ export default function Admin() {
 
   const formatCompactNaira = (amount: number) => {
     const n = Number(amount || 0);
-    if (!Number.isFinite(n)) return "â‚¦0";
+    if (!Number.isFinite(n)) return "₦0";
     const abs = Math.abs(n);
-    if (abs >= 1_000_000_000) return `â‚¦${(n / 1_000_000_000).toFixed(1)}B`;
-    if (abs >= 1_000_000) return `â‚¦${(n / 1_000_000).toFixed(1)}M`;
-    if (abs >= 1_000) return `â‚¦${(n / 1_000).toFixed(1)}K`;
-    return `â‚¦${Math.round(n).toLocaleString()}`;
+    if (abs >= 1_000_000_000) return `₦${(n / 1_000_000_000).toFixed(1)}B`;
+    if (abs >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `₦${(n / 1_000).toFixed(1)}K`;
+    return `₦${Math.round(n).toLocaleString()}`;
   };
 
   const stats = useMemo(() => {
@@ -682,12 +678,11 @@ export default function Admin() {
     ).length;
 
     const loanSummary = adminLoanAppsQuery.data?.summary;
-    const pendingLoans =
-      loanSummary
-        ? (loanSummary.pendingCount ?? 0) + (loanSummary.underReviewCount ?? 0)
-        : loanApplications.filter((loan) =>
-            ["pending", "under_review"].includes(String(loan.status)),
-          ).length;
+    const pendingLoans = loanSummary
+      ? (loanSummary.pendingCount ?? 0) + (loanSummary.underReviewCount ?? 0)
+      : loanApplications.filter((loan) =>
+          ["pending", "under_review"].includes(String(loan.status)),
+        ).length;
 
     const activeLoans = loanApplications.filter((loan) =>
       ["disbursed", "defaulted"].includes(String(loan.status)),
@@ -698,8 +693,7 @@ export default function Admin() {
         ? groupSummary.totalMembers
         : manageableGroups.reduce(
             (sum, group) =>
-              sum +
-              Number(group.memberCount ?? group.activeMemberCount ?? 0),
+              sum + Number(group.memberCount ?? group.activeMemberCount ?? 0),
             0,
           );
 
@@ -731,9 +725,7 @@ export default function Admin() {
       0,
     );
     const attendanceRate =
-      totalExpected > 0
-        ? Math.round((totalPresent / totalExpected) * 100)
-        : 0;
+      totalExpected > 0 ? Math.round((totalPresent / totalExpected) * 100) : 0;
 
     return {
       totalMembers,
@@ -1038,10 +1030,8 @@ export default function Admin() {
       repaymentStartDate: repaymentStartDate ?? null,
     });
 
-  const handleLoanResendOtp = async (
-    id: string,
-    transferCode: string,
-  ) => resendLoanOtpMutation.mutateAsync({ applicationId: id, transferCode });
+  const handleLoanResendOtp = async (id: string, transferCode: string) =>
+    resendLoanOtpMutation.mutateAsync({ applicationId: id, transferCode });
 
   const handleLoanVerifyTransfer = async (
     id: string,
@@ -1090,7 +1080,7 @@ export default function Admin() {
 
       toast({
         title: "Announcement Sent",
-        description: `Email: ${emailSent} sent â€¢ SMS: ${smsSent} sent`,
+        description: `Email: ${emailSent} sent • SMS: ${smsSent} sent`,
       });
 
       setShowAnnouncementModal(false);
@@ -2994,6 +2984,5 @@ export default function Admin() {
     </div>
   );
 }
-
 
 

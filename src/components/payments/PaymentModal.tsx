@@ -60,7 +60,7 @@ const paymentTypes = [
     value: "group_contribution",
     label: "Group Contribution",
     icon: Users,
-    description: "Contribute to your cooperative group",
+    description: "Contribute to your Contributions group",
   },
 ];
 
@@ -115,12 +115,17 @@ export default function PaymentModal({
   const loanApplicationsQuery = useMyLoanApplicationsQuery();
 
   const initializePaystackMutation = useInitializePaystackPaymentMutation();
-  const initializePaystackBulkMutation = useInitializePaystackBulkPaymentMutation();
+  const initializePaystackBulkMutation =
+    useInitializePaystackBulkPaymentMutation();
 
   const isBulk = Boolean(bulkItems && bulkItems.length > 0);
   const bulkCount = bulkItems?.length ?? 0;
   const bulkTotal = useMemo(
-    () => (bulkItems ?? []).reduce((sum, item) => sum + Number(item.amount || 0), 0),
+    () =>
+      (bulkItems ?? []).reduce(
+        (sum, item) => sum + Number(item.amount || 0),
+        0,
+      ),
     [bulkItems],
   );
 
@@ -135,7 +140,9 @@ export default function PaymentModal({
     }
 
     if (bulkType === "group_contribution") {
-      const firstType = normalizeContributionType(bulkItems?.[0]?.contributionType);
+      const firstType = normalizeContributionType(
+        bulkItems?.[0]?.contributionType,
+      );
       if (firstType) setContributionType(firstType);
     }
   }, [isBulk, bulkItems, bulkTotal]);
@@ -166,7 +173,9 @@ export default function PaymentModal({
           id: String(id),
           name: String(name),
           monthlyContribution:
-            typeof monthlyContribution === "number" ? monthlyContribution : null,
+            typeof monthlyContribution === "number"
+              ? monthlyContribution
+              : null,
           expectedMonthlyContribution:
             typeof expectedMonthlyContribution === "number"
               ? expectedMonthlyContribution
@@ -285,7 +294,9 @@ export default function PaymentModal({
         window.location.href = init.authorizationUrl;
       } catch (error: unknown) {
         console.error("Bulk payment initialization error:", error);
-        setErrorMessage((error as Error).message || "Failed to process payment");
+        setErrorMessage(
+          (error as Error).message || "Failed to process payment",
+        );
         setStep("error");
         setIsLoading(false);
       }
@@ -346,9 +357,7 @@ export default function PaymentModal({
       const init = await initializePaystackMutation.mutateAsync({
         amount: parsedAmount,
         email,
-        paymentType: paymentType as
-          | "loan_repayment"
-          | "group_contribution",
+        paymentType: paymentType as "loan_repayment" | "group_contribution",
         groupId: paymentType === "group_contribution" ? selectedGroup : null,
         loanApplicationId:
           paymentType === "loan_repayment" ? selectedLoan : null,
@@ -497,14 +506,14 @@ export default function PaymentModal({
                     </SelectContent>
                   </Select>
                   {getContributionTypeConfig(contributionType)?.description && (
-                    <p className="text-xs text-gray-500">
+                    <p className="text-gray-500 text-xs">
                       {getContributionTypeConfig(contributionType)?.description}
                     </p>
                   )}
                   {contributionType === "revolving" &&
                     expectedMonthlyAmount &&
                     selectedGroupInfo && (
-                      <p className="text-xs text-emerald-600">
+                      <p className="text-emerald-600 text-xs">
                         Expected monthly for {selectedGroupInfo.name}:{" "}
                         {formatCurrency(expectedMonthlyAmount)}
                       </p>
@@ -512,7 +521,7 @@ export default function PaymentModal({
                 </div>
                 <div className="space-y-2">
                   <Label>Contribution Month</Label>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="gap-3 grid grid-cols-2">
                     <Select
                       value={String(contributionMonth)}
                       onValueChange={(value) =>

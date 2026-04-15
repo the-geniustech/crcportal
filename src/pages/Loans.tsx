@@ -364,7 +364,7 @@ function LoansContent() {
               </div>
               <div>
                 <p className="font-bold text-gray-900 text-2xl">
-                  â‚¦
+                  ₦
                   {(
                     activeLoanApps.reduce(
                       (sum, l) => sum + Number(l.remainingBalance || 0),
@@ -473,7 +473,7 @@ function LoansContent() {
                             {vm.purpose}
                           </p>
                           <p className="text-gray-500 text-sm">
-                            â‚¦{vm.loanAmount.toLocaleString()}
+                            ₦{vm.loanAmount.toLocaleString()}
                           </p>
                         </button>
                       );
@@ -564,13 +564,13 @@ function LoansContent() {
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Loan Amount</p>
                           <p className="font-semibold text-gray-900">
-                            â‚¦{principal.toLocaleString()}
+                            ₦{principal.toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Repaid So Far</p>
                           <p className="font-semibold text-emerald-600">
-                            â‚¦{totalPaid.toLocaleString()}
+                            ₦{totalPaid.toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
@@ -673,7 +673,7 @@ function LoansContent() {
                             Requested Amount
                           </p>
                           <p className="font-semibold text-gray-900">
-                            â‚¦{Number(app.loanAmount || 0).toLocaleString()}
+                            ₦{Number(app.loanAmount || 0).toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
@@ -866,7 +866,7 @@ function LoansContent() {
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Amount</p>
                           <p className="font-semibold text-gray-900">
-                            â‚¦{Number(app.loanAmount || 0).toLocaleString()}
+                            ₦{Number(app.loanAmount || 0).toLocaleString()}
                           </p>
                         </div>
                         <div className="bg-gray-50 p-3 rounded-lg">
@@ -1052,7 +1052,7 @@ function LoansContent() {
                           {doc?.name || "Document"}
                         </p>
                         <p className="text-[11px] text-slate-400">
-                          {doc?.type || "file"} â€¢{" "}
+                          {doc?.type || "file"} •{" "}
                           {formatFileSize(doc?.size || 0)}
                         </p>
                       </div>

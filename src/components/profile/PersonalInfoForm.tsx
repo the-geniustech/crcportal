@@ -10,7 +10,9 @@ import {
   Save,
   X,
 } from "lucide-react";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
+import { normalizeNigerianPhone } from "@/lib/phone";
+import PhoneInput from "@/components/shared/PhoneInput";
 
 interface PersonalInfo {
   fullName: string;
@@ -40,7 +42,13 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
   isEditing,
   onEditToggle,
 }) => {
-  const { register, handleSubmit, reset } = useForm<PersonalInfo>({
+  const {
+    register,
+    control,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<PersonalInfo>({
     defaultValues: initialData,
   });
 
@@ -63,8 +71,18 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
 
   const relationships = ['Spouse', 'Parent', 'Sibling', 'Child', 'Friend', 'Other'];
 
+  const handleSubmitPersonalInfo = handleSubmit(async (data) => {
+    const normalizedNextOfKin = data.nextOfKinPhone
+      ? normalizeNigerianPhone(data.nextOfKinPhone)
+      : null;
+    await onSave({
+      ...data,
+      nextOfKinPhone: normalizedNextOfKin || data.nextOfKinPhone,
+    });
+  });
+
   return (
-    <form onSubmit={handleSubmit(async (data) => onSave(data))} className="space-y-6">
+    <form onSubmit={handleSubmitPersonalInfo} className="space-y-6">
       {/* Basic Information */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
@@ -100,16 +118,23 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-            <div className="relative">
-              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="tel"
-                  name="phone"
-                  {...register("phone")}
+            <Controller
+              name="phone"
+              control={control}
+              render={({ field }) => (
+                <PhoneInput
+                  value={field.value || ""}
+                  onValueChange={field.onChange}
+                  onBlur={field.onBlur}
                   disabled
-                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-gray-50 disabled:text-gray-600"
+                  showHelper={false}
+                  leftAdornment={
+                    <Phone className="w-5 h-5 text-gray-400" />
+                  }
+                  inputClassName="w-full pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-gray-50 disabled:text-gray-600"
                 />
-            </div>
+              )}
+            />
             <p className="mt-1 text-xs text-gray-500">
               Use the Change Phone button to update this field.
             </p>
@@ -226,12 +251,29 @@ const PersonalInfoForm: React.FC<PersonalInfoFormProps> = ({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
-            <input
-              type="tel"
+            <Controller
               name="nextOfKinPhone"
-              {...register("nextOfKinPhone")}
-              disabled={!isEditing}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-gray-50 disabled:text-gray-600"
+              control={control}
+              rules={{
+                validate: (value) => {
+                  if (!value || !value.trim()) return true;
+                  return (
+                    Boolean(normalizeNigerianPhone(value)) ||
+                    "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567."
+                  );
+                },
+              }}
+              render={({ field }) => (
+                <PhoneInput
+                  value={field.value || ""}
+                  onValueChange={field.onChange}
+                  onBlur={field.onBlur}
+                  disabled={!isEditing}
+                  showHelper={isEditing}
+                  inputClassName="h-auto px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 disabled:bg-gray-50 disabled:text-gray-600"
+                  error={errors.nextOfKinPhone?.message}
+                />
+              )}
             />
           </div>
           <div>

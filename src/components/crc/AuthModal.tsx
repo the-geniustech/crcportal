@@ -14,6 +14,8 @@ import {
   resendConfirmationEmail,
 } from "@/lib/auth";
 import { useGroupsQuery } from "@/hooks/groups/useGroupsQuery";
+import { normalizeNigerianPhone } from "@/lib/phone";
+import PhoneInput from "@/components/shared/PhoneInput";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -185,13 +187,20 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
+    const normalizedPhone = normalizeNigerianPhone(formData.phone);
+    const phoneRequired =
+      authMethod === "phone" || (authMethod === "email" && mode === "signup");
 
     if (authMethod === "email") {
       if (mode === "signup") {
         if (!formData.fullName.trim())
           newErrors.fullName = "Full name is required";
-        if (!formData.phone.trim())
+        if (!formData.phone.trim()) {
           newErrors.phone = "Phone number is required";
+        } else if (!normalizedPhone) {
+          newErrors.phone =
+            "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567";
+        }
         if (formData.password !== formData.confirmPassword) {
           newErrors.confirmPassword = "Passwords do not match";
         }
@@ -212,11 +221,11 @@ const AuthModal: React.FC<AuthModalProps> = ({
       }
     } else {
       // Phone validation
-      if (!formData.phone.trim()) newErrors.phone = "Phone number is required";
-      else if (
-        !/^(\+?234|0)?[789][01]\d{8}$/.test(formData.phone.replace(/\s/g, ""))
-      ) {
-        newErrors.phone = "Please enter a valid Nigerian phone number";
+      if (!formData.phone.trim()) {
+        newErrors.phone = "Phone number is required";
+      } else if (!normalizedPhone) {
+        newErrors.phone =
+          "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567";
       }
 
       if (mode === "signup" && !formData.fullName.trim()) {
@@ -228,6 +237,11 @@ const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     setErrors(newErrors);
+    if (Object.keys(newErrors).length === 0 && phoneRequired && normalizedPhone) {
+      if (normalizedPhone !== formData.phone) {
+        setFormData((prev) => ({ ...prev, phone: normalizedPhone }));
+      }
+    }
     return Object.keys(newErrors).length === 0;
   };
 
@@ -241,11 +255,19 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       if (mode === "signup") {
+        const normalizedPhone = normalizeNigerianPhone(formData.phone);
+        if (!normalizedPhone) {
+          setErrors({
+            phone: "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567",
+          });
+          setIsSubmitting(false);
+          return;
+        }
         const { user, session, error } = await signUp({
           email: formData.email,
           password: formData.password,
           fullName: formData.fullName,
-          phone: formData.phone,
+          phone: normalizedPhone,
           groupId: selectedGroup?.id,
         });
 
@@ -369,8 +391,16 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setErrors({});
 
     try {
+      const normalizedPhone = normalizeNigerianPhone(formData.phone);
+      if (!normalizedPhone) {
+        setErrors({
+          phone: "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567",
+        });
+        setIsSubmitting(false);
+        return;
+      }
       const result = await sendPhoneOTP(
-        formData.phone,
+        normalizedPhone,
         mode === "signup" ? formData.fullName : undefined,
         mode === "signup" ? selectedGroup?.id : undefined,
       );
@@ -401,7 +431,15 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setErrors({});
 
     try {
-      const { error } = await resetPassword({ phone: formData.phone });
+      const normalizedPhone = normalizeNigerianPhone(formData.phone);
+      if (!normalizedPhone) {
+        setErrors({
+          phone: "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567",
+        });
+        setIsSubmitting(false);
+        return;
+      }
+      const { error } = await resetPassword({ phone: normalizedPhone });
 
       if (error) {
         setErrors({ submit: error.message });
@@ -468,8 +506,16 @@ const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       if (mode === "forgot-password") {
+        const normalizedPhone = normalizeNigerianPhone(formData.phone);
+        if (!normalizedPhone) {
+          setErrors({
+            phone: "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567",
+          });
+          setIsSubmitting(false);
+          return;
+        }
         const { error } = await resetPasswordWithPhoneOtp(
-          formData.phone,
+          normalizedPhone,
           otpCode,
           formData.password,
           true,
@@ -567,6 +613,15 @@ const AuthModal: React.FC<AuthModalProps> = ({
     setFormData((prev) => ({ ...prev, [name]: value }));
     if (errors[name]) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
+    }
+    setGoogleAuthMessage(null);
+    setShowEmailConfirmation(false);
+  };
+
+  const handlePhoneValueChange = (nextValue: string) => {
+    setFormData((prev) => ({ ...prev, phone: nextValue }));
+    if (errors.phone) {
+      setErrors((prev) => ({ ...prev, phone: "" }));
     }
     setGoogleAuthMessage(null);
     setShowEmailConfirmation(false);
@@ -730,6 +785,8 @@ const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   const showGoogleButton = isGoogleAvailable === true;
+  const normalizedPhoneDisplay =
+    normalizeNigerianPhone(formData.phone) || formData.phone;
 
   return (
     <div className="z-50 fixed inset-0 flex justify-center items-center p-4">
@@ -1070,7 +1127,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   We sent a 6-digit code to
                   <br />
                   <span className="font-medium text-gray-900">
-                    {formData.phone}
+                    {normalizedPhoneDisplay}
                   </span>
                 </p>
               </div>
@@ -1296,26 +1353,23 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   <label className="block mb-2 font-medium text-gray-700 text-sm">
                     Phone Number
                   </label>
-                  <div className="relative">
-                    <div className="top-1/2 left-4 absolute flex items-center gap-1.5 pr-3 border-gray-200 border-r text-gray-500 -translate-y-1/2">
+                  <PhoneInput
+                    name="phone"
+                    value={formData.phone}
+                    onValueChange={handlePhoneValueChange}
+                    showPrefix
+                    prefixText="+234"
+                    leftAdornment={
                       <svg className="w-5 h-5" viewBox="0 0 36 36" fill="none">
                         <rect width="36" height="36" rx="4" fill="#008751" />
                         <rect x="12" width="12" height="36" fill="white" />
                       </svg>
-                      <span className="font-medium text-sm">+234</span>
-                    </div>
-                    <input
-                      type="tel"
-                      name="phone"
-                      value={formData.phone}
-                      onChange={handleChange}
-                      className={`w-full pl-28 pr-4 py-3 rounded-xl border ${errors.phone ? "border-red-500" : "border-gray-200"} focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
-                      placeholder="803 000 0000"
-                    />
-                  </div>
-                  {errors.phone && (
-                    <p className="mt-1 text-red-500 text-sm">{errors.phone}</p>
-                  )}
+                    }
+                    inputClassName={`w-full h-auto pr-4 py-3 rounded-xl border ${errors.phone ? "border-red-500" : "border-gray-200"} focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
+                    inputPaddingClassName="pl-24"
+                    error={errors.phone}
+                    helperClassName="mt-2"
+                  />
                 </div>
               )}
 
@@ -1357,7 +1411,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                           <p className="text-sm font-semibold text-emerald-900">
                             Group {selectedGroup.groupNumber ?? "â€”"}{" "}
                             {selectedGroup.groupName
-                              ? `â€¢ ${selectedGroup.groupName}`
+                              ? `• ${selectedGroup.groupName}`
                               : ""}
                           </p>
                           {selectedGroup.location && (
@@ -1422,7 +1476,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                                   <p className="text-sm font-semibold text-gray-900">
                                     Group {group.groupNumber}{" "}
                                     {group.groupName
-                                      ? `â€¢ ${group.groupName}`
+                                      ? `• ${group.groupName}`
                                       : ""}
                                   </p>
                                   <p className="text-xs text-gray-500">
@@ -1481,7 +1535,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                     value={formData.password}
                     onChange={handleChange}
                     className={`w-full px-4 py-3 rounded-xl border ${errors.password ? "border-red-500" : "border-gray-200"} focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
-                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    placeholder="••••••••"
                   />
                   {errors.password && (
                     <p className="mt-1 text-red-500 text-sm">
@@ -1502,7 +1556,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     className={`w-full px-4 py-3 rounded-xl border ${errors.confirmPassword ? "border-red-500" : "border-gray-200"} focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
-                    placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+                    placeholder="••••••••"
                   />
                   {errors.confirmPassword && (
                     <p className="mt-1 text-red-500 text-sm">
@@ -1759,6 +1813,8 @@ const AuthModal: React.FC<AuthModalProps> = ({
 };
 
 export default AuthModal;
+
+
 
 
 

@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { normalizeNigerianPhone } from '@/lib/phone';
+import PhoneInput from '@/components/shared/PhoneInput';
 
 const ContactSection: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -17,6 +19,12 @@ const ContactSection: React.FC = () => {
     if (!formData.name.trim()) newErrors.name = 'Name is required';
     if (!formData.email.trim()) newErrors.email = 'Email is required';
     else if (!/\S+@\S+\.\S+/.test(formData.email)) newErrors.email = 'Invalid email format';
+    if (formData.phone.trim()) {
+      const normalized = normalizeNigerianPhone(formData.phone);
+      if (!normalized) {
+        newErrors.phone = 'Use +234 803 123 4567, 803 123 4567, or 0803 123 4567';
+      }
+    }
     if (!formData.message.trim()) newErrors.message = 'Message is required';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -27,8 +35,15 @@ const ContactSection: React.FC = () => {
     if (!validateForm()) return;
 
     setIsSubmitting(true);
+    const normalizedPhone = formData.phone.trim()
+      ? normalizeNigerianPhone(formData.phone)
+      : '';
+    const payload = {
+      ...formData,
+      phone: normalizedPhone || '',
+    };
     // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(() => resolve(payload), 1500));
     setIsSubmitting(false);
     setSubmitted(true);
     setFormData({ name: '', email: '', phone: '', subject: '', message: '' });
@@ -39,6 +54,13 @@ const ContactSection: React.FC = () => {
     setFormData(prev => ({ ...prev, [name]: value }));
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
+    }
+  };
+
+  const handlePhoneValueChange = (value: string) => {
+    setFormData(prev => ({ ...prev, phone: value }));
+    if (errors.phone) {
+      setErrors(prev => ({ ...prev, phone: '' }));
     }
   };
 
@@ -199,13 +221,12 @@ const ContactSection: React.FC = () => {
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">Phone Number</label>
-                    <input
-                      type="tel"
+                    <PhoneInput
                       name="phone"
                       value={formData.phone}
-                      onChange={handleChange}
-                      className="w-full px-4 py-3 rounded-xl border border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
-                      placeholder="+234 800 000 0000"
+                      onValueChange={handlePhoneValueChange}
+                      inputClassName="h-auto px-4 py-3 rounded-xl border border-gray-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all"
+                      error={errors.phone}
                     />
                   </div>
                   <div>

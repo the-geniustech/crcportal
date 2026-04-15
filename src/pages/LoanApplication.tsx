@@ -24,6 +24,7 @@ import { useUploadLoanDocumentsMutation } from "@/hooks/loans/useUploadLoanDocum
 import { calculateLoanSummary } from "@/lib/loanMath";
 import { getApiErrorMessage } from "@/lib/api/client";
 import type { BackendLoanApplication } from "@/lib/loans";
+import { normalizeNigerianPhone } from "@/lib/phone";
 import {
   LOAN_FACILITIES,
   LoanFacilityKey,
@@ -528,7 +529,7 @@ const LoanApplicationContent: React.FC = () => {
     if (prefilledData?.amount || prefilledData?.term) {
       toast({
         title: "Calculator Data Applied",
-        description: `Loan amount: â‚¦${(prefilledData.amount || 100000).toLocaleString()}, Term: ${prefilledData.term || 10} months`,
+        description: `Loan amount: ₦${(prefilledData.amount || 100000).toLocaleString()}, Term: ${prefilledData.term || 10} months`,
       });
     }
   }, [prefilledData?.amount, prefilledData?.term, toast, isEditMode]);
@@ -842,7 +843,9 @@ const LoanApplicationContent: React.FC = () => {
       email: String(g.email || "")
         .trim()
         .toLowerCase(),
-      phone: String(g.phone || "").replace(/\s+/g, ""),
+      phone:
+        normalizeNigerianPhone(String(g.phone || "")) ||
+        String(g.phone || "").trim(),
       relationship: String(g.relationship || "").trim(),
       occupation: String(g.occupation || "").trim(),
       address: String(g.address || "").trim(),
@@ -1471,7 +1474,7 @@ const LoanApplicationContent: React.FC = () => {
                 Your loan calculator selections have been pre-filled:
                 <span className="font-semibold">
                   {" "}
-                  â‚¦{(prefilledData.amount || 100000).toLocaleString()}
+                  ₦{(prefilledData.amount || 100000).toLocaleString()}
                 </span>{" "}
                 for
                 <span className="font-semibold">
@@ -1748,7 +1751,7 @@ const LoanApplicationContent: React.FC = () => {
                                 {doc.name}
                               </p>
                               <p className="text-slate-500 text-xs">
-                                {formatEditFileSize(doc.size)} â€¢{" "}
+                                {formatEditFileSize(doc.size)} •{" "}
                                 {doc.type || "document"}
                               </p>
                             </div>
@@ -2014,7 +2017,7 @@ const LoanApplicationContent: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-gray-600">Amount</span>
                 <span className="font-medium">
-                  â‚¦{loanAmount.toLocaleString()}
+                  ₦{loanAmount.toLocaleString()}
                 </span>
               </div>
               <div className="flex justify-between">
@@ -2035,20 +2038,20 @@ const LoanApplicationContent: React.FC = () => {
                 <div className="flex justify-between">
                   <span className="text-gray-600">Monthly Payment</span>
                   <span className="font-bold text-emerald-600">
-                    â‚¦{repaymentDetails.monthlyPayment.toLocaleString()}
+                    ₦{repaymentDetails.monthlyPayment.toLocaleString()}
                   </span>
                 </div>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Total Interest</span>
                 <span className="font-medium text-amber-600">
-                  â‚¦{repaymentDetails.totalInterest.toLocaleString()}
+                  ₦{repaymentDetails.totalInterest.toLocaleString()}
                 </span>
               </div>
               <div className="flex justify-between pt-3 border-t">
                 <span className="text-gray-600">Total Repayment</span>
                 <span className="font-bold">
-                  â‚¦{repaymentDetails.totalPayment.toLocaleString()}
+                  ₦{repaymentDetails.totalPayment.toLocaleString()}
                 </span>
               </div>
             </div>
@@ -2188,3 +2191,5 @@ const LoanApplication: React.FC = () => {
 };
 
 export default LoanApplication;
+
+

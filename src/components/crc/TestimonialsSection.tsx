@@ -33,7 +33,7 @@ const testimonials = [
     image:
       "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766661862385_210399b4.png",
     quote:
-      "CRC Connect has transformed how our farming cooperative operates. We pool resources together and everyone benefits. It's truly community banking at its best.",
+      "CRC Connect has transformed how our farming Contributions operates. We pool resources together and everyone benefits. It's truly community banking at its best.",
     rating: 5,
   },
   {
@@ -51,7 +51,7 @@ const testimonials = [
     image:
       "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766661861875_8ec29158.png",
     quote:
-      "Finally, a platform that understands Nigerian cooperative culture and brings it online. The technology is solid and the customer service is excellent.",
+      "Finally, a platform that understands Nigerian Contributions culture and brings it online. The technology is solid and the customer service is excellent.",
     rating: 5,
   },
 ];
@@ -217,6 +217,3 @@ const TestimonialsSection: React.FC = () => {
   );
 };
 export default TestimonialsSection;
-
-
-

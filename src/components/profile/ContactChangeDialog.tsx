@@ -21,6 +21,8 @@ import {
   requestEmailChange,
   requestPhoneChange,
 } from "@/lib/auth";
+import { normalizeNigerianPhone } from "@/lib/phone";
+import PhoneInput from "@/components/shared/PhoneInput";
 import { Mail, Phone, ShieldCheck } from "lucide-react";
 
 type ContactMode = "email" | "phone";
@@ -115,10 +117,25 @@ const ContactChangeDialog: React.FC<ContactChangeDialogProps> = ({
       return;
     }
 
+    let normalizedValue = trimmed;
+    if (!isEmail) {
+      const normalized = normalizeNigerianPhone(trimmed);
+      if (!normalized) {
+        toast({
+          title: "Invalid phone number",
+          description:
+            "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567.",
+          variant: "destructive",
+        });
+        return;
+      }
+      normalizedValue = normalized;
+    }
+
     setIsSending(true);
     const result = isEmail
-      ? await requestEmailChange(trimmed)
-      : await requestPhoneChange(trimmed);
+      ? await requestEmailChange(normalizedValue)
+      : await requestPhoneChange(normalizedValue);
     setIsSending(false);
 
     if (result.error) {
@@ -130,7 +147,8 @@ const ContactChangeDialog: React.FC<ContactChangeDialogProps> = ({
       return;
     }
 
-    setPendingValue(trimmed);
+    setPendingValue(normalizedValue);
+    setValue(normalizedValue);
     setStep("verify");
     setOtp("");
     setResendSeconds(RESEND_COOLDOWN_SECONDS);
@@ -154,7 +172,20 @@ const ContactChangeDialog: React.FC<ContactChangeDialogProps> = ({
     }
 
     setIsVerifying(true);
-    const targetValue = pendingValue || value.trim();
+    let targetValue = pendingValue || value.trim();
+    if (!isEmail) {
+      const normalized = normalizeNigerianPhone(targetValue);
+      if (!normalized) {
+        toast({
+          title: "Invalid phone number",
+          description:
+            "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567.",
+          variant: "destructive",
+        });
+        return;
+      }
+      targetValue = normalized;
+    }
     const result = isEmail
       ? await confirmEmailChange(targetValue, otp.trim())
       : await confirmPhoneChange(targetValue, otp.trim());
@@ -181,8 +212,23 @@ const ContactChangeDialog: React.FC<ContactChangeDialogProps> = ({
   };
 
   const handleResend = async () => {
-    const targetValue = pendingValue || value.trim();
+    let targetValue = pendingValue || value.trim();
     if (!targetValue) return;
+    if (!isEmail) {
+      const normalized = normalizeNigerianPhone(targetValue);
+      if (!normalized) {
+        toast({
+          title: "Invalid phone number",
+          description:
+            "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567.",
+          variant: "destructive",
+        });
+        return;
+      }
+      targetValue = normalized;
+      setValue(normalized);
+      setPendingValue(normalized);
+    }
     setIsSending(true);
     const result = isEmail
       ? await requestEmailChange(targetValue)
@@ -236,12 +282,21 @@ const ContactChangeDialog: React.FC<ContactChangeDialogProps> = ({
               <label className="text-sm font-medium text-gray-700">
                 {label}
               </label>
-              <Input
-                type={isEmail ? "email" : "tel"}
-                placeholder={placeholder}
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
-              />
+              {isEmail ? (
+                <Input
+                  type="email"
+                  placeholder={placeholder}
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                />
+              ) : (
+                <PhoneInput
+                  value={value}
+                  onValueChange={setValue}
+                  placeholder={placeholder}
+                  inputClassName="h-10"
+                />
+              )}
             </div>
           </div>
         )}

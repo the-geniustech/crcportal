@@ -17,6 +17,8 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useUploadLoanSignatureMutation } from "@/hooks/loans/useUploadLoanSignatureMutation";
+import { normalizeNigerianPhone } from "@/lib/phone";
+import PhoneInput from "@/components/shared/PhoneInput";
 
 interface Guarantor {
   id: string;
@@ -170,7 +172,7 @@ export default function LoanGuarantorInfo({
         profileId: member.id,
         name: member.name,
         email: member.email,
-        phone: member.phone,
+        phone: normalizeNigerianPhone(member.phone) || member.phone,
         memberSince: member.memberSince,
         savingsBalance: member.savingsBalance,
       };
@@ -366,10 +368,11 @@ export default function LoanGuarantorInfo({
   }, [signatureGuarantor]);
 
   const isGuarantorComplete = (g: Guarantor) => {
+    const normalizedPhone = normalizeNigerianPhone(g.phone);
     const baseComplete =
       g.name &&
       g.email &&
-      g.phone &&
+      normalizedPhone &&
       g.relationship &&
       g.occupation &&
       g.address;
@@ -394,9 +397,13 @@ export default function LoanGuarantorInfo({
 
   const externalKeys = guarantors
     .filter((g) => g.type === "external")
-    .map(
-      (g) => `${g.email.trim().toLowerCase()}|${g.phone.replace(/\s+/g, "")}`,
-    )
+    .map((g) => {
+      const normalizedPhone = normalizeNigerianPhone(g.phone);
+      const phoneKey = normalizedPhone
+        ? normalizedPhone.replace(/\s+/g, "")
+        : g.phone.replace(/\s+/g, "");
+      return `${g.email.trim().toLowerCase()}|${phoneKey}`;
+    })
     .filter((key) => key !== "|");
   const hasDuplicateExternal =
     new Set(externalKeys).size !== externalKeys.length;
@@ -462,8 +469,8 @@ export default function LoanGuarantorInfo({
             </h4>
             <ul className="space-y-1 text-blue-700 text-sm">
               <li className="flex items-start gap-2">
-                <Check /> Guarantors must be active members of your cooperative
-                group (preferred)
+                <Check /> Guarantors must be active members of your
+                Contributions group (preferred)
               </li>
               <li className="flex items-start gap-2">
                 <Check /> External guarantors must provide valid identification
@@ -481,43 +488,46 @@ export default function LoanGuarantorInfo({
 
       {/* Guarantor Cards */}
       <div className="space-y-4">
-        {guarantors.map((guarantor, index) => (
-          <div
-            key={guarantor.id}
-            className="bg-white shadow-sm border border-gray-100 rounded-2xl overflow-hidden"
-          >
-            <div className="flex justify-between items-center bg-gray-50 p-4 border-gray-100 border-b">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`p-2 rounded-lg ${guarantor.type === "member" ? "bg-emerald-100" : "bg-amber-100"}`}
-                >
-                  <User
-                    className={`w-5 h-5 ${guarantor.type === "member" ? "text-emerald-600" : "text-amber-600"}`}
-                  />
+        {guarantors.map((guarantor, index) => {
+          const normalizedPhone = normalizeNigerianPhone(guarantor.phone);
+          const phoneError = Boolean(guarantor.phone) && !normalizedPhone;
+          return (
+            <div
+              key={guarantor.id}
+              className="bg-white shadow-sm border border-gray-100 rounded-2xl overflow-hidden"
+            >
+              <div className="flex justify-between items-center bg-gray-50 p-4 border-gray-100 border-b">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`p-2 rounded-lg ${guarantor.type === "member" ? "bg-emerald-100" : "bg-amber-100"}`}
+                  >
+                    <User
+                      className={`w-5 h-5 ${guarantor.type === "member" ? "text-emerald-600" : "text-amber-600"}`}
+                    />
+                  </div>
+                  <div>
+                    <h4 className="font-medium text-gray-900">
+                      Guarantor {index + 1}
+                    </h4>
+                    <p className="text-gray-500 text-xs">
+                      {guarantor.type === "member"
+                        ? "Group Member"
+                        : "External Guarantor"}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-medium text-gray-900">
-                    Guarantor {index + 1}
-                  </h4>
-                  <p className="text-gray-500 text-xs">
-                    {guarantor.type === "member"
-                      ? "Group Member"
-                      : "External Guarantor"}
-                  </p>
+                <div className="flex items-center gap-2">
+                  {isGuarantorComplete(guarantor) && (
+                    <CheckCircle className="w-5 h-5 text-emerald-500" />
+                  )}
+                  <button
+                    onClick={() => removeGuarantor(index)}
+                    className="hover:bg-red-100 p-2 rounded-lg transition-colors"
+                  >
+                    <X className="w-4 h-4 text-red-500" />
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                {isGuarantorComplete(guarantor) && (
-                  <CheckCircle className="w-5 h-5 text-emerald-500" />
-                )}
-                <button
-                  onClick={() => removeGuarantor(index)}
-                  className="hover:bg-red-100 p-2 rounded-lg transition-colors"
-                >
-                  <X className="w-4 h-4 text-red-500" />
-                </button>
-              </div>
-            </div>
 
             <div className="p-6">
               {guarantor.type === "member" && (
@@ -579,14 +589,20 @@ export default function LoanGuarantorInfo({
                   </label>
                   <div className="relative">
                     <Phone className="top-1/2 left-3 absolute w-5 h-5 text-gray-400 -translate-y-1/2" />
-                    <input
-                      type="tel"
+                    <PhoneInput
                       value={guarantor.phone}
-                      onChange={(e) =>
-                        updateGuarantor(index, "phone", e.target.value)
+                      onValueChange={(value) =>
+                        updateGuarantor(index, "phone", value)
                       }
-                      placeholder="Enter phone number"
-                      className="py-2.5 pr-4 pl-10 border border-gray-300 focus:border-indigo-500 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-full"
+                      leftAdornment={
+                        <Phone className="w-5 h-5 text-gray-400" />
+                      }
+                      inputClassName="h-auto py-2.5 pr-4 border border-gray-300 focus:border-indigo-500 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 w-full"
+                      error={
+                        phoneError
+                          ? "Use +234 803 123 4567, 803 123 4567, or 0803 123 4567."
+                          : null
+                      }
                       readOnly={
                         guarantor.type === "member" && !!guarantor.memberSince
                       }
@@ -731,7 +747,8 @@ export default function LoanGuarantorInfo({
               )}
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Add Guarantor Buttons */}
@@ -922,7 +939,9 @@ export default function LoanGuarantorInfo({
                 <div className="bg-white p-3 border border-gray-100 rounded-xl">
                   <p className="text-gray-500 text-xs">Telephone No</p>
                   <p className="mt-1 font-semibold text-gray-900 text-sm">
-                    {signatureGuarantor.phone || "—"}
+                    {normalizeNigerianPhone(signatureGuarantor.phone) ||
+                      signatureGuarantor.phone ||
+                      "—"}
                   </p>
                 </div>
                 <div className="bg-white p-3 border border-gray-100 rounded-xl">

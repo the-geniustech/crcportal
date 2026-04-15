@@ -7,7 +7,12 @@ import {
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { BadgeCheck, FileText, Shield, Users } from "lucide-react";
 import crcLogo from "@/assets/branding/crc-logo.jpeg";
 
@@ -26,8 +31,7 @@ const termsSections: Section[] = [
   {
     id: "interpretation",
     title: "Interpretation & Definitions",
-    description:
-      "Key definitions that guide how the principles are applied.",
+    description: "Key definitions that guide how the principles are applied.",
     items: [
       "Financial year: 1st January to 31st December.",
       "Revolving period: January to October (October is for cleaning up the revolving cycle).",
@@ -47,10 +51,7 @@ const termsSections: Section[] = [
   {
     id: "objective",
     title: "Objective",
-    items: [
-      "Encourage financial stability.",
-      "Provide financial empowerment.",
-    ],
+    items: ["Encourage financial stability.", "Provide financial empowerment."],
   },
   {
     id: "membership",
@@ -73,11 +74,7 @@ const termsSections: Section[] = [
   {
     id: "termination",
     title: "Termination of Membership",
-    items: [
-      "Voluntary withdrawal.",
-      "Permanent disability.",
-      "Death.",
-    ],
+    items: ["Voluntary withdrawal.", "Permanent disability.", "Death."],
   },
   {
     id: "expulsion",
@@ -199,7 +196,9 @@ const termsSections: Section[] = [
   {
     id: "review",
     title: "Review of Guiding Principles",
-    items: ["These guiding principles are subject to review and amendment from time to time."],
+    items: [
+      "These guiding principles are subject to review and amendment from time to time.",
+    ],
   },
   {
     id: "contact",
@@ -301,15 +300,15 @@ const SignupPoliciesModal: React.FC<SignupPoliciesModalProps> = ({
       <DialogContent className="p-0 sm:max-w-4xl overflow-hidden">
         <div className="bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-600 p-6 text-white">
           <div className="flex items-center gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+            <div className="flex justify-center items-center bg-white/15 rounded-2xl ring-1 ring-white/20 w-12 h-12">
               <img
                 src={crcLogo}
                 alt="CRC Logo"
-                className="h-9 w-9 rounded-lg object-cover"
+                className="rounded-lg w-9 h-9 object-cover"
               />
             </div>
             <div className="flex-1">
-              <DialogTitle className="text-xl font-semibold text-white">
+              <DialogTitle className="font-semibold text-white text-xl">
                 CRC Terms of Service & Privacy Policy
               </DialogTitle>
               <DialogDescription className="text-emerald-100">
@@ -317,8 +316,8 @@ const SignupPoliciesModal: React.FC<SignupPoliciesModalProps> = ({
               </DialogDescription>
             </div>
             <div className="hidden sm:flex items-center gap-2">
-              <div className="flex items-center gap-2 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white">
-                <BadgeCheck className="h-3.5 w-3.5" />
+              <div className="flex items-center gap-2 bg-white/15 px-3 py-1 rounded-full font-semibold text-white text-xs">
+                <BadgeCheck className="w-3.5 h-3.5" />
                 Verified Policy
               </div>
             </div>
@@ -330,14 +329,14 @@ const SignupPoliciesModal: React.FC<SignupPoliciesModalProps> = ({
           onValueChange={(value) => setActiveTab(value as PolicyTab)}
           className="flex flex-col"
         >
-          <div className="border-b border-emerald-100 bg-white px-6 py-3">
-            <TabsList className="grid w-full grid-cols-2">
+          <div className="bg-white px-6 py-3 border-emerald-100 border-b">
+            <TabsList className="grid grid-cols-2 w-full">
               <TabsTrigger value="terms" className="gap-2">
-                <FileText className="h-4 w-4" />
+                <FileText className="w-4 h-4" />
                 Terms of Service
               </TabsTrigger>
               <TabsTrigger value="privacy" className="gap-2">
-                <Shield className="h-4 w-4" />
+                <Shield className="w-4 h-4" />
                 Privacy Policy
               </TabsTrigger>
             </TabsList>
@@ -346,35 +345,35 @@ const SignupPoliciesModal: React.FC<SignupPoliciesModalProps> = ({
           <ScrollArea className="max-h-[65vh]">
             <div className="p-6">
               <TabsContent value="terms">
-                <div className="mb-6 rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm text-emerald-900">
-                  By creating an account, you agree to abide by these guiding principles and all
-                  obligations of CRC membership.
+                <div className="bg-emerald-50 mb-6 p-4 border border-emerald-100 rounded-2xl text-emerald-900 text-sm">
+                  By creating an account, you agree to abide by these guiding
+                  principles and all obligations of CRC membership.
                 </div>
                 <Accordion type="multiple" className="space-y-2">
                   {termsSections.map((section, index) => (
                     <AccordionItem
                       key={section.id}
                       value={section.id}
-                      className="rounded-2xl border border-gray-100 bg-white px-4"
+                      className="bg-white px-4 border border-gray-100 rounded-2xl"
                     >
                       <AccordionTrigger className="py-4 text-left">
                         <div className="flex items-center gap-3">
-                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-emerald-700">
+                          <span className="flex justify-center items-center bg-emerald-100 rounded-full w-8 h-8 font-semibold text-emerald-700 text-xs">
                             {index + 1}
                           </span>
-                          <span className="text-base font-semibold text-gray-900">
+                          <span className="font-semibold text-gray-900 text-base">
                             {section.title}
                           </span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
                         {section.description && (
-                          <p className="mb-3 text-sm text-gray-600">
+                          <p className="mb-3 text-gray-600 text-sm">
                             {section.description}
                           </p>
                         )}
                         {section.items && (
-                          <ul className="list-disc space-y-2 pl-5 text-sm text-gray-700">
+                          <ul className="space-y-2 pl-5 text-gray-700 text-sm list-disc">
                             {section.items.map((item) => (
                               <li key={item}>{item}</li>
                             ))}
@@ -383,11 +382,14 @@ const SignupPoliciesModal: React.FC<SignupPoliciesModalProps> = ({
                         {section.subSections && (
                           <div className="space-y-4">
                             {section.subSections.map((sub) => (
-                              <div key={sub.title} className="rounded-xl bg-gray-50 p-4">
-                                <p className="text-sm font-semibold text-gray-900">
+                              <div
+                                key={sub.title}
+                                className="bg-gray-50 p-4 rounded-xl"
+                              >
+                                <p className="font-semibold text-gray-900 text-sm">
                                   {sub.title}
                                 </p>
-                                <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-gray-700">
+                                <ul className="space-y-1 mt-2 pl-5 text-gray-700 text-sm list-disc">
                                   {sub.items.map((item) => (
                                     <li key={item}>{item}</li>
                                   ))}
@@ -397,7 +399,7 @@ const SignupPoliciesModal: React.FC<SignupPoliciesModalProps> = ({
                           </div>
                         )}
                         {section.notes && (
-                          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                          <div className="bg-amber-50 mt-4 p-3 border border-amber-200 rounded-xl text-amber-900 text-sm">
                             {section.notes.map((note) => (
                               <p key={note}>{note}</p>
                             ))}
@@ -410,27 +412,29 @@ const SignupPoliciesModal: React.FC<SignupPoliciesModalProps> = ({
               </TabsContent>
 
               <TabsContent value="privacy">
-                <div className="mb-6 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+                <div className="gap-4 grid sm:grid-cols-2 mb-6">
+                  <div className="bg-blue-50 p-4 border border-blue-100 rounded-2xl">
                     <div className="flex items-center gap-2 text-blue-800">
-                      <Shield className="h-4 w-4" />
-                      <p className="text-sm font-semibold">
+                      <Shield className="w-4 h-4" />
+                      <p className="font-semibold text-sm">
                         Responsible Data Handling
                       </p>
                     </div>
-                    <p className="mt-2 text-sm text-blue-700">
-                      CRC keeps records to operate fairly, manage contributions, and ensure accountability
-                      within the cooperative scheme.
+                    <p className="mt-2 text-blue-700 text-sm">
+                      CRC keeps records to operate fairly, manage contributions,
+                      and ensure accountability within the Contributions scheme.
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                  <div className="bg-emerald-50 p-4 border border-emerald-100 rounded-2xl">
                     <div className="flex items-center gap-2 text-emerald-800">
-                      <Users className="h-4 w-4" />
-                      <p className="text-sm font-semibold">Coordinator Access</p>
+                      <Users className="w-4 h-4" />
+                      <p className="font-semibold text-sm">
+                        Coordinator Access
+                      </p>
                     </div>
-                    <p className="mt-2 text-sm text-emerald-700">
-                      Group Coordinators manage records for their members to keep activities transparent
-                      and timely.
+                    <p className="mt-2 text-emerald-700 text-sm">
+                      Group Coordinators manage records for their members to
+                      keep activities transparent and timely.
                     </p>
                   </div>
                 </div>
@@ -440,26 +444,26 @@ const SignupPoliciesModal: React.FC<SignupPoliciesModalProps> = ({
                     <AccordionItem
                       key={section.id}
                       value={section.id}
-                      className="rounded-2xl border border-gray-100 bg-white px-4"
+                      className="bg-white px-4 border border-gray-100 rounded-2xl"
                     >
                       <AccordionTrigger className="py-4 text-left">
                         <div className="flex items-center gap-3">
-                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                          <span className="flex justify-center items-center bg-blue-100 rounded-full w-8 h-8 font-semibold text-blue-700 text-xs">
                             {index + 1}
                           </span>
-                          <span className="text-base font-semibold text-gray-900">
+                          <span className="font-semibold text-gray-900 text-base">
                             {section.title}
                           </span>
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
                         {section.description && (
-                          <p className="mb-3 text-sm text-gray-600">
+                          <p className="mb-3 text-gray-600 text-sm">
                             {section.description}
                           </p>
                         )}
                         {section.items && (
-                          <ul className="list-disc space-y-2 pl-5 text-sm text-gray-700">
+                          <ul className="space-y-2 pl-5 text-gray-700 text-sm list-disc">
                             {section.items.map((item) => (
                               <li key={item}>{item}</li>
                             ))}
@@ -473,13 +477,13 @@ const SignupPoliciesModal: React.FC<SignupPoliciesModalProps> = ({
             </div>
           </ScrollArea>
 
-          <div className="flex items-center justify-between border-t border-gray-100 bg-white px-6 py-4">
-            <p className="text-xs text-gray-500">
+          <div className="flex justify-between items-center bg-white px-6 py-4 border-gray-100 border-t">
+            <p className="text-gray-500 text-xs">
               Need clarification? Contact CRC through the listed phone numbers.
             </p>
             <button
               type="button"
-              className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+              className="bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg font-semibold text-white text-sm"
               onClick={() => onOpenChange(false)}
             >
               I Understand

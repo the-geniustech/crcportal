@@ -87,7 +87,7 @@ const notificationTypes = new Set([
     type: "payment_reminder" as const,
     title: "Loan Payment Due Soon",
     message:
-      "Your monthly loan payment of â‚¦45,000 is due in 3 days. Ensure sufficient balance.",
+      "Your monthly loan payment of ₦45,000 is due in 3 days. Ensure sufficient balance.",
     isRead: false,
     createdAt: new Date(Date.now() - 7200000).toISOString(),
   },
@@ -95,7 +95,7 @@ const notificationTypes = new Set([
     id: "2",
     type: "deposit_confirmed" as const,
     title: "Deposit Successful",
-    message: "â‚¦50,000 has been successfully added to your savings account.",
+    message: "₦50,000 has been successfully added to your savings account.",
     isRead: false,
     createdAt: new Date(Date.now() - 86400000).toISOString(),
   },
@@ -113,7 +113,7 @@ const notificationTypes = new Set([
     type: "loan_approved" as const,
     title: "Loan Application Update",
     message:
-      "Congratulations! Your loan application for â‚¦500,000 has been approved.",
+      "Congratulations! Your loan application for ₦500,000 has been approved.",
     isRead: true,
     createdAt: new Date(Date.now() - 604800000).toISOString(),
   },
@@ -122,7 +122,7 @@ const notificationTypes = new Set([
     type: "promotion" as const,
     title: "Special Offer",
     message:
-      "Refer a friend and earn â‚¦5,000 bonus when they make their first deposit!",
+      "Refer a friend and earn ₦5,000 bonus when they make their first deposit!",
     isRead: true,
     createdAt: new Date(Date.now() - 1209600000).toISOString(),
   },
@@ -523,7 +523,7 @@ const DashboardContent: React.FC = () => {
     }
     toast({
       title: "Deposit Initiated",
-      description: `Your deposit of â‚¦${amount.toLocaleString()} is being processed.`,
+      description: `Your deposit of ₦${amount.toLocaleString()} is being processed.`,
     });
     setShowDepositModal(false);
     setDepositAmount("");
@@ -699,7 +699,7 @@ const DashboardContent: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <label className="block mb-2 font-medium text-gray-700 text-sm">
-                  Amount (â‚¦)
+                  Amount (₦)
                 </label>
                 <input
                   type="number"
@@ -717,7 +717,7 @@ const DashboardContent: React.FC = () => {
                     onClick={() => setDepositAmount(amount.toString())}
                     className="flex-1 bg-emerald-50 hover:bg-emerald-100 py-2 rounded-lg font-medium text-emerald-600 text-sm transition-colors"
                   >
-                    â‚¦{amount / 1000}K
+                    ₦{amount / 1000}K
                   </button>
                 ))}
               </div>

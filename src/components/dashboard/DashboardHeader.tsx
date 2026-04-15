@@ -270,7 +270,7 @@ const DashboardHeader: React.FC = () => {
                         Loan Payment Reminder
                       </p>
                       <p className="mt-1 text-gray-500 text-xs">
-                        Your monthly payment of â‚¦15,000 is due in 3 days
+                        Your monthly payment of ₦15,000 is due in 3 days
                       </p>
                       <p className="mt-1 text-gray-400 text-xs">2 hours ago</p>
                     </div>
@@ -279,7 +279,7 @@ const DashboardHeader: React.FC = () => {
                         Deposit Confirmed
                       </p>
                       <p className="mt-1 text-gray-500 text-xs">
-                        â‚¦50,000 has been added to your savings
+                        ₦50,000 has been added to your savings
                       </p>
                       <p className="mt-1 text-gray-400 text-xs">Yesterday</p>
                     </div>
@@ -560,5 +560,3 @@ const DashboardHeader: React.FC = () => {
 };
 
 export default DashboardHeader;
-
-
