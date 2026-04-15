@@ -1409,7 +1409,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                             Selected Group
                           </p>
                           <p className="text-sm font-semibold text-emerald-900">
-                            Group {selectedGroup.groupNumber ?? "â€”"}{" "}
+                            Group {selectedGroup.groupNumber ?? "—"}{" "}
                             {selectedGroup.groupName
                               ? `• ${selectedGroup.groupName}`
                               : ""}
@@ -1492,11 +1492,11 @@ const AuthModal: React.FC<AuthModalProps> = ({
                                     <span>
                                       {typeof group.memberCount === "number"
                                         ? group.memberCount
-                                        : "â€”"}
+                                        : "—"}
                                       /
                                       {typeof group.maxMembers === "number"
                                         ? group.maxMembers
-                                        : "â€”"}{" "}
+                                        : "—"}{" "}
                                       members
                                     </span>
                                   )}
@@ -1516,7 +1516,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                     )}
 
                     <p className="text-xs text-gray-500">
-                      Weâ€™ll send a join request to the selected group after
+                      We'll send a join request to the selected group after
                       signup.
                     </p>
                   </div>
@@ -1682,7 +1682,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
               </button>
               {showSlowRequestHint && (
                 <p className="mt-2 text-amber-600 text-xs">
-                  This is taking longer than usual. The server may be waking up â€”
+                  This is taking longer than usual. The server may be waking up —
                   please keep this window open.
                 </p>
               )}

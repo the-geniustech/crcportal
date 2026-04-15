@@ -726,7 +726,7 @@ function LoansContent() {
                                         change.from ?? "-",
                                       )}
                                     </span>{" "}
-                                    â†’{" "}
+                                    →{" "}
                                     <span className="font-semibold text-slate-900">
                                       {formatEditValue(
                                         change.field,
@@ -884,7 +884,7 @@ function LoansContent() {
                         <div className="bg-gray-50 p-3 rounded-lg">
                           <p className="text-gray-500 text-xs">Last Saved</p>
                           <p className="font-semibold text-gray-900">
-                            {savedAt ? toYmd(savedAt) : "Ã¢â‚¬â€"}
+                            {savedAt ? toYmd(savedAt) : "—"}
                           </p>
                         </div>
                       </div>

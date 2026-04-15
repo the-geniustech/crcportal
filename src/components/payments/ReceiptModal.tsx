@@ -184,7 +184,7 @@ export default function ReceiptModal({
             <div class="header">
               <div class="logo">CRC</div>
               <div class="subtitle">Champions Revolving Contributions</div>
-              <div class="success-badge">âœ“ Payment Successful</div>
+              <div class="success-badge">✓ Payment Successful</div>
             </div>
 
             <div class="amount">₦${transaction.amount.toLocaleString()}</div>

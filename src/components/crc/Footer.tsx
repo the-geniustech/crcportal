@@ -318,7 +318,7 @@ const Footer: React.FC = () => {
         <div className="mx-auto px-4 sm:px-6 lg:px-8 py-6 max-w-7xl">
           <div className="flex md:flex-row flex-col justify-between items-center gap-4">
             <p className="text-gray-500 text-sm">
-              Â© {currentYear} CRC Connect. All rights reserved.
+              © {currentYear} CRC Connect. All rights reserved.
             </p>
             <div className="flex flex-wrap items-center gap-6 text-sm">
               <a

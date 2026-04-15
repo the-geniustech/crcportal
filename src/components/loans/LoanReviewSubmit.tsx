@@ -162,12 +162,12 @@ export default function LoanReviewSubmit({
         <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
           <div className="bg-white/10 p-4 rounded-xl">
             <p className="text-emerald-100 text-sm">Loan Amount</p>
-            <p className="font-bold text-2xl">â‚¦{loanAmount.toLocaleString()}</p>
+            <p className="font-bold text-2xl">₦{loanAmount.toLocaleString()}</p>
           </div>
           <div className="bg-white/10 p-4 rounded-xl">
             <p className="text-emerald-100 text-sm">Monthly Payment</p>
             <p className="font-bold text-2xl">
-              â‚¦{monthlyPayment.toLocaleString()}
+              ₦{monthlyPayment.toLocaleString()}
             </p>
           </div>
           <div className="bg-white/10 p-4 rounded-xl">
@@ -247,13 +247,13 @@ export default function LoanReviewSubmit({
               <div className="bg-blue-50 p-4 border border-blue-100 rounded-xl">
                 <p className="mb-1 text-blue-600 text-sm">Total Interest</p>
                 <p className="font-bold text-blue-900 text-xl">
-                  â‚¦{totalInterest.toLocaleString()}
+                  ₦{totalInterest.toLocaleString()}
                 </p>
               </div>
               <div className="bg-emerald-50 p-4 border border-emerald-100 rounded-xl">
                 <p className="mb-1 text-emerald-600 text-sm">Total Repayment</p>
                 <p className="font-bold text-emerald-900 text-xl">
-                  â‚¦{totalPayment.toLocaleString()}
+                  ₦{totalPayment.toLocaleString()}
                 </p>
               </div>
               <div className="bg-purple-50 p-4 border border-purple-100 rounded-xl">
