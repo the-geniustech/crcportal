@@ -30,6 +30,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
@@ -105,6 +115,29 @@ interface LoanEditRequest {
   documents?: LoanDocument[];
 }
 
+type ManualDisbursementMethod =
+  | "cash"
+  | "bank_transfer"
+  | "bank_settlement"
+  | "cheque"
+  | "pos"
+  | "other";
+
+interface ManualDisbursement {
+  status?: "pending_otp" | "completed" | null;
+  method?: ManualDisbursementMethod | null;
+  amount?: number | null;
+  externalReference?: string | null;
+  occurredAt?: string | null;
+  repaymentStartDate?: string | null;
+  notes?: string | null;
+  initiatedAt?: string | null;
+  completedAt?: string | null;
+  otpChannel?: "phone" | "email" | null;
+  otpRecipient?: string | null;
+  otpSentAt?: string | null;
+}
+
 interface AdminBankAccount {
   id: string;
   bankName: string;
@@ -148,6 +181,7 @@ interface LoanApplication {
   payoutTransferCode?: string | null;
   payoutStatus?: string | null;
   payoutOtpResentAt?: string | null;
+  manualDisbursement?: ManualDisbursement | null;
   monthlyIncome: number;
   guarantorName: string;
   guarantorPhone: string;
@@ -171,6 +205,7 @@ type LoanPayoutUpdate = {
   payoutTransferCode?: string | null;
   payoutStatus?: string | null;
   payoutOtpResentAt?: string | null;
+  manualDisbursement?: ManualDisbursement | null;
   disbursementBankAccountId?: string | null;
   disbursementBankName?: string | null;
   disbursementBankCode?: string | null;
@@ -191,6 +226,17 @@ interface LoanReviewPanelProps {
     repaymentStartDate?: string | null,
     bankAccountId?: string | null,
   ) => Promise<LoanPayoutUpdate | null>;
+  onInitiateManualDisbursement: (
+    id: string,
+    payload: {
+      method: ManualDisbursementMethod;
+      occurredAt?: string | null;
+      externalReference?: string | null;
+      notes?: string | null;
+      repaymentStartDate?: string | null;
+      bankAccountId?: string | null;
+    },
+  ) => Promise<LoanPayoutUpdate | null>;
   onVerifyTransfer: (
     id: string,
     repaymentStartDate?: string | null,
@@ -201,13 +247,73 @@ interface LoanReviewPanelProps {
     otp: string,
     repaymentStartDate?: string | null,
   ) => Promise<LoanPayoutUpdate>;
+  onFinalizeManualOtp: (
+    id: string,
+    otp: string,
+    repaymentStartDate?: string | null,
+  ) => Promise<LoanPayoutUpdate>;
   onResendOtp: (
     id: string,
     transferCode: string,
   ) => Promise<{ application: LoanPayoutUpdate; retryAfter?: number }>;
+  onResendManualOtp: (
+    id: string,
+  ) => Promise<{ application: LoanPayoutUpdate; retryAfter?: number }>;
+  onCancelManualOtp: (id: string) => Promise<LoanPayoutUpdate | null>;
   groupOptions?: { id: string; name: string }[];
   canDisburse?: boolean;
   canFinalizeOtp?: boolean;
+}
+
+const manualDisbursementMethodOptions: Array<{
+  value: ManualDisbursementMethod;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "bank_transfer",
+    label: "Bank Transfer",
+    description: "Record a direct transfer or settlement made outside Paystack.",
+  },
+  {
+    value: "bank_settlement",
+    label: "Bank Settlement",
+    description: "Capture interbank or batch settlement already completed offline.",
+  },
+  {
+    value: "cash",
+    label: "Cash",
+    description: "Use when the loan was handed over physically in cash.",
+  },
+  {
+    value: "cheque",
+    label: "Cheque",
+    description: "Track cheque-based disbursement with cheque or teller details.",
+  },
+  {
+    value: "pos",
+    label: "POS",
+    description: "Record settlement done through a point-of-sale or terminal.",
+  },
+  {
+    value: "other",
+    label: "Other",
+    description: "Use another verifiable offline settlement channel.",
+  },
+];
+
+function getLocalDateTimeInputValue(date = new Date()) {
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
+}
+
+function formatManualDisbursementMethodLabel(
+  method?: ManualDisbursementMethod | null,
+) {
+  return (
+    manualDisbursementMethodOptions.find((option) => option.value === method)
+      ?.label || "Manual Settlement"
+  );
 }
 
 export default function LoanReviewPanel({
@@ -215,9 +321,13 @@ export default function LoanReviewPanel({
   onReject,
   onStartReview,
   onDisburse,
+  onInitiateManualDisbursement,
   onVerifyTransfer,
   onFinalizeOtp,
+  onFinalizeManualOtp,
   onResendOtp,
+  onResendManualOtp,
+  onCancelManualOtp,
   groupOptions = [],
   canDisburse = true,
   canFinalizeOtp = true,
@@ -248,6 +358,25 @@ export default function LoanReviewPanel({
   const [monthFilter, setMonthFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [repaymentStartDate, setRepaymentStartDate] = useState("");
+  const [disbursementMode, setDisbursementMode] = useState<
+    "paystack" | "manual"
+  >("paystack");
+  const [manualDisbursementMethod, setManualDisbursementMethod] =
+    useState<ManualDisbursementMethod>("bank_transfer");
+  const [manualDisbursementOccurredAt, setManualDisbursementOccurredAt] =
+    useState("");
+  const [manualDisbursementReference, setManualDisbursementReference] =
+    useState("");
+  const [manualDisbursementNotes, setManualDisbursementNotes] = useState("");
+  const [showManualDisbursementConfirm, setShowManualDisbursementConfirm] =
+    useState(false);
+  const [showManualFinalizeConfirm, setShowManualFinalizeConfirm] =
+    useState(false);
+  const [manualCancelTarget, setManualCancelTarget] =
+    useState<LoanApplication | null>(null);
+  const [manualCancelBusyId, setManualCancelBusyId] = useState<string | null>(
+    null,
+  );
   const [selectedDisbursementAccountId, setSelectedDisbursementAccountId] =
     useState("");
   const [approvedRateInput, setApprovedRateInput] = useState("");
@@ -349,6 +478,7 @@ export default function LoanReviewPanel({
         payoutTransferCode: a.payoutTransferCode ?? null,
         payoutStatus: a.payoutStatus ?? null,
         payoutOtpResentAt: a.payoutOtpResentAt ?? null,
+        manualDisbursement: a.manualDisbursement ?? null,
       };
     });
   }, [loansQuery.data?.applications]);
@@ -442,6 +572,11 @@ export default function LoanReviewPanel({
     resendCooldownSeconds > 0
       ? `Resend OTP (${resendCooldownSeconds}s)`
       : "Resend OTP";
+  const isManualOtpTarget =
+    String(otpTarget?.payoutGateway || "").toLowerCase() === "manual";
+  const selectedManualMethodMeta = manualDisbursementMethodOptions.find(
+    (option) => option.value === manualDisbursementMethod,
+  );
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -769,6 +904,12 @@ export default function LoanReviewPanel({
       return;
     }
     if (
+      disbursementMode === "manual" &&
+      selectedDisbursementAccountId === "__none__"
+    ) {
+      return;
+    }
+    if (
       selectedDisbursementAccountId &&
       bankAccounts.some((acc) => acc.id === selectedDisbursementAccountId)
     ) {
@@ -787,10 +928,20 @@ export default function LoanReviewPanel({
     );
   }, [
     bankAccounts,
+    disbursementMode,
     selectedDisbursementAccountId,
     selectedLoan,
     showDisburseModal,
   ]);
+
+  useEffect(() => {
+    if (
+      disbursementMode === "paystack" &&
+      selectedDisbursementAccountId === "__none__"
+    ) {
+      setSelectedDisbursementAccountId("");
+    }
+  }, [disbursementMode, selectedDisbursementAccountId]);
 
   const handleReview = (
     loan: LoanApplication,
@@ -813,8 +964,7 @@ export default function LoanReviewPanel({
   const handleDisburse = (loan: LoanApplication) => {
     if (!canDisburse) return;
     setSelectedLoan(loan);
-    setRepaymentStartDate("");
-    setSelectedDisbursementAccountId("");
+    resetDisbursementComposer(loan);
     setShowDisburseModal(true);
   };
 
@@ -1085,27 +1235,204 @@ export default function LoanReviewPanel({
   const mergePayoutUpdate = (
     base: LoanApplication,
     update?: LoanPayoutUpdate | null,
-  ) => ({
-    ...base,
-    payoutReference: update?.payoutReference ?? base.payoutReference,
-    payoutGateway: update?.payoutGateway ?? base.payoutGateway,
-    payoutTransferCode: update?.payoutTransferCode ?? base.payoutTransferCode,
-    payoutStatus: update?.payoutStatus ?? base.payoutStatus,
-    payoutOtpResentAt: update?.payoutOtpResentAt ?? base.payoutOtpResentAt,
-    disbursementBankAccountId:
-      update?.disbursementBankAccountId ?? base.disbursementBankAccountId,
-    disbursementBankName:
-      update?.disbursementBankName ?? base.disbursementBankName,
-    disbursementBankCode:
-      update?.disbursementBankCode ?? base.disbursementBankCode,
-    disbursementAccountNumber:
-      update?.disbursementAccountNumber ?? base.disbursementAccountNumber,
-    disbursementAccountName:
-      update?.disbursementAccountName ?? base.disbursementAccountName,
-  });
+  ) => {
+    const pickField = <K extends keyof LoanPayoutUpdate>(
+      key: K,
+      fallback: LoanApplication[K],
+    ) =>
+      update && Object.prototype.hasOwnProperty.call(update, key)
+        ? (update[key] as LoanApplication[K])
+        : fallback;
+
+    return {
+      ...base,
+      payoutReference: pickField("payoutReference", base.payoutReference),
+      payoutGateway: pickField("payoutGateway", base.payoutGateway),
+      payoutTransferCode: pickField(
+        "payoutTransferCode",
+        base.payoutTransferCode,
+      ),
+      payoutStatus: pickField("payoutStatus", base.payoutStatus),
+      payoutOtpResentAt: pickField(
+        "payoutOtpResentAt",
+        base.payoutOtpResentAt,
+      ),
+      manualDisbursement: pickField(
+        "manualDisbursement",
+        base.manualDisbursement ?? null,
+      ),
+      disbursementBankAccountId: pickField(
+        "disbursementBankAccountId",
+        base.disbursementBankAccountId,
+      ),
+      disbursementBankName: pickField(
+        "disbursementBankName",
+        base.disbursementBankName,
+      ),
+      disbursementBankCode: pickField(
+        "disbursementBankCode",
+        base.disbursementBankCode,
+      ),
+      disbursementAccountNumber: pickField(
+        "disbursementAccountNumber",
+        base.disbursementAccountNumber,
+      ),
+      disbursementAccountName: pickField(
+        "disbursementAccountName",
+        base.disbursementAccountName,
+      ),
+    };
+  };
+
+  const resetOtpDialog = () => {
+    setOtpTarget(null);
+    setOtpCode("");
+    setTransferCode("");
+    setResendCooldownSeconds(0);
+    setShowManualFinalizeConfirm(false);
+  };
+
+  const syncSelectedLoanPayoutState = (updated: LoanApplication) => {
+    if (selectedLoan?.id === updated.id) {
+      setSelectedLoan(updated);
+    }
+  };
+
+  const resetDisbursementComposer = (loan?: LoanApplication | null) => {
+    setRepaymentStartDate("");
+    setSelectedDisbursementAccountId("");
+    setDisbursementMode("paystack");
+    setManualDisbursementMethod(
+      loan?.manualDisbursement?.method || "bank_transfer",
+    );
+    setManualDisbursementOccurredAt(
+      loan?.manualDisbursement?.occurredAt
+        ? getLocalDateTimeInputValue(
+            new Date(loan.manualDisbursement.occurredAt),
+          )
+        : getLocalDateTimeInputValue(),
+    );
+    setManualDisbursementReference(
+      loan?.manualDisbursement?.externalReference || "",
+    );
+    setManualDisbursementNotes(loan?.manualDisbursement?.notes || "");
+    setShowManualDisbursementConfirm(false);
+  };
+
+  const isRecoverableFinalizeOtpError = (error: unknown) => {
+    const message =
+      error && typeof error === "object" && "message" in error
+        ? String((error as { message?: string }).message || "")
+        : "";
+
+    const normalizedMessage = message
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return (
+      normalizedMessage.includes("not currently awaiting otp") ||
+      normalizedMessage.includes("not currentiy awaiting otp") ||
+      normalizedMessage.includes("not awaiting otp") ||
+      normalizedMessage.includes("awaiting_otp") ||
+      normalizedMessage.includes("already finalized") ||
+      normalizedMessage.includes("already fulfilled")
+    );
+  };
+
+  const handleFinalizeOtpOutcome = (
+    updated: LoanApplication,
+    source: "finalize" | "verify" = "finalize",
+  ) => {
+    const payoutStatus = String(updated.payoutStatus || "").toLowerCase();
+    const isManual = String(updated.payoutGateway || "").toLowerCase() === "manual";
+
+    syncSelectedLoanPayoutState(updated);
+
+    if (payoutStatus === "success") {
+      toast({
+        title: isManual
+          ? "Manual Disbursement Finalized"
+          : source === "verify"
+            ? "Transfer Verified"
+            : "Transfer Finalized",
+        description:
+          isManual
+            ? "OTP confirmed. The manual disbursement has been posted and the repayment schedule is now active."
+            : source === "verify"
+            ? "We refreshed the payout state and confirmed the loan has been disbursed."
+            : "OTP verified. The loan has been disbursed.",
+      });
+      resetOtpDialog();
+      setShowManualFinalizeConfirm(false);
+      return;
+    }
+
+    if (payoutStatus === "otp") {
+      toast({
+        title: "OTP Required",
+        description:
+          isManual
+            ? "Manual disbursement is still awaiting OTP confirmation. Enter the latest code or resend it."
+            : "This transfer is still awaiting OTP confirmation. You can enter the latest OTP or resend it.",
+      });
+      setOtpTarget(updated);
+      setTransferCode(updated.payoutTransferCode || transferCode.trim());
+      return;
+    }
+
+    if (["failed", "reversed"].includes(payoutStatus)) {
+      toast({
+        title: "Transfer Not Completed",
+        description:
+          "The payout is no longer awaiting OTP. Review the latest transfer status and start a fresh disbursement if needed.",
+        variant: "destructive",
+      });
+      resetOtpDialog();
+      return;
+    }
+
+    toast({
+      title: isManual ? "Manual Disbursement Processing" : "Transfer Processing",
+      description:
+        isManual
+          ? "The manual disbursement record is still being updated. Refresh shortly if it does not complete right away."
+          : "The payout is still processing. You can verify again later if Paystack has not finalized it yet.",
+    });
+    setOtpTarget(updated);
+    setTransferCode(updated.payoutTransferCode || transferCode.trim());
+  };
 
   const confirmDisburse = async () => {
     if (!selectedLoan) return;
+    if (disbursementMode === "manual") {
+      const result = await onInitiateManualDisbursement(selectedLoan.id, {
+        method: manualDisbursementMethod,
+        occurredAt:
+          manualDisbursementOccurredAt || getLocalDateTimeInputValue(new Date()),
+        externalReference: manualDisbursementReference.trim() || null,
+        notes: manualDisbursementNotes.trim() || null,
+        repaymentStartDate: repaymentStartDate || null,
+        bankAccountId:
+          selectedDisbursementAccountId &&
+          selectedDisbursementAccountId !== "__none__"
+            ? selectedDisbursementAccountId
+            : null,
+      });
+
+      if (result?.payoutStatus === "otp") {
+        const updated = mergePayoutUpdate(selectedLoan, result);
+        setOtpTarget(updated);
+        setOtpCode("");
+        setTransferCode("");
+        setResendCooldownSeconds(0);
+        setShowManualDisbursementConfirm(false);
+        setShowDisburseModal(false);
+        setSelectedLoan(null);
+      }
+      return;
+    }
+
     if (bankAccountsLoading) {
       toast({
         title: "Loading Bank Accounts",
@@ -1154,6 +1481,43 @@ export default function LoanReviewPanel({
     } finally {
       setShowDisburseModal(false);
       setSelectedLoan(null);
+    }
+  };
+
+  const reviewManualDisbursement = () => {
+    if (!selectedLoan) return;
+    if (!manualDisbursementOccurredAt) {
+      toast({
+        title: "Disbursement Time Required",
+        description:
+          "Please provide when the manual settlement actually happened.",
+        variant: "destructive",
+      });
+      return;
+    }
+    setShowManualDisbursementConfirm(true);
+  };
+
+  const handleCancelManualOtp = async () => {
+    if (!manualCancelTarget) return;
+
+    setManualCancelBusyId(manualCancelTarget.id);
+    try {
+      const result = await onCancelManualOtp(manualCancelTarget.id);
+      const updated = result
+        ? mergePayoutUpdate(manualCancelTarget, result)
+        : manualCancelTarget;
+
+      syncSelectedLoanPayoutState(updated);
+      if (otpTarget?.id === manualCancelTarget.id) {
+        resetOtpDialog();
+      }
+      if (selectedLoan?.id === manualCancelTarget.id) {
+        resetDisbursementComposer(updated);
+      }
+      setManualCancelTarget(null);
+    } finally {
+      setManualCancelBusyId(null);
     }
   };
 
@@ -1222,6 +1586,10 @@ export default function LoanReviewPanel({
       });
       return;
     }
+    if (isManualOtpTarget) {
+      setShowManualFinalizeConfirm(true);
+      return;
+    }
     if (!transferCode.trim()) {
       toast({
         title: "Transfer Code Required",
@@ -1242,26 +1610,28 @@ export default function LoanReviewPanel({
         plannedStartDate,
       );
       const updated = mergePayoutUpdate(otpTarget, result);
-
-      if (updated.payoutStatus === "success") {
-        toast({
-          title: "Transfer Finalized",
-          description: "OTP verified. The loan has been disbursed.",
-        });
-        setOtpTarget(null);
-        setOtpCode("");
-        setTransferCode("");
-        setResendCooldownSeconds(0);
-      } else {
-        toast({
-          title: "Transfer Processing",
-          description:
-            "The payout is still processing. You can retry if Paystack requires another OTP.",
-        });
-        setOtpTarget(updated);
-        setTransferCode(updated.payoutTransferCode || transferCode.trim());
-      }
+      handleFinalizeOtpOutcome(updated);
     } catch (error: unknown) {
+      if (isRecoverableFinalizeOtpError(error) && otpTarget.payoutReference) {
+        try {
+          const plannedStartDate =
+            otpTarget.repaymentStartDate || repaymentStartDate || null;
+          const verified = await onVerifyTransfer(otpTarget.id, plannedStartDate);
+          const updated = mergePayoutUpdate(otpTarget, verified);
+          handleFinalizeOtpOutcome(updated, "verify");
+          return;
+        } catch (verifyError: unknown) {
+          toast({
+            title: "Finalize Failed",
+            description:
+              (verifyError as Error).message ||
+              "We could not refresh the payout status after finalization failed.",
+            variant: "destructive",
+          });
+          return;
+        }
+      }
+
       toast({
         title: "Finalize Failed",
         description: (error as Error).message || "Failed to finalize transfer",
@@ -1272,9 +1642,49 @@ export default function LoanReviewPanel({
     }
   };
 
+  const confirmManualFinalizeOtp = async () => {
+    if (!otpTarget) return;
+    if (!otpCode.trim()) {
+      toast({
+        title: "OTP Required",
+        description:
+          "Enter the OTP sent to the authorized admin to finalize this manual disbursement.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setOtpAction("finalize");
+    try {
+      const plannedStartDate =
+        otpTarget.manualDisbursement?.repaymentStartDate ||
+        otpTarget.repaymentStartDate ||
+        repaymentStartDate ||
+        null;
+      const result = await onFinalizeManualOtp(
+        otpTarget.id,
+        otpCode.trim(),
+        plannedStartDate,
+      );
+      const updated = mergePayoutUpdate(otpTarget, result);
+      handleFinalizeOtpOutcome(updated);
+    } catch (error: unknown) {
+      toast({
+        title: "Finalize Failed",
+        description:
+          (error as Error).message ||
+          "Failed to finalize manual disbursement.",
+        variant: "destructive",
+      });
+    } finally {
+      setOtpAction(null);
+      setShowManualFinalizeConfirm(false);
+    }
+  };
+
   const handleResendOtp = async () => {
     if (!otpTarget) return;
-    if (!transferCode.trim()) {
+    if (!isManualOtpTarget && !transferCode.trim()) {
       toast({
         title: "Transfer Code Required",
         description: "Enter the transfer code to resend OTP.",
@@ -1285,7 +1695,9 @@ export default function LoanReviewPanel({
 
     setOtpAction("resend");
     try {
-      const result = await onResendOtp(otpTarget.id, transferCode.trim());
+      const result = isManualOtpTarget
+        ? await onResendManualOtp(otpTarget.id)
+        : await onResendOtp(otpTarget.id, transferCode.trim());
       const updated = mergePayoutUpdate(otpTarget, result.application);
       setOtpTarget(updated);
       setTransferCode(updated.payoutTransferCode || transferCode.trim());
@@ -1589,17 +2001,37 @@ export default function LoanReviewPanel({
                       <>
                         {loan.payoutStatus === "otp" ? (
                           canFinalizeOtp ? (
-                            <Button
-                              size="sm"
-                              className="bg-amber-600 hover:bg-amber-700"
-                              onClick={() => {
-                                setOtpTarget(loan);
-                                setTransferCode(loan.payoutTransferCode || "");
-                                setOtpCode("");
-                              }}
-                            >
-                              Finalize OTP
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                size="sm"
+                                className="bg-amber-600 hover:bg-amber-700"
+                                onClick={() => {
+                                  setOtpTarget(loan);
+                                  setTransferCode(loan.payoutTransferCode || "");
+                                  setOtpCode("");
+                                  setShowManualFinalizeConfirm(false);
+                                }}
+                              >
+                                {String(loan.payoutGateway || "").toLowerCase() ===
+                                "manual"
+                                  ? "Finalize Manual OTP"
+                                  : "Finalize OTP"}
+                              </Button>
+                              {String(loan.payoutGateway || "").toLowerCase() ===
+                                "manual" && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="border-rose-200 text-rose-600"
+                                  onClick={() => setManualCancelTarget(loan)}
+                                  disabled={manualCancelBusyId === loan.id}
+                                >
+                                  {manualCancelBusyId === loan.id
+                                    ? "Cancelling..."
+                                    : "Cancel Manual OTP"}
+                                </Button>
+                              )}
+                            </div>
                           ) : null
                         ) : ["pending", "processing", "queued"].includes(
                             String(loan.payoutStatus || "").toLowerCase(),
@@ -1679,6 +2111,11 @@ export default function LoanReviewPanel({
                 </div>
                 {(loan.payoutStatus || loan.payoutTransferCode) && (
                   <div className="flex flex-wrap justify-end gap-3 mt-2 text-gray-500 text-xs">
+                    {loan.payoutGateway && (
+                      <span>
+                        Gateway: {String(loan.payoutGateway).toUpperCase()}
+                      </span>
+                    )}
                     {loan.payoutStatus && (
                       <span className="text-amber-600">
                         Payout Status: {loan.payoutStatus.toUpperCase()}
@@ -1686,6 +2123,11 @@ export default function LoanReviewPanel({
                     )}
                     {loan.payoutTransferCode && (
                       <span>Transfer Code: {loan.payoutTransferCode}</span>
+                    )}
+                    {loan.manualDisbursement?.externalReference && (
+                      <span>
+                        Manual Ref: {loan.manualDisbursement.externalReference}
+                      </span>
                     )}
                   </div>
                 )}
@@ -1760,6 +2202,15 @@ export default function LoanReviewPanel({
               const documents = Array.isArray(selectedLoan.documents)
                 ? selectedLoan.documents
                 : [];
+              const manualDisbursement = selectedLoan.manualDisbursement || null;
+              const isManualPayout =
+                String(selectedLoan.payoutGateway || "").toLowerCase() ===
+                "manual";
+              const payoutStatusLabel = selectedLoan.payoutStatus
+                ? String(selectedLoan.payoutStatus)
+                    .replace(/_/g, " ")
+                    .toUpperCase()
+                : "—";
 
               return (
                 <div className="flex flex-col max-h-screen">
@@ -1843,6 +2294,13 @@ export default function LoanReviewPanel({
                             <span className="bg-slate-100 px-3 py-1 rounded-full font-medium text-slate-600">
                               Documents {documents.length}
                             </span>
+                            {selectedLoan.payoutGateway && (
+                              <span className="bg-slate-100 px-3 py-1 rounded-full font-medium text-slate-600">
+                                {isManualPayout
+                                  ? "Manual Settlement"
+                                  : String(selectedLoan.payoutGateway).toUpperCase()}
+                              </span>
+                            )}
                           </>
                         );
                       })()}
@@ -2037,6 +2495,127 @@ export default function LoanReviewPanel({
                         </p>
                       </div>
                     </div>
+
+                    {(selectedLoan.payoutGateway || manualDisbursement) && (
+                      <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-emerald-50/50 p-5 shadow-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-4">
+                          <div>
+                            <p className="font-semibold text-slate-500 text-xs uppercase tracking-[0.18em]">
+                              Disbursement Trail
+                            </p>
+                            <h3 className="mt-1 font-semibold text-slate-900 text-lg">
+                              {isManualPayout
+                                ? "Manual Disbursement Record"
+                                : "Payout Transfer Record"}
+                            </h3>
+                            <p className="mt-1 text-slate-500 text-sm">
+                              {isManualPayout
+                                ? "Offline settlement details captured and tied to the active loan schedule."
+                                : "Gateway payout details used to complete the loan disbursement."}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-600 shadow-sm ring-1 ring-slate-200">
+                              Gateway{" "}
+                              {selectedLoan.payoutGateway
+                                ? String(selectedLoan.payoutGateway).toUpperCase()
+                                : "—"}
+                            </span>
+                            <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-600 shadow-sm ring-1 ring-slate-200">
+                              Status {payoutStatusLabel}
+                            </span>
+                            {manualDisbursement?.method && (
+                              <span className="rounded-full bg-emerald-50 px-3 py-1 font-medium text-emerald-700 shadow-sm ring-1 ring-emerald-100">
+                                {formatManualDisbursementMethodLabel(
+                                  manualDisbursement.method,
+                                )}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                          <div className="rounded-xl border border-slate-200 bg-white p-4">
+                            <p className="text-slate-500 text-xs uppercase tracking-wide">
+                              Payout Reference
+                            </p>
+                            <p className="mt-2 break-all font-semibold text-slate-900 text-sm">
+                              {selectedLoan.payoutReference || "—"}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-4">
+                            <p className="text-slate-500 text-xs uppercase tracking-wide">
+                              Settlement Time
+                            </p>
+                            <p className="mt-2 font-semibold text-slate-900 text-sm">
+                              {manualDisbursement?.occurredAt
+                                ? new Date(
+                                    manualDisbursement.occurredAt,
+                                  ).toLocaleString()
+                                : formatDate(selectedLoan.disbursedAt)}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-4">
+                            <p className="text-slate-500 text-xs uppercase tracking-wide">
+                              External Reference
+                            </p>
+                            <p className="mt-2 break-all font-semibold text-slate-900 text-sm">
+                              {manualDisbursement?.externalReference ||
+                                selectedLoan.payoutTransferCode ||
+                                "—"}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-slate-200 bg-white p-4">
+                            <p className="text-slate-500 text-xs uppercase tracking-wide">
+                              OTP Delivery
+                            </p>
+                            <p className="mt-2 font-semibold text-slate-900 text-sm">
+                              {manualDisbursement?.otpRecipient || "—"}
+                            </p>
+                            <p className="mt-1 text-slate-500 text-xs">
+                              {manualDisbursement?.otpSentAt
+                                ? `Sent ${new Date(
+                                    manualDisbursement.otpSentAt,
+                                  ).toLocaleString()}`
+                                : isManualPayout
+                                  ? "Awaiting OTP history"
+                                  : selectedLoan.payoutTransferCode
+                                    ? "Paystack OTP flow"
+                                    : "—"}
+                            </p>
+                          </div>
+                        </div>
+                        {(manualDisbursement?.notes ||
+                          selectedLoan.disbursementBankName ||
+                          selectedLoan.disbursementAccountNumber ||
+                          selectedLoan.disbursementAccountName) && (
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div className="rounded-xl border border-slate-200 bg-white p-4">
+                              <p className="text-slate-500 text-xs uppercase tracking-wide">
+                                Beneficiary Bank Snapshot
+                              </p>
+                              <p className="mt-2 font-medium text-slate-900 text-sm">
+                                {selectedLoan.disbursementBankName || "—"}
+                              </p>
+                              <p className="mt-1 text-slate-600 text-sm">
+                                {selectedLoan.disbursementAccountNumber || "—"}
+                              </p>
+                              <p className="mt-1 text-slate-600 text-sm">
+                                {selectedLoan.disbursementAccountName || "—"}
+                              </p>
+                            </div>
+                            <div className="rounded-xl border border-slate-200 bg-white p-4">
+                              <p className="text-slate-500 text-xs uppercase tracking-wide">
+                                Disbursement Notes
+                              </p>
+                              <p className="mt-2 text-slate-700 text-sm">
+                                {manualDisbursement?.notes ||
+                                  "No manual disbursement notes recorded."}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="gap-4 grid md:grid-cols-2">
                       <div className="bg-white shadow-sm p-5 border border-gray-100 rounded-xl">
@@ -2731,7 +3310,15 @@ export default function LoanReviewPanel({
 
       {/* Disburse Modal */}
       {canDisburse && (
-        <Dialog open={showDisburseModal} onOpenChange={setShowDisburseModal}>
+        <Dialog
+          open={showDisburseModal}
+          onOpenChange={(open) => {
+            setShowDisburseModal(open);
+            if (!open) {
+              setShowManualDisbursementConfirm(false);
+            }
+          }}
+        >
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Disburse Loan</DialogTitle>
@@ -2750,12 +3337,44 @@ export default function LoanReviewPanel({
                   </p>
                 </div>
               )}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setDisbursementMode("paystack")}
+                  className={`rounded-xl border px-4 py-3 text-left transition ${
+                    disbursementMode === "paystack"
+                      ? "border-purple-300 bg-purple-50 shadow-sm"
+                      : "border-slate-200 bg-white hover:border-slate-300"
+                  }`}
+                >
+                  <p className="font-medium text-slate-900">Paystack Transfer</p>
+                  <p className="mt-1 text-slate-500 text-xs">
+                    Trigger in-app bank disbursement and finalize with Paystack OTP if required.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDisbursementMode("manual")}
+                  className={`rounded-xl border px-4 py-3 text-left transition ${
+                    disbursementMode === "manual"
+                      ? "border-emerald-300 bg-emerald-50 shadow-sm"
+                      : "border-slate-200 bg-white hover:border-slate-300"
+                  }`}
+                >
+                  <p className="font-medium text-slate-900">Manual Settlement</p>
+                  <p className="mt-1 text-slate-500 text-xs">
+                    Record cash or offline settlement, then confirm it with admin OTP.
+                  </p>
+                </button>
+              </div>
               {selectedLoan && (
-                <div className="bg-slate-50 p-3 rounded-lg text-slate-600 text-sm">
+                <div className="rounded-xl bg-slate-50 p-3 text-slate-600 text-sm">
                   {selectedDisbursementAccount ? (
                     <div>
                       <p className="font-medium text-slate-700">
-                        Disbursement Account
+                        {disbursementMode === "manual"
+                          ? "Beneficiary Bank Snapshot"
+                          : "Disbursement Account"}
                       </p>
                       <p className="mt-1 text-slate-600 text-sm">
                         {selectedDisbursementAccount.bankName} •{" "}
@@ -2772,22 +3391,33 @@ export default function LoanReviewPanel({
                     </p>
                   ) : bankAccounts.length === 0 ? (
                     <p>
-                      Borrower has no bank accounts on file. Ask them to add one
-                      before disbursement.
+                      {disbursementMode === "manual"
+                        ? "No bank account is on file. You can still continue if this was a cash or offline settlement."
+                        : "Borrower has no bank accounts on file. Ask them to add one before Paystack disbursement."}
                     </p>
                   ) : (
-                    <p>Select a bank account below for disbursement.</p>
+                    <p>
+                      {disbursementMode === "manual"
+                        ? "Select a bank account if you want the loan record to keep the beneficiary bank snapshot."
+                        : "Select a bank account below for disbursement."}
+                    </p>
                   )}
                 </div>
               )}
               <div className="space-y-2">
                 <label className="block font-medium text-gray-700 text-sm">
-                  Bank Account for Disbursement
+                  {disbursementMode === "manual"
+                    ? "Beneficiary Bank Account (optional)"
+                    : "Bank Account for Disbursement"}
                 </label>
                 <Select
                   value={selectedDisbursementAccountId}
                   onValueChange={setSelectedDisbursementAccountId}
-                  disabled={bankAccountsLoading || bankAccounts.length === 0}
+                  disabled={
+                    disbursementMode === "paystack"
+                      ? bankAccountsLoading || bankAccounts.length === 0
+                      : bankAccountsLoading
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue
@@ -2796,11 +3426,16 @@ export default function LoanReviewPanel({
                           ? "Loading accounts..."
                           : bankAccounts.length === 0
                             ? "No bank accounts found"
-                            : "Select bank account"
+                            : disbursementMode === "manual"
+                              ? "Select a bank account if applicable"
+                              : "Select bank account"
                       }
                     />
                   </SelectTrigger>
                   <SelectContent>
+                    {disbursementMode === "manual" && (
+                      <SelectItem value="__none__">No bank account</SelectItem>
+                    )}
                     {bankAccounts.map((account) => (
                       <SelectItem key={account.id} value={account.id}>
                         {account.bankName} • {account.accountNumber} •{" "}
@@ -2810,12 +3445,19 @@ export default function LoanReviewPanel({
                     ))}
                   </SelectContent>
                 </Select>
-                {bankAccounts.length === 0 && !bankAccountsLoading && (
-                  <p className="text-amber-600 text-xs">
-                    The borrower must add a bank account before you can disburse
-                    this loan.
+                {disbursementMode === "manual" && selectedDisbursementAccountId === "__none__" && (
+                  <p className="text-slate-500 text-xs">
+                    This record will be finalized without storing a bank-account snapshot.
                   </p>
                 )}
+                {bankAccounts.length === 0 &&
+                  !bankAccountsLoading &&
+                  disbursementMode === "paystack" && (
+                    <p className="text-amber-600 text-xs">
+                      The borrower must add a bank account before you can disburse
+                      this loan through Paystack.
+                    </p>
+                  )}
                 {bankAccountsError && !bankAccountsLoading && (
                   <p className="text-red-600 text-xs">
                     Unable to load bank accounts. Please retry in a moment.
@@ -2837,31 +3479,320 @@ export default function LoanReviewPanel({
                   100% liability before disbursement.
                 </p>
               </div>
+              {disbursementMode === "manual" && (
+                <>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="block font-medium text-gray-700 text-sm">
+                        Settlement Method
+                      </label>
+                      <Select
+                        value={manualDisbursementMethod}
+                        onValueChange={(value) =>
+                          setManualDisbursementMethod(
+                            value as ManualDisbursementMethod,
+                          )
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select manual method" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {manualDisbursementMethodOptions.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-gray-500 text-xs">
+                        {selectedManualMethodMeta?.description}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block font-medium text-gray-700 text-sm">
+                        Settlement Time
+                      </label>
+                      <Input
+                        type="datetime-local"
+                        value={manualDisbursementOccurredAt}
+                        onChange={(e) =>
+                          setManualDisbursementOccurredAt(e.target.value)
+                        }
+                      />
+                      <p className="text-gray-500 text-xs">
+                        Record when the manual settlement actually happened.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block font-medium text-gray-700 text-sm">
+                      External Reference (optional)
+                    </label>
+                    <Input
+                      value={manualDisbursementReference}
+                      onChange={(e) =>
+                        setManualDisbursementReference(e.target.value)
+                      }
+                      placeholder="Settlement reference, cheque no., teller no., etc."
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="block font-medium text-gray-700 text-sm">
+                      Notes (optional)
+                    </label>
+                    <Textarea
+                      value={manualDisbursementNotes}
+                      onChange={(e) =>
+                        setManualDisbursementNotes(e.target.value)
+                      }
+                      rows={3}
+                      placeholder="Add any reconciliation notes or evidence summary."
+                    />
+                  </div>
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-emerald-900">
+                          Manual Disbursement Summary
+                        </p>
+                        <p className="mt-1 text-emerald-700 text-xs">
+                          We will still apply the full approved loan amount and create the normal repayment schedule after OTP confirmation.
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-emerald-700 text-xs">Amount to record</p>
+                        <p className="font-semibold text-emerald-900 text-lg">
+                          {formatCurrency(
+                            selectedLoan?.approvedAmount ?? selectedLoan?.loanAmount,
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
               <div className="flex gap-3">
                 <Button
                   variant="outline"
                   className="flex-1"
-                  onClick={() => setShowDisburseModal(false)}
+                  onClick={() => {
+                    setShowDisburseModal(false);
+                    setShowManualDisbursementConfirm(false);
+                  }}
                 >
                   Cancel
                 </Button>
-                <Button
-                  className="flex-1 bg-purple-600 hover:bg-purple-700"
-                  onClick={confirmDisburse}
-                  disabled={
-                    bankAccountsLoading ||
-                    bankAccountsError ||
-                    bankAccounts.length === 0 ||
-                    !selectedDisbursementAccountId
-                  }
-                >
-                  Confirm Disbursement
-                </Button>
+                {disbursementMode === "manual" ? (
+                  <Button
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                    onClick={reviewManualDisbursement}
+                  >
+                    Review & Send OTP
+                  </Button>
+                ) : (
+                  <Button
+                    className="flex-1 bg-purple-600 hover:bg-purple-700"
+                    onClick={confirmDisburse}
+                    disabled={
+                      bankAccountsLoading ||
+                      bankAccountsError ||
+                      bankAccounts.length === 0 ||
+                      !selectedDisbursementAccountId ||
+                      selectedDisbursementAccountId === "__none__"
+                    }
+                  >
+                    Confirm Disbursement
+                  </Button>
+                )}
               </div>
             </div>
           </DialogContent>
         </Dialog>
       )}
+
+      <AlertDialog
+        open={showManualDisbursementConfirm}
+        onOpenChange={setShowManualDisbursementConfirm}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Manual Disbursement</AlertDialogTitle>
+            <AlertDialogDescription>
+              We will send an OTP to the authorized admin before this manual
+              settlement can be finalized in the system.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {selectedLoan && (
+            <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium text-slate-900">
+                    {selectedLoan.applicantName}
+                  </p>
+                  <p className="mt-1 text-slate-600">
+                    {formatManualDisbursementMethodLabel(
+                      manualDisbursementMethod,
+                    )}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-slate-500 text-xs">Amount</p>
+                  <p className="font-semibold text-slate-900 text-lg">
+                    {formatCurrency(
+                      selectedLoan.approvedAmount ?? selectedLoan.loanAmount,
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <p className="text-slate-500 text-xs uppercase tracking-wide">
+                    Settlement Time
+                  </p>
+                  <p className="mt-1 text-slate-800">
+                    {manualDisbursementOccurredAt
+                      ? new Date(manualDisbursementOccurredAt).toLocaleString()
+                      : "Not set"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs uppercase tracking-wide">
+                    Repayment Start
+                  </p>
+                  <p className="mt-1 text-slate-800">
+                    {repaymentStartDate
+                      ? new Date(repaymentStartDate).toLocaleDateString()
+                      : "Default to next month"}
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <p className="text-slate-500 text-xs uppercase tracking-wide">
+                    External Reference
+                  </p>
+                  <p className="mt-1 text-slate-800">
+                    {manualDisbursementReference.trim() || "Not provided"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-slate-500 text-xs uppercase tracking-wide">
+                    Bank Snapshot
+                  </p>
+                  <p className="mt-1 text-slate-800">
+                    {selectedDisbursementAccount &&
+                    selectedDisbursementAccountId !== "__none__"
+                      ? `${selectedDisbursementAccount.bankName} • ${selectedDisbursementAccount.accountNumber}`
+                      : "Not attached"}
+                  </p>
+                </div>
+              </div>
+              {manualDisbursementNotes.trim() && (
+                <div>
+                  <p className="text-slate-500 text-xs uppercase tracking-wide">
+                    Notes
+                  </p>
+                  <p className="mt-1 text-slate-800">
+                    {manualDisbursementNotes.trim()}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Back</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-emerald-600 hover:bg-emerald-700"
+              onClick={() => {
+                void confirmDisburse();
+              }}
+            >
+              Send OTP
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(manualCancelTarget)}
+        onOpenChange={(open) => {
+          if (!open) setManualCancelTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel Pending Manual OTP?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear the pending manual authorization so you can switch
+              back to Paystack or start a fresh manual settlement.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {manualCancelTarget?.manualDisbursement && (
+            <div className="space-y-3 rounded-xl border border-rose-100 bg-rose-50/70 p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium text-rose-900">
+                    {manualCancelTarget.applicantName}
+                  </p>
+                  <p className="mt-1 text-rose-700">
+                    {formatManualDisbursementMethodLabel(
+                      manualCancelTarget.manualDisbursement.method,
+                    )}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-rose-700 text-xs">Amount</p>
+                  <p className="font-semibold text-rose-950 text-lg">
+                    {formatCurrency(
+                      manualCancelTarget.manualDisbursement.amount ??
+                        manualCancelTarget.approvedAmount ??
+                        manualCancelTarget.loanAmount,
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <p className="text-rose-700 text-xs uppercase tracking-wide">
+                    Settlement Time
+                  </p>
+                  <p className="mt-1 text-rose-900">
+                    {manualCancelTarget.manualDisbursement.occurredAt
+                      ? new Date(
+                          manualCancelTarget.manualDisbursement.occurredAt,
+                        ).toLocaleString()
+                      : "Not set"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-rose-700 text-xs uppercase tracking-wide">
+                    External Reference
+                  </p>
+                  <p className="mt-1 text-rose-900">
+                    {manualCancelTarget.manualDisbursement.externalReference ||
+                      "Not provided"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={manualCancelBusyId !== null}>
+              Keep Pending
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-rose-600 hover:bg-rose-700"
+              onClick={() => {
+                void handleCancelManualOtp();
+              }}
+              disabled={manualCancelBusyId !== null}
+            >
+              {manualCancelBusyId !== null ? "Cancelling..." : "Cancel OTP"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* OTP Finalization Modal */}
       {canFinalizeOtp && otpTarget && (
@@ -2869,33 +3800,84 @@ export default function LoanReviewPanel({
           open={Boolean(otpTarget)}
           onOpenChange={(open) => {
             if (!open) {
-              setOtpTarget(null);
-              setOtpCode("");
-              setTransferCode("");
-              setResendCooldownSeconds(0);
+              resetOtpDialog();
+              setShowManualFinalizeConfirm(false);
             }
           }}
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Finalize Paystack OTP</DialogTitle>
+              <DialogTitle>
+                {isManualOtpTarget
+                  ? "Finalize Manual Disbursement"
+                  : "Finalize Paystack OTP"}
+              </DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
               <div className="bg-amber-50 p-3 rounded-lg text-amber-800 text-sm">
-                Paystack requires OTP authorization to complete this transfer.
+                {isManualOtpTarget
+                  ? `This manual settlement still requires OTP confirmation${
+                      otpTarget.manualDisbursement?.otpRecipient
+                        ? ` for ${otpTarget.manualDisbursement.otpRecipient}`
+                        : ""
+                    }.`
+                  : "Paystack requires OTP authorization to complete this transfer."}
               </div>
 
-              <div>
-                <label className="font-medium text-gray-700 text-sm">
-                  Transfer Code
-                </label>
-                <Input
-                  placeholder="e.g., TRF_ABC123"
-                  value={transferCode}
-                  onChange={(e) => setTransferCode(e.target.value)}
-                  className="mt-1"
-                />
-              </div>
+              {isManualOtpTarget && otpTarget.manualDisbursement && (
+                <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-medium text-emerald-900">
+                        {formatManualDisbursementMethodLabel(
+                          otpTarget.manualDisbursement.method,
+                        )}
+                      </p>
+                      <p className="mt-1 text-emerald-700 text-xs">
+                        {otpTarget.manualDisbursement.occurredAt
+                          ? new Date(
+                              otpTarget.manualDisbursement.occurredAt,
+                            ).toLocaleString()
+                          : "Settlement time pending"}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-emerald-700 text-xs">Amount</p>
+                      <p className="font-semibold text-emerald-950 text-lg">
+                        {formatCurrency(
+                          otpTarget.manualDisbursement.amount ??
+                            otpTarget.approvedAmount ??
+                            otpTarget.loanAmount,
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  {otpTarget.manualDisbursement.externalReference && (
+                    <p className="mt-3 text-emerald-800 text-xs">
+                      Reference: {otpTarget.manualDisbursement.externalReference}
+                    </p>
+                  )}
+                  {otpTarget.manualDisbursement.notes && (
+                    <p className="mt-2 text-emerald-800 text-xs">
+                      {otpTarget.manualDisbursement.notes}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {!isManualOtpTarget && (
+                <div>
+                  <label className="font-medium text-gray-700 text-sm">
+                    Transfer Code
+                  </label>
+                  <Input
+                    placeholder="e.g., TRF_ABC123"
+                    value={transferCode}
+                    onChange={(e) => setTransferCode(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="font-medium text-gray-700 text-sm">OTP</label>
@@ -2914,10 +3896,8 @@ export default function LoanReviewPanel({
                   variant="outline"
                   className="flex-1"
                   onClick={() => {
-                    setOtpTarget(null);
-                    setOtpCode("");
-                    setTransferCode("");
-                    setResendCooldownSeconds(0);
+                    resetOtpDialog();
+                    setShowManualFinalizeConfirm(false);
                   }}
                   disabled={otpBusy}
                 >
@@ -2931,12 +3911,28 @@ export default function LoanReviewPanel({
                 >
                   {otpAction === "resend" ? "Resending..." : resendLabel}
                 </Button>
+                {isManualOtpTarget && (
+                  <Button
+                    variant="outline"
+                    className="flex-1 border-rose-200 text-rose-600"
+                    onClick={() => setManualCancelTarget(otpTarget)}
+                    disabled={otpBusy || manualCancelBusyId === otpTarget.id}
+                  >
+                    {manualCancelBusyId === otpTarget.id
+                      ? "Cancelling..."
+                      : "Cancel Manual OTP"}
+                  </Button>
+                )}
                 <Button
                   className="flex-1 bg-amber-600 hover:bg-amber-700"
                   onClick={handleFinalizeOtp}
                   disabled={otpBusy}
                 >
-                  {otpAction === "finalize" ? "Finalizing..." : "Finalize OTP"}
+                  {otpAction === "finalize"
+                    ? "Finalizing..."
+                    : isManualOtpTarget
+                      ? "Review Finalization"
+                      : "Finalize OTP"}
                 </Button>
               </div>
               {resendCooldownSeconds > 0 && (
@@ -2948,6 +3944,94 @@ export default function LoanReviewPanel({
           </DialogContent>
         </Dialog>
       )}
+
+      <AlertDialog
+        open={showManualFinalizeConfirm}
+        onOpenChange={setShowManualFinalizeConfirm}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Confirm Manual Finalization
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will finalize the offline loan settlement, activate the
+              repayment schedule, and post the disbursement record permanently.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {otpTarget?.manualDisbursement && (
+            <div className="space-y-3 rounded-xl border border-emerald-100 bg-emerald-50/70 p-4 text-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium text-emerald-900">
+                    {otpTarget.applicantName}
+                  </p>
+                  <p className="mt-1 text-emerald-700">
+                    {formatManualDisbursementMethodLabel(
+                      otpTarget.manualDisbursement.method,
+                    )}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-emerald-700 text-xs">Amount</p>
+                  <p className="font-semibold text-emerald-950 text-lg">
+                    {formatCurrency(
+                      otpTarget.manualDisbursement.amount ??
+                        otpTarget.approvedAmount ??
+                        otpTarget.loanAmount,
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <p className="text-emerald-700 text-xs uppercase tracking-wide">
+                    Settlement Time
+                  </p>
+                  <p className="mt-1 text-emerald-900">
+                    {otpTarget.manualDisbursement.occurredAt
+                      ? new Date(
+                          otpTarget.manualDisbursement.occurredAt,
+                        ).toLocaleString()
+                      : "Not set"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-emerald-700 text-xs uppercase tracking-wide">
+                    External Reference
+                  </p>
+                  <p className="mt-1 text-emerald-900">
+                    {otpTarget.manualDisbursement.externalReference ||
+                      "Not provided"}
+                  </p>
+                </div>
+              </div>
+              {otpTarget.manualDisbursement.notes && (
+                <div>
+                  <p className="text-emerald-700 text-xs uppercase tracking-wide">
+                    Notes
+                  </p>
+                  <p className="mt-1 text-emerald-900">
+                    {otpTarget.manualDisbursement.notes}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={otpBusy}>Back</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={() => {
+                void confirmManualFinalizeOtp();
+              }}
+              disabled={otpBusy}
+            >
+              {otpAction === "finalize" ? "Finalizing..." : "Confirm & Finalize"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

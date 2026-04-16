@@ -66,7 +66,11 @@ import { useAdminLoanApplicationsQuery } from "@/hooks/admin/useAdminLoanApplica
 import { useReviewAdminLoanApplicationMutation } from "@/hooks/admin/useReviewAdminLoanApplicationMutation";
 import { useDisburseAdminLoanApplicationMutation } from "@/hooks/admin/useDisburseAdminLoanApplicationMutation";
 import { useFinalizeAdminLoanDisbursementOtpMutation } from "@/hooks/admin/useFinalizeAdminLoanDisbursementOtpMutation";
+import { useFinalizeAdminManualLoanDisbursementMutation } from "@/hooks/admin/useFinalizeAdminManualLoanDisbursementMutation";
+import { useInitiateAdminManualLoanDisbursementMutation } from "@/hooks/admin/useInitiateAdminManualLoanDisbursementMutation";
+import { useCancelAdminManualLoanDisbursementMutation } from "@/hooks/admin/useCancelAdminManualLoanDisbursementMutation";
 import { useResendAdminLoanDisbursementOtpMutation } from "@/hooks/admin/useResendAdminLoanDisbursementOtpMutation";
+import { useResendAdminManualLoanDisbursementOtpMutation } from "@/hooks/admin/useResendAdminManualLoanDisbursementOtpMutation";
 import { useVerifyAdminLoanDisbursementTransferMutation } from "@/hooks/admin/useVerifyAdminLoanDisbursementTransferMutation";
 import { useCreateAdminAnnouncementMutation } from "@/hooks/admin/useCreateAdminAnnouncementMutation";
 import { useAdminAttendanceMeetingsQuery } from "@/hooks/admin/useAdminAttendanceMeetingsQuery";
@@ -636,7 +640,15 @@ export default function Admin() {
   const reviewAdminLoanMutation = useReviewAdminLoanApplicationMutation();
   const disburseAdminLoanMutation = useDisburseAdminLoanApplicationMutation();
   const finalizeLoanOtpMutation = useFinalizeAdminLoanDisbursementOtpMutation();
+  const initiateManualLoanDisbursementMutation =
+    useInitiateAdminManualLoanDisbursementMutation();
+  const finalizeManualLoanDisbursementMutation =
+    useFinalizeAdminManualLoanDisbursementMutation();
+  const cancelManualLoanDisbursementMutation =
+    useCancelAdminManualLoanDisbursementMutation();
   const resendLoanOtpMutation = useResendAdminLoanDisbursementOtpMutation();
+  const resendManualLoanOtpMutation =
+    useResendAdminManualLoanDisbursementOtpMutation();
   const verifyLoanTransferMutation =
     useVerifyAdminLoanDisbursementTransferMutation();
   const loanApplications = adminLoanAppsQuery.data?.applications ?? [];
@@ -978,6 +990,50 @@ export default function Admin() {
     }
   };
 
+  const handleInitiateManualLoanDisbursement = async (
+    id: string,
+    payload: {
+      method:
+        | "cash"
+        | "bank_transfer"
+        | "bank_settlement"
+        | "cheque"
+        | "pos"
+        | "other";
+      occurredAt?: string | null;
+      externalReference?: string | null;
+      notes?: string | null;
+      repaymentStartDate?: string | null;
+      bankAccountId?: string | null;
+    },
+  ) => {
+    try {
+      const application =
+        await initiateManualLoanDisbursementMutation.mutateAsync({
+          applicationId: id,
+          ...payload,
+        });
+
+      toast({
+        title: "OTP Sent",
+        description:
+          "A confirmation OTP has been sent to the authorized admin for this manual disbursement.",
+      });
+
+      return application;
+    } catch (error: unknown) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String(
+              (error as { message?: string }).message ||
+                "Failed to initiate manual disbursement.",
+            )
+          : "Failed to initiate manual disbursement.";
+      toast({ title: "Error", description: message, variant: "destructive" });
+      return null;
+    }
+  };
+
   const handleLoanFinalizeOtp = async (
     id: string,
     transferCode: string,
@@ -991,8 +1047,46 @@ export default function Admin() {
       repaymentStartDate: repaymentStartDate ?? null,
     });
 
+  const handleFinalizeManualLoanDisbursement = async (
+    id: string,
+    otp: string,
+    repaymentStartDate?: string | null,
+  ) =>
+    finalizeManualLoanDisbursementMutation.mutateAsync({
+      applicationId: id,
+      otp,
+      repaymentStartDate: repaymentStartDate ?? null,
+    });
+
   const handleLoanResendOtp = async (id: string, transferCode: string) =>
     resendLoanOtpMutation.mutateAsync({ applicationId: id, transferCode });
+
+  const handleLoanResendManualOtp = async (id: string) =>
+    resendManualLoanOtpMutation.mutateAsync({ applicationId: id });
+
+  const handleCancelManualLoanOtp = async (id: string) => {
+    try {
+      const application = await cancelManualLoanDisbursementMutation.mutateAsync({
+        applicationId: id,
+      });
+      toast({
+        title: "Manual OTP Cancelled",
+        description:
+          "The pending manual authorization has been cleared. You can switch back to Paystack now.",
+      });
+      return application;
+    } catch (error: unknown) {
+      const message =
+        error && typeof error === "object" && "message" in error
+          ? String(
+              (error as { message?: string }).message ||
+                "Failed to cancel the pending manual OTP.",
+            )
+          : "Failed to cancel the pending manual OTP.";
+      toast({ title: "Error", description: message, variant: "destructive" });
+      return null;
+    }
+  };
 
   const handleLoanVerifyTransfer = async (
     id: string,
@@ -1572,9 +1666,15 @@ export default function Admin() {
                 onReject={handleLoanReject}
                 onStartReview={handleStartReview}
                 onDisburse={handleLoanDisburse}
+                onInitiateManualDisbursement={
+                  handleInitiateManualLoanDisbursement
+                }
                 onVerifyTransfer={handleLoanVerifyTransfer}
                 onFinalizeOtp={handleLoanFinalizeOtp}
+                onFinalizeManualOtp={handleFinalizeManualLoanDisbursement}
                 onResendOtp={handleLoanResendOtp}
+                onResendManualOtp={handleLoanResendManualOtp}
+                onCancelManualOtp={handleCancelManualLoanOtp}
                 groupOptions={loanGroupOptions}
                 canDisburse={isAdmin}
                 canFinalizeOtp={isAdmin}

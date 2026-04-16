@@ -47,6 +47,28 @@ export type LoanEditRequest = {
   documents?: AdminLoanDocument[];
 };
 
+export type AdminManualLoanDisbursement = {
+  status?: "pending_otp" | "completed" | null;
+  method?:
+    | "cash"
+    | "bank_transfer"
+    | "bank_settlement"
+    | "cheque"
+    | "pos"
+    | "other"
+    | null;
+  amount?: number | null;
+  externalReference?: string | null;
+  occurredAt?: string | null;
+  repaymentStartDate?: string | null;
+  notes?: string | null;
+  initiatedAt?: string | null;
+  completedAt?: string | null;
+  otpChannel?: "phone" | "email" | null;
+  otpRecipient?: string | null;
+  otpSentAt?: string | null;
+};
+
 export type AdminLoanApplication = {
   _id: string;
   userId: string;
@@ -80,6 +102,7 @@ export type AdminLoanApplication = {
   payoutTransferCode?: string | null;
   payoutStatus?: string | null;
   payoutOtpResentAt?: string | null;
+  manualDisbursement?: AdminManualLoanDisbursement | null;
   guarantors?: AdminLoanGuarantor[];
   documents?: AdminLoanDocument[];
   latestEditRequest?: LoanEditRequest | null;
@@ -437,6 +460,59 @@ export async function finalizeAdminLoanDisbursementOtp(
   }
 }
 
+export async function initiateAdminManualLoanDisbursement(
+  applicationId: string,
+  payload: {
+    method:
+      | "cash"
+      | "bank_transfer"
+      | "bank_settlement"
+      | "cheque"
+      | "pos"
+      | "other";
+    occurredAt?: string | null;
+    externalReference?: string | null;
+    notes?: string | null;
+    repaymentStartDate?: string | null;
+    bankAccountId?: string | null;
+  },
+) {
+  try {
+    const res = await api.post(
+      `/admin/loans/applications/${applicationId}/manual-disbursement`,
+      {
+        method: payload.method,
+        occurredAt: payload.occurredAt ?? null,
+        externalReference: payload.externalReference ?? null,
+        notes: payload.notes ?? null,
+        repaymentStartDate: payload.repaymentStartDate ?? null,
+        bankAccountId: payload.bankAccountId ?? null,
+      },
+    );
+    return res.data?.data?.application as AdminLoanApplication;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function finalizeAdminManualLoanDisbursement(
+  applicationId: string,
+  payload: { otp: string; repaymentStartDate?: string | null },
+) {
+  try {
+    const res = await api.patch(
+      `/admin/loans/applications/${applicationId}/manual-disbursement/finalize`,
+      {
+        otp: payload.otp,
+        repaymentStartDate: payload.repaymentStartDate ?? null,
+      },
+    );
+    return res.data?.data?.application as AdminLoanApplication;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
 export async function resendAdminLoanDisbursementOtp(
   applicationId: string,
   payload: { transferCode: string; reason?: string } = { transferCode: "" },
@@ -467,6 +543,48 @@ export async function resendAdminLoanDisbursementOtp(
       if (err.response?.status) wrapped.status = err.response.status;
       throw wrapped;
     }
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function resendAdminManualLoanDisbursementOtp(
+  applicationId: string,
+) {
+  try {
+    const res = await api.patch(
+      `/admin/loans/applications/${applicationId}/manual-disbursement/resend-otp`,
+    );
+    const retryAfter = parseRetryAfterSeconds(res.headers?.["retry-after"]);
+    return {
+      application: res.data?.data?.application as AdminLoanApplication,
+      retryAfter,
+    };
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      const retryAfter = parseRetryAfterSeconds(
+        err.response?.headers?.["retry-after"],
+      );
+      const wrapped = new Error(getApiErrorMessage(err)) as Error & {
+        retryAfter?: number;
+        status?: number;
+      };
+      if (retryAfter) wrapped.retryAfter = retryAfter;
+      if (err.response?.status) wrapped.status = err.response.status;
+      throw wrapped;
+    }
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function cancelAdminManualLoanDisbursement(
+  applicationId: string,
+) {
+  try {
+    const res = await api.patch(
+      `/admin/loans/applications/${applicationId}/manual-disbursement/cancel`,
+    );
+    return res.data?.data?.application as AdminLoanApplication;
+  } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
 }
