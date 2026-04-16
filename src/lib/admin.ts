@@ -119,18 +119,45 @@ export async function sendContributionReminders(payload: {
   }
 }
 
-export async function markContributionPaid(payload: {
+export type AdminManualContributionPaymentPayload = {
   userId: string;
   groupId: string;
   month: number;
   year: number;
   amount: number;
   contributionType?: ContributionTypeValue;
-  notes?: string;
-}) {
+  paymentMethod?: string;
+  paymentReference?: string;
+  description?: string;
+};
+
+export type AdminManualContributionPaymentResult = {
+  contribution?: {
+    _id?: string;
+    amount?: number;
+    month?: number;
+    year?: number;
+    contributionType?: string;
+    paymentReference?: string | null;
+    paymentMethod?: string | null;
+    status?: string;
+  };
+  transaction?: {
+    _id?: string;
+    reference?: string;
+    amount?: number;
+    status?: string;
+    channel?: string | null;
+    description?: string | null;
+  };
+};
+
+export async function markContributionPaid(
+  payload: AdminManualContributionPaymentPayload,
+): Promise<AdminManualContributionPaymentResult> {
   try {
     const res = await api.post("/admin/contributions/mark-paid", payload);
-    return res.data?.data?.contribution;
+    return res.data?.data as AdminManualContributionPaymentResult;
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }

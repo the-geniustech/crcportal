@@ -5,11 +5,19 @@ export function useMarkContributionPaidMutation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (vars: { userId: string; groupId: string; month: number; year: number; amount: number; notes?: string }) =>
-      markContributionPaid(vars),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["admin", "contributions", "tracker"] });
+    mutationFn: markContributionPaid,
+    onSuccess: async (result, variables) => {
+      await queryClient.invalidateQueries({
+        queryKey: ["admin", "contributions", "tracker"],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["admin", "groups"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["group-contributions", variables.groupId],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["admin", "financial-reports"],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["transactions", "me"] });
     },
   });
 }
-

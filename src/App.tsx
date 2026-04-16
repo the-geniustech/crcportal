@@ -1,3 +1,4 @@
+import { Suspense, lazy } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,6 +8,7 @@ import {
   createRoutesFromElements,
   Route,
   Navigate,
+  Outlet,
   RouterProvider,
 } from "react-router-dom";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -14,7 +16,6 @@ import Index from "./pages/Index";
 import Dashboard from "./pages/Dashboard";
 import Groups from "./pages/Groups";
 import ContributionGroups from "./pages/ContributionGroups";
-import Admin from "./pages/Admin";
 import LoanApplication from "./pages/LoanApplication";
 import Loans from "./pages/Loans";
 import Payments from "./pages/Payments";
@@ -30,14 +31,24 @@ import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 import RequireAuth from "./components/auth/RequireAuth";
+import RouteErrorBoundary from "./components/routing/RouteErrorBoundary";
 import { AuthProvider } from "./contexts/AuthContext";
 import { SocketProvider } from "./contexts/SocketContext";
 
 const queryClient = new QueryClient();
+const Admin = lazy(() => import("./pages/Admin"));
+
+const RouteLoader = () => (
+  <div className="flex min-h-screen items-center justify-center bg-slate-50 text-sm text-slate-500">
+    Loading workspace...
+  </div>
+);
+
+const AppRouteShell = () => <Outlet />;
 
 const router = createBrowserRouter(
   createRoutesFromElements(
-    <>
+    <Route element={<AppRouteShell />} errorElement={<RouteErrorBoundary />}>
       <Route path="/" element={<Index />} />
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/verify-email" element={<VerifyEmail />} />
@@ -50,7 +61,14 @@ const router = createBrowserRouter(
           element={<ContributionGroups />}
         /> */}
         <Route path="/admin" element={<Navigate to="/admin/overview" replace />} />
-        <Route path="/admin/:tab" element={<Admin />} />
+        <Route
+          path="/admin/:tab"
+          element={
+            <Suspense fallback={<RouteLoader />}>
+              <Admin />
+            </Suspense>
+          }
+        />
         <Route path="/loan-application" element={<LoanApplication />} />
         <Route path="/loans" element={<Loans />} />
         <Route path="/payments" element={<Payments />} />
@@ -63,7 +81,7 @@ const router = createBrowserRouter(
         <Route path="/calendar" element={<Calendar />} />
         <Route path="*" element={<NotFound />} />
       </Route>
-    </>,
+    </Route>,
   ),
 );
 

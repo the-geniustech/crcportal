@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -30,6 +30,7 @@ import {
   Pencil,
   Eye,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -60,7 +61,6 @@ import { useMemberApprovalsQuery } from "@/hooks/admin/useMemberApprovalsQuery";
 import { useApproveMemberApprovalMutation } from "@/hooks/admin/useApproveMemberApprovalMutation";
 import { useRejectMemberApprovalMutation } from "@/hooks/admin/useRejectMemberApprovalMutation";
 import { useContributionTrackerQuery } from "@/hooks/admin/useContributionTrackerQuery";
-import { useMarkContributionPaidMutation } from "@/hooks/admin/useMarkContributionPaidMutation";
 import { useAdminGroupsQuery } from "@/hooks/admin/useAdminGroupsQuery";
 import { useAdminLoanApplicationsQuery } from "@/hooks/admin/useAdminLoanApplicationsQuery";
 import { useReviewAdminLoanApplicationMutation } from "@/hooks/admin/useReviewAdminLoanApplicationMutation";
@@ -86,7 +86,8 @@ import { useSetGroupCoordinatorMutation } from "@/hooks/groups/useSetGroupCoordi
 import AdminStats from "@/components/admin/AdminStats";
 import MemberApprovalPanel from "@/components/admin/MemberApprovalPanel";
 import ContributionTracker from "@/components/admin/ContributionTracker";
-import LoanReviewPanel from "@/components/admin/LoanReviewPanel";
+
+
 import FinancialReports from "@/components/admin/FinancialReports";
 import ContributionInterestSettings from "@/components/admin/ContributionInterestSettings";
 import ContributionIncomeSummary from "@/components/admin/ContributionIncomeSummary";
@@ -103,6 +104,9 @@ import { hasUserRole } from "@/lib/auth";
 import type { AdminGroupRow } from "@/lib/admin";
 import type { BackendGroup } from "@/lib/groups";
 import { USER_ROLE } from "@/lib/roles";
+
+const LoanTracker = lazy(() => import("@/components/admin/LoanTracker"));
+const LoanReviewPanel = lazy(() => import("@/components/admin/LoanReviewPanel"));
 
 // Sample data
 type ApplicantStatus = "pending" | "approved" | "rejected";
@@ -274,7 +278,6 @@ export default function Admin() {
     },
     canAccessCoordinatorPanels,
   );
-  const markPaidMutation = useMarkContributionPaidMutation();
 
   const adminGroupsQuery = useAdminGroupsQuery({
     includeMetrics: true,
@@ -663,12 +666,12 @@ export default function Admin() {
 
   const formatCompactNaira = (amount: number) => {
     const n = Number(amount || 0);
-    if (!Number.isFinite(n)) return "₦0";
+    if (!Number.isFinite(n)) return "?0";
     const abs = Math.abs(n);
-    if (abs >= 1_000_000_000) return `₦${(n / 1_000_000_000).toFixed(1)}B`;
-    if (abs >= 1_000_000) return `₦${(n / 1_000_000).toFixed(1)}M`;
-    if (abs >= 1_000) return `₦${(n / 1_000).toFixed(1)}K`;
-    return `₦${Math.round(n).toLocaleString()}`;
+    if (abs >= 1_000_000_000) return `?${(n / 1_000_000_000).toFixed(1)}B`;
+    if (abs >= 1_000_000) return `?${(n / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `?${(n / 1_000).toFixed(1)}K`;
+    return `?${Math.round(n).toLocaleString()}`;
   };
 
   const stats = useMemo(() => {
@@ -771,6 +774,11 @@ export default function Admin() {
         icon: CreditCard,
         badge: stats.pendingLoans,
       },
+      {
+        id: "loan-tracker",
+        label: "Loan Tracker",
+        icon: Wallet,
+      },
       { id: "withdrawals", label: "Withdrawals", icon: ArrowDownRight },
       { id: "reports", label: "Financial Reports", icon: BarChart3 },
       { id: "interest-settings", label: "Interest Settings", icon: Percent },
@@ -847,53 +855,6 @@ export default function Admin() {
                 "Failed to reject member.",
             )
           : "Failed to reject member.";
-      toast({ title: "Error", description: message, variant: "destructive" });
-    }
-  };
-
-  const handleMarkPaid = async (id: string) => {
-    const record = contributions.find((c) => c.id === id);
-    const parts = String(id).split("|");
-    const userId = parts[0] || "";
-    const groupId = parts[1] || "";
-    const year = Number(parts[2]);
-    const month = Number(parts[3]);
-
-    if (
-      !record ||
-      !userId ||
-      !groupId ||
-      !Number.isFinite(year) ||
-      !Number.isFinite(month)
-    ) {
-      toast({
-        title: "Error",
-        description: "Unable to mark this contribution as paid.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      await markPaidMutation.mutateAsync({
-        userId,
-        groupId,
-        year,
-        month,
-        amount: record.expectedAmount,
-      });
-
-      toast({
-        title: "Payment Recorded",
-        description: "Contribution has been marked as paid.",
-      });
-    } catch (error: unknown) {
-      const message =
-        error && typeof error === "object" && "message" in error
-          ? String(
-              (error as { message?: string }).message || "Failed to mark paid.",
-            )
-          : "Failed to mark paid.";
       toast({ title: "Error", description: message, variant: "destructive" });
     }
   };
@@ -1546,6 +1507,16 @@ export default function Admin() {
                         <span className="text-sm">Review Loans</span>
                       </Button>
                     )}
+                    {canAccessCoordinatorPanels && (
+                      <Button
+                        variant="outline"
+                        className="flex-col gap-2 h-20"
+                        onClick={() => navigate("/admin/loan-tracker")}
+                      >
+                        <Wallet className="w-6 h-6 text-emerald-500" />
+                        <span className="text-sm">Track Repayments</span>
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       className="flex-col gap-2 h-20"
@@ -1589,18 +1560,41 @@ export default function Admin() {
           )}
 
           {activeTab === "loans" && canAccessCoordinatorPanels && (
-            <LoanReviewPanel
-              onApprove={handleLoanApprove}
-              onReject={handleLoanReject}
-              onStartReview={handleStartReview}
-              onDisburse={handleLoanDisburse}
-              onVerifyTransfer={handleLoanVerifyTransfer}
-              onFinalizeOtp={handleLoanFinalizeOtp}
-              onResendOtp={handleLoanResendOtp}
-              groupOptions={loanGroupOptions}
-              canDisburse={isAdmin}
-              canFinalizeOtp={isAdmin}
-            />
+            <Suspense
+              fallback={
+                <div className="rounded-2xl border border-gray-100 bg-white p-8 text-sm text-gray-500 shadow-sm">
+                  Loading loan applications...
+                </div>
+              }
+            >
+              <LoanReviewPanel
+                onApprove={handleLoanApprove}
+                onReject={handleLoanReject}
+                onStartReview={handleStartReview}
+                onDisburse={handleLoanDisburse}
+                onVerifyTransfer={handleLoanVerifyTransfer}
+                onFinalizeOtp={handleLoanFinalizeOtp}
+                onResendOtp={handleLoanResendOtp}
+                groupOptions={loanGroupOptions}
+                canDisburse={isAdmin}
+                canFinalizeOtp={isAdmin}
+              />
+            </Suspense>
+          )}
+
+          {activeTab === "loan-tracker" && canAccessCoordinatorPanels && (
+            <Suspense
+              fallback={
+                <div className="rounded-2xl border border-gray-100 bg-white p-8 text-sm text-gray-500 shadow-sm">
+                  Loading loan tracker...
+                </div>
+              }
+            >
+              <LoanTracker
+                groupOptions={loanGroupOptions}
+                canManageActions={canAccessCoordinatorPanels}
+              />
+            </Suspense>
           )}
 
           {activeTab === "reports" && <FinancialReports />}
@@ -2984,5 +2978,7 @@ export default function Admin() {
     </div>
   );
 }
+
+
 
 
