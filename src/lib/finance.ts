@@ -230,6 +230,7 @@ export type BackendWithdrawalRequest = {
     completedAt?: string | null;
     otpChannel?: "phone" | "email" | null;
     otpRecipient?: string | null;
+    otpBackupChannels?: Array<"phone" | "email">;
     otpSentAt?: string | null;
   } | null;
   createdAt?: string;

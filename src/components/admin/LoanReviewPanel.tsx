@@ -135,6 +135,7 @@ interface ManualDisbursement {
   completedAt?: string | null;
   otpChannel?: "phone" | "email" | null;
   otpRecipient?: string | null;
+  otpBackupChannels?: Array<"phone" | "email">;
   otpSentAt?: string | null;
 }
 
@@ -314,6 +315,51 @@ function formatManualDisbursementMethodLabel(
     manualDisbursementMethodOptions.find((option) => option.value === method)
       ?.label || "Manual Settlement"
   );
+}
+
+function formatOtpChannelLabel(channel?: "phone" | "email" | null) {
+  if (channel === "phone") return "SMS";
+  if (channel === "email") return "email";
+  return "admin contact";
+}
+
+function buildOtpDeliveryHint(
+  channel?: "phone" | "email" | null,
+  recipient?: string | null,
+  backupChannels: Array<"phone" | "email"> = [],
+) {
+  const primaryLabel = formatOtpChannelLabel(channel);
+  const uniqueBackupLabels = Array.from(
+    new Set(
+      backupChannels
+        .filter((value) => value !== channel)
+        .map((value) => formatOtpChannelLabel(value)),
+    ),
+  );
+
+  const primaryMessage = recipient
+    ? channel === "phone"
+      ? `Authorization code sent by SMS to ${recipient}.`
+      : channel === "email"
+        ? `Authorization code sent by email to ${recipient}.`
+        : `Authorization code sent to ${recipient}.`
+    : channel === "phone"
+      ? "Authorization code sent by SMS to the authorized admin."
+      : channel === "email"
+        ? "Authorization code sent by email to the authorized admin."
+        : "Authorization code sent to the authorized admin.";
+
+  if (uniqueBackupLabels.length === 0) {
+    return primaryMessage;
+  }
+
+  if (uniqueBackupLabels.length === 1) {
+    return `${primaryMessage} ${uniqueBackupLabels[0]} backup attempted.`;
+  }
+
+  const lastBackupLabel = uniqueBackupLabels[uniqueBackupLabels.length - 1];
+  const leadingBackupLabels = uniqueBackupLabels.slice(0, -1).join(", ");
+  return `${primaryMessage} ${leadingBackupLabels} and ${lastBackupLabel} backups attempted.`;
 }
 
 export default function LoanReviewPanel({
@@ -1504,6 +1550,14 @@ export default function LoanReviewPanel({
 
       if (result?.payoutStatus === "otp") {
         const updated = mergePayoutUpdate(selectedLoan, result);
+        toast({
+          title: "Manual OTP Sent",
+          description: buildOtpDeliveryHint(
+            updated.manualDisbursement?.otpChannel ?? null,
+            updated.manualDisbursement?.otpRecipient ?? null,
+            updated.manualDisbursement?.otpBackupChannels ?? [],
+          ),
+        });
         setOtpTarget(updated);
         setOtpCode("");
         setTransferCode("");
@@ -4064,11 +4118,11 @@ export default function LoanReviewPanel({
             <div className="space-y-4">
               <div className="bg-amber-50 p-3 rounded-lg text-amber-800 text-sm">
                 {isManualOtpTarget
-                  ? `This manual settlement still requires OTP confirmation${
-                      otpTarget.manualDisbursement?.otpRecipient
-                        ? ` for ${otpTarget.manualDisbursement.otpRecipient}`
-                        : ""
-                    }.`
+                  ? buildOtpDeliveryHint(
+                      otpTarget.manualDisbursement?.otpChannel ?? null,
+                      otpTarget.manualDisbursement?.otpRecipient ?? null,
+                      otpTarget.manualDisbursement?.otpBackupChannels ?? [],
+                    )
                   : "Paystack requires OTP authorization to complete this transfer."}
               </div>
 

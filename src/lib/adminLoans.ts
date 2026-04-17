@@ -66,6 +66,7 @@ export type AdminManualLoanDisbursement = {
   completedAt?: string | null;
   otpChannel?: "phone" | "email" | null;
   otpRecipient?: string | null;
+  otpBackupChannels?: Array<"phone" | "email">;
   otpSentAt?: string | null;
 };
 

@@ -104,6 +104,7 @@ interface ManualPayout {
   completedAt?: string | null;
   otpChannel?: "phone" | "email" | null;
   otpRecipient?: string | null;
+  otpBackupChannels?: Array<"phone" | "email">;
   otpSentAt?: string | null;
 }
 
@@ -235,6 +236,51 @@ function formatManualMethodLabel(method?: ManualWithdrawalMethod | null) {
   );
 }
 
+function formatOtpChannelLabel(channel?: "phone" | "email" | null) {
+  if (channel === "phone") return "SMS";
+  if (channel === "email") return "email";
+  return "admin contact";
+}
+
+function buildOtpDeliveryHint(
+  channel?: "phone" | "email" | null,
+  recipient?: string | null,
+  backupChannels: Array<"phone" | "email"> = [],
+) {
+  const primaryLabel = formatOtpChannelLabel(channel);
+  const uniqueBackupLabels = Array.from(
+    new Set(
+      backupChannels
+        .filter((value) => value !== channel)
+        .map((value) => formatOtpChannelLabel(value)),
+    ),
+  );
+
+  const primaryMessage = recipient
+    ? channel === "phone"
+      ? `Authorization code sent by SMS to ${recipient}.`
+      : channel === "email"
+        ? `Authorization code sent by email to ${recipient}.`
+        : `Authorization code sent to ${recipient}.`
+    : channel === "phone"
+      ? "Authorization code sent by SMS to the admin contact."
+      : channel === "email"
+        ? "Authorization code sent by email to the admin contact."
+        : "Authorization code sent to the admin contact.";
+
+  if (uniqueBackupLabels.length === 0) {
+    return primaryMessage;
+  }
+
+  if (uniqueBackupLabels.length === 1) {
+    return `${primaryMessage} ${uniqueBackupLabels[0]} backup attempted.`;
+  }
+
+  const lastBackupLabel = uniqueBackupLabels[uniqueBackupLabels.length - 1];
+  const leadingBackupLabels = uniqueBackupLabels.slice(0, -1).join(", ");
+  return `${primaryMessage} ${leadingBackupLabels} and ${lastBackupLabel} backups attempted.`;
+}
+
 function normalizeWithdrawal(raw: any): WithdrawalRequest {
   return {
     id: String(raw?._id || raw?.id || ""),
@@ -314,6 +360,14 @@ function normalizeWithdrawal(raw: any): WithdrawalRequest {
           otpRecipient: raw.manualPayout.otpRecipient
             ? String(raw.manualPayout.otpRecipient)
             : null,
+          otpBackupChannels: Array.isArray(raw.manualPayout.otpBackupChannels)
+            ? raw.manualPayout.otpBackupChannels
+                .map((value) => String(value))
+                .filter(
+                  (value): value is "phone" | "email" =>
+                    value === "phone" || value === "email",
+                )
+            : [],
           otpSentAt: raw.manualPayout.otpSentAt
             ? String(raw.manualPayout.otpSentAt)
             : null,
@@ -854,10 +908,11 @@ export default function WithdrawalApprovalPanel({
 
         toast({
           title: "Manual OTP Sent",
-          description:
-            updated.manualPayout?.otpRecipient
-              ? `Authorization code sent to ${updated.manualPayout.otpRecipient}.`
-              : "Authorization code sent to the admin contact.",
+          description: buildOtpDeliveryHint(
+            updated.manualPayout?.otpChannel ?? null,
+            updated.manualPayout?.otpRecipient ?? null,
+            updated.manualPayout?.otpBackupChannels ?? [],
+          ),
         });
 
         openOtpDialog(updated);
@@ -1967,9 +2022,11 @@ export default function WithdrawalApprovalPanel({
             <>
               <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
                 {isManualOtpTarget
-                  ? otpTarget.manualPayout?.otpRecipient
-                    ? `Manual payout authorization code was sent to ${otpTarget.manualPayout.otpRecipient}.`
-                    : "Manual payout authorization is waiting for OTP confirmation."
+                  ? buildOtpDeliveryHint(
+                      otpTarget.manualPayout?.otpChannel ?? null,
+                      otpTarget.manualPayout?.otpRecipient ?? null,
+                      otpTarget.manualPayout?.otpBackupChannels ?? [],
+                    )
                   : "Paystack has requested OTP verification for this payout."}
               </div>
 
