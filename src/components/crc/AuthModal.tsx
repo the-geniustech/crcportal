@@ -16,6 +16,7 @@ import {
 import { useGroupsQuery } from "@/hooks/groups/useGroupsQuery";
 import { normalizeNigerianPhone } from "@/lib/phone";
 import PhoneInput from "@/components/shared/PhoneInput";
+import { PasswordInput } from "@/components/ui/password-input";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -1163,8 +1164,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                     <label className="block mb-2 font-medium text-gray-700 text-sm">
                       New Password
                     </label>
-                    <input
-                      type="password"
+                    <PasswordInput
                       name="password"
                       value={formData.password}
                       onChange={handleChange}
@@ -1172,6 +1172,8 @@ const AuthModal: React.FC<AuthModalProps> = ({
                         errors.password ? "border-red-500" : "border-gray-200"
                       } focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
                       placeholder="Create a new password"
+                      useDefaultStyles={false}
+                      toggleButtonClassName="text-gray-400 hover:text-gray-600 focus-visible:ring-emerald-500/20"
                     />
                     {errors.password && (
                       <p className="mt-1 text-red-500 text-sm">
@@ -1184,8 +1186,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
                     <label className="block mb-2 font-medium text-gray-700 text-sm">
                       Confirm Password
                     </label>
-                    <input
-                      type="password"
+                    <PasswordInput
                       name="confirmPassword"
                       value={formData.confirmPassword}
                       onChange={handleChange}
@@ -1195,6 +1196,8 @@ const AuthModal: React.FC<AuthModalProps> = ({
                           : "border-gray-200"
                       } focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
                       placeholder="Confirm your new password"
+                      useDefaultStyles={false}
+                      toggleButtonClassName="text-gray-400 hover:text-gray-600 focus-visible:ring-emerald-500/20"
                     />
                     {errors.confirmPassword && (
                       <p className="mt-1 text-red-500 text-sm">
@@ -1529,13 +1532,14 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   <label className="block mb-2 font-medium text-gray-700 text-sm">
                     Password
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     name="password"
                     value={formData.password}
                     onChange={handleChange}
                     className={`w-full px-4 py-3 rounded-xl border ${errors.password ? "border-red-500" : "border-gray-200"} focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
                     placeholder="••••••••"
+                    useDefaultStyles={false}
+                    toggleButtonClassName="text-gray-400 hover:text-gray-600 focus-visible:ring-emerald-500/20"
                   />
                   {errors.password && (
                     <p className="mt-1 text-red-500 text-sm">
@@ -1550,13 +1554,14 @@ const AuthModal: React.FC<AuthModalProps> = ({
                   <label className="block mb-2 font-medium text-gray-700 text-sm">
                     Confirm Password
                   </label>
-                  <input
-                    type="password"
+                  <PasswordInput
                     name="confirmPassword"
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     className={`w-full px-4 py-3 rounded-xl border ${errors.confirmPassword ? "border-red-500" : "border-gray-200"} focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all`}
                     placeholder="••••••••"
+                    useDefaultStyles={false}
+                    toggleButtonClassName="text-gray-400 hover:text-gray-600 focus-visible:ring-emerald-500/20"
                   />
                   {errors.confirmPassword && (
                     <p className="mt-1 text-red-500 text-sm">

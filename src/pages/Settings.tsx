@@ -29,6 +29,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Bell, Shield, Coins } from "lucide-react";
 
 const SettingsContent: React.FC = () => {
@@ -733,9 +734,8 @@ const SettingsContent: React.FC = () => {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="twoFactorDisablePassword">Password</Label>
-                <Input
+                <PasswordInput
                   id="twoFactorDisablePassword"
-                  type="password"
                   value={twoFactorDisablePassword}
                   onChange={(e) => setTwoFactorDisablePassword(e.target.value)}
                 />
@@ -871,9 +871,8 @@ const SettingsContent: React.FC = () => {
 
               <div className="space-y-2">
                 <Label htmlFor="deletePassword">Password</Label>
-                <Input
+                <PasswordInput
                   id="deletePassword"
-                  type="password"
                   value={deletePassword}
                   onChange={(e) => setDeletePassword(e.target.value)}
                 />
@@ -951,9 +950,8 @@ const SettingsContent: React.FC = () => {
             <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="cancelPassword">Password</Label>
-                <Input
+                <PasswordInput
                   id="cancelPassword"
-                  type="password"
                   value={cancelPassword}
                   onChange={(e) => setCancelPassword(e.target.value)}
                 />
