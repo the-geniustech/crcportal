@@ -199,6 +199,39 @@ export type BackendWithdrawalRequest = {
   payoutTransferCode?: string | null;
   payoutStatus?: string | null;
   payoutOtpResentAt?: string | null;
+  payoutEvents?: Array<{
+    eventType: string;
+    gateway?: string | null;
+    status?: string | null;
+    reference?: string | null;
+    transferCode?: string | null;
+    message?: string | null;
+    actorUserId?: string | null;
+    actorProfileId?: string | null;
+    occurredAt?: string | null;
+    metadata?: unknown;
+  }>;
+  manualPayout?: {
+    status?: "pending_otp" | "completed" | null;
+    method?:
+      | "cash"
+      | "bank_transfer"
+      | "bank_settlement"
+      | "cheque"
+      | "pos"
+      | "other"
+      | null;
+    amount?: number | null;
+    externalReference?: string | null;
+    occurredAt?: string | null;
+    notes?: string | null;
+    previousStatus?: string | null;
+    initiatedAt?: string | null;
+    completedAt?: string | null;
+    otpChannel?: "phone" | "email" | null;
+    otpRecipient?: string | null;
+    otpSentAt?: string | null;
+  } | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -330,6 +363,97 @@ export async function resendWithdrawalOtp(
       if (err.response?.status) wrapped.status = err.response.status;
       throw wrapped;
     }
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function verifyWithdrawalTransfer(id: string) {
+  try {
+    const res = await api.patch(`/withdrawals/${id}/verify-transfer`);
+    return res.data?.data as {
+      withdrawal: BackendWithdrawalRequest;
+      transaction?: BackendTransaction;
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function initiateManualWithdrawalPayout(
+  id: string,
+  input: {
+    method:
+      | "cash"
+      | "bank_transfer"
+      | "bank_settlement"
+      | "cheque"
+      | "pos"
+      | "other";
+    occurredAt?: string | null;
+    externalReference?: string | null;
+    notes?: string | null;
+  },
+) {
+  try {
+    const res = await api.patch(`/withdrawals/${id}/initiate-manual-payout`, {
+      method: input.method,
+      occurredAt: input.occurredAt,
+      externalReference: input.externalReference,
+      notes: input.notes,
+    });
+    return res.data?.data as { withdrawal: BackendWithdrawalRequest };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function finalizeManualWithdrawalPayout(
+  id: string,
+  input: { otp: string },
+) {
+  try {
+    const res = await api.patch(`/withdrawals/${id}/finalize-manual-otp`, {
+      otp: input.otp,
+    });
+    return res.data?.data as {
+      withdrawal: BackendWithdrawalRequest;
+      transaction?: BackendTransaction;
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function resendManualWithdrawalPayoutOtp(id: string) {
+  try {
+    const res = await api.patch(`/withdrawals/${id}/resend-manual-otp`);
+    const retryAfter = parseRetryAfterSeconds(res.headers?.["retry-after"]);
+    return {
+      withdrawal: res.data?.data?.withdrawal as BackendWithdrawalRequest,
+      retryAfter,
+    };
+  } catch (err) {
+    if (axios.isAxiosError(err)) {
+      const retryAfter = parseRetryAfterSeconds(
+        err.response?.headers?.["retry-after"],
+      );
+      const wrapped = new Error(getApiErrorMessage(err)) as Error & {
+        retryAfter?: number;
+        status?: number;
+      };
+      if (retryAfter) wrapped.retryAfter = retryAfter;
+      if (err.response?.status) wrapped.status = err.response.status;
+      throw wrapped;
+    }
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function cancelManualWithdrawalPayout(id: string) {
+  try {
+    const res = await api.patch(`/withdrawals/${id}/cancel-manual-otp`);
+    return res.data?.data?.withdrawal as BackendWithdrawalRequest;
+  } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
 }

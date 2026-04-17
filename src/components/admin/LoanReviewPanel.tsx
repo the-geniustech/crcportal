@@ -701,6 +701,19 @@ export default function LoanReviewPanel({
     });
   };
 
+  const formatDateTime = (value?: string | null) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString("en-NG", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
   const formatFileSize = (value?: number | null) => {
     const size = Number(value || 0);
     if (!Number.isFinite(size) || size <= 0) return "-";
@@ -708,6 +721,75 @@ export default function LoanReviewPanel({
     if (size >= 1024) return `${(size / 1024).toFixed(1)} KB`;
     return `${size} B`;
   };
+
+  const selectedBankAccountLabel = selectedDisbursementAccount
+    ? `${selectedDisbursementAccount.bankName} • ${selectedDisbursementAccount.accountNumber}`
+    : bankAccountsLoading
+      ? "Loading borrower bank accounts..."
+      : bankAccountsError
+        ? "Unable to load borrower bank accounts"
+        : disbursementMode === "manual" &&
+            selectedDisbursementAccountId === "__none__"
+          ? "No bank snapshot will be stored"
+          : bankAccounts.length === 0
+            ? disbursementMode === "manual"
+              ? "No bank account on file"
+              : "Borrower bank account required"
+            : disbursementMode === "manual"
+              ? "Optional beneficiary snapshot not selected"
+              : "Select a disbursement account";
+
+  const bankSummaryTone = selectedDisbursementAccount
+    ? "border-slate-200 bg-white text-slate-700"
+    : bankAccountsError || (disbursementMode === "paystack" && bankAccounts.length === 0)
+      ? "border-red-200 bg-red-50 text-red-700"
+      : bankAccountsLoading
+        ? "border-slate-200 bg-slate-100 text-slate-600"
+        : "border-amber-200 bg-amber-50 text-amber-700";
+
+  const settlementSummaryLabel =
+    disbursementMode === "manual"
+      ? formatManualDisbursementMethodLabel(manualDisbursementMethod)
+      : "Paystack transfer workflow";
+  const settlementSummaryDetail =
+    disbursementMode === "manual"
+      ? manualDisbursementOccurredAt
+        ? `Settled ${formatDateTime(manualDisbursementOccurredAt)}`
+        : "Settlement time pending"
+      : selectedDisbursementAccount
+        ? "OTP finalization may be required"
+        : "Select account to continue";
+
+  const settlementSummaryTone =
+    disbursementMode === "manual"
+      ? manualDisbursementOccurredAt
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-amber-200 bg-amber-50 text-amber-700"
+      : selectedDisbursementAccount
+        ? "border-purple-200 bg-purple-50 text-purple-700"
+        : "border-amber-200 bg-amber-50 text-amber-700";
+
+  const nextStepSummary =
+    disbursementMode === "manual"
+      ? manualDisbursementOccurredAt
+        ? "Ready to send admin OTP"
+        : "Add settlement time before review"
+      : bankAccountsLoading
+        ? "Loading account options"
+        : bankAccountsError
+          ? "Resolve account lookup before confirming"
+          : selectedDisbursementAccount
+            ? "Ready to confirm disbursement"
+            : "Choose a disbursement account";
+
+  const nextStepSummaryTone =
+    nextStepSummary.includes("Ready")
+      ? disbursementMode === "manual"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : "border-purple-200 bg-purple-50 text-purple-700"
+      : nextStepSummary.includes("Resolve")
+        ? "border-red-200 bg-red-50 text-red-700"
+        : "border-amber-200 bg-amber-50 text-amber-700";
 
   const parseEmailEntries = (value: string) =>
     value
@@ -3319,259 +3401,425 @@ export default function LoanReviewPanel({
             }
           }}
         >
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Disburse Loan</DialogTitle>
+          <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden p-0 sm:max-w-3xl">
+            <DialogHeader className="shrink-0 border-b bg-white/95 px-6 py-4 backdrop-blur">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <DialogTitle>Disburse Loan</DialogTitle>
+                  <p className="mt-1 text-slate-500 text-sm">
+                    Review the settlement path, beneficiary details, and
+                    repayment timing before finalizing this disbursement.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {selectedLoan && getStatusBadge(selectedLoan.status)}
+                  <Badge
+                    className={
+                      disbursementMode === "manual"
+                        ? "bg-emerald-100 text-emerald-700"
+                        : "bg-purple-100 text-purple-700"
+                    }
+                  >
+                    {disbursementMode === "manual"
+                      ? "Manual Settlement"
+                      : "Paystack Transfer"}
+                  </Badge>
+                </div>
+              </div>
+              {selectedLoan && (
+                <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50/90 p-3">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    <div className="rounded-xl bg-white px-3 py-2 shadow-sm">
+                      <p className="text-slate-500 text-xs uppercase tracking-wide">
+                        Borrower
+                      </p>
+                      <p className="mt-1 truncate font-medium text-slate-900">
+                        {selectedLoan.applicantName}
+                      </p>
+                      <p className="truncate text-slate-500 text-xs">
+                        {selectedLoan.groupName}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-white px-3 py-2 shadow-sm">
+                      <p className="text-slate-500 text-xs uppercase tracking-wide">
+                        Facility
+                      </p>
+                      <p className="mt-1 font-medium text-slate-900">
+                        {selectedRateInfo?.facility?.label ||
+                          selectedLoan.loanType ||
+                          "Loan"}
+                      </p>
+                      <p className="text-slate-500 text-xs">
+                        {selectedLoan.repaymentPeriod} months
+                        {selectedInterestLabel
+                          ? ` • ${selectedInterestLabel}`
+                          : ""}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-white px-3 py-2 shadow-sm">
+                      <p className="text-slate-500 text-xs uppercase tracking-wide">
+                        Approved Amount
+                      </p>
+                      <p className="mt-1 font-semibold text-lg text-slate-900">
+                        {formatCompactCurrency(
+                          selectedLoan.approvedAmount ?? selectedLoan.loanAmount,
+                        )}
+                      </p>
+                      <p className="text-slate-500 text-xs">
+                        Requested:{" "}
+                        {formatCompactCurrency(selectedLoan.loanAmount)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-white px-3 py-2 shadow-sm">
+                      <p className="text-slate-500 text-xs uppercase tracking-wide">
+                        Repayment Plan
+                      </p>
+                      <p className="mt-1 font-medium text-slate-900">
+                        {formatCompactCurrency(selectedMonthlyPayment)}/month
+                      </p>
+                      <p className="text-slate-500 text-xs">
+                        Starts{" "}
+                        {repaymentStartDate
+                          ? formatDate(repaymentStartDate)
+                          : "next month"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <div
+                      className={`flex min-w-[220px] flex-1 items-start gap-2 rounded-xl border px-3 py-2 ${bankSummaryTone}`}
+                    >
+                      <Building2 className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] uppercase tracking-wide opacity-80">
+                          {disbursementMode === "manual"
+                            ? "Bank Snapshot"
+                            : "Disbursement Account"}
+                        </p>
+                        <p className="truncate font-medium text-sm">
+                          {selectedBankAccountLabel}
+                        </p>
+                      </div>
+                    </div>
+                    <div
+                      className={`flex min-w-[220px] flex-1 items-start gap-2 rounded-xl border px-3 py-2 ${settlementSummaryTone}`}
+                    >
+                      <Calendar className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] uppercase tracking-wide opacity-80">
+                          {disbursementMode === "manual"
+                            ? "Settlement Path"
+                            : "Transfer Flow"}
+                        </p>
+                        <p className="truncate font-medium text-sm">
+                          {settlementSummaryLabel}
+                        </p>
+                        <p className="truncate text-xs opacity-85">
+                          {settlementSummaryDetail}
+                        </p>
+                      </div>
+                    </div>
+                    <div
+                      className={`flex min-w-[220px] flex-1 items-start gap-2 rounded-xl border px-3 py-2 ${nextStepSummaryTone}`}
+                    >
+                      <Info className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-[11px] uppercase tracking-wide opacity-80">
+                          Next Step
+                        </p>
+                        <p className="truncate font-medium text-sm">
+                          {nextStepSummary}
+                        </p>
+                        <p className="truncate text-xs opacity-85">
+                          {disbursementMode === "manual"
+                            ? "Manual settlement will be OTP-authorized before finalization."
+                            : "The selected account will be used for the live payout request."}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  {disbursementMode === "manual" &&
+                    manualDisbursementReference.trim() && (
+                      <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                        <p className="text-slate-500 text-xs uppercase tracking-wide">
+                          External Reference
+                        </p>
+                        <p className="mt-1 truncate font-medium text-slate-900 text-sm">
+                          {manualDisbursementReference.trim()}
+                        </p>
+                      </div>
+                    )}
+                </div>
+              )}
             </DialogHeader>
-            <div className="space-y-4">
-              {selectedLoan && (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="font-medium">{selectedLoan.applicantName}</p>
-                  <p className="font-bold text-purple-600 text-lg">
-                    {formatCurrency(
-                      selectedLoan.approvedAmount ?? selectedLoan.loanAmount,
-                    )}
-                  </p>
-                  <p className="text-gray-600 text-sm">
-                    {selectedLoan.loanPurpose}
-                  </p>
-                </div>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => setDisbursementMode("paystack")}
-                  className={`rounded-xl border px-4 py-3 text-left transition ${
-                    disbursementMode === "paystack"
-                      ? "border-purple-300 bg-purple-50 shadow-sm"
-                      : "border-slate-200 bg-white hover:border-slate-300"
-                  }`}
-                >
-                  <p className="font-medium text-slate-900">Paystack Transfer</p>
-                  <p className="mt-1 text-slate-500 text-xs">
-                    Trigger in-app bank disbursement and finalize with Paystack OTP if required.
-                  </p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDisbursementMode("manual")}
-                  className={`rounded-xl border px-4 py-3 text-left transition ${
-                    disbursementMode === "manual"
-                      ? "border-emerald-300 bg-emerald-50 shadow-sm"
-                      : "border-slate-200 bg-white hover:border-slate-300"
-                  }`}
-                >
-                  <p className="font-medium text-slate-900">Manual Settlement</p>
-                  <p className="mt-1 text-slate-500 text-xs">
-                    Record cash or offline settlement, then confirm it with admin OTP.
-                  </p>
-                </button>
-              </div>
-              {selectedLoan && (
-                <div className="rounded-xl bg-slate-50 p-3 text-slate-600 text-sm">
-                  {selectedDisbursementAccount ? (
-                    <div>
-                      <p className="font-medium text-slate-700">
-                        {disbursementMode === "manual"
-                          ? "Beneficiary Bank Snapshot"
-                          : "Disbursement Account"}
-                      </p>
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              <div className="space-y-4">
+                {selectedLoan && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="font-medium text-slate-900">
+                      {selectedLoan.loanPurpose}
+                    </p>
+                    {selectedLoan.purposeDescription && (
                       <p className="mt-1 text-slate-600 text-sm">
-                        {selectedDisbursementAccount.bankName} •{" "}
-                        {selectedDisbursementAccount.accountNumber} •{" "}
-                        {selectedDisbursementAccount.accountName}
+                        {selectedLoan.purposeDescription}
                       </p>
-                    </div>
-                  ) : bankAccountsLoading ? (
-                    <p>Loading borrower bank accounts...</p>
-                  ) : bankAccountsError ? (
-                    <p>
-                      Unable to load borrower bank accounts right now. Please
-                      retry.
-                    </p>
-                  ) : bankAccounts.length === 0 ? (
-                    <p>
-                      {disbursementMode === "manual"
-                        ? "No bank account is on file. You can still continue if this was a cash or offline settlement."
-                        : "Borrower has no bank accounts on file. Ask them to add one before Paystack disbursement."}
-                    </p>
-                  ) : (
-                    <p>
-                      {disbursementMode === "manual"
-                        ? "Select a bank account if you want the loan record to keep the beneficiary bank snapshot."
-                        : "Select a bank account below for disbursement."}
-                    </p>
-                  )}
-                </div>
-              )}
-              <div className="space-y-2">
-                <label className="block font-medium text-gray-700 text-sm">
-                  {disbursementMode === "manual"
-                    ? "Beneficiary Bank Account (optional)"
-                    : "Bank Account for Disbursement"}
-                </label>
-                <Select
-                  value={selectedDisbursementAccountId}
-                  onValueChange={setSelectedDisbursementAccountId}
-                  disabled={
-                    disbursementMode === "paystack"
-                      ? bankAccountsLoading || bankAccounts.length === 0
-                      : bankAccountsLoading
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        bankAccountsLoading
-                          ? "Loading accounts..."
-                          : bankAccounts.length === 0
-                            ? "No bank accounts found"
-                            : disbursementMode === "manual"
-                              ? "Select a bank account if applicable"
-                              : "Select bank account"
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {disbursementMode === "manual" && (
-                      <SelectItem value="__none__">No bank account</SelectItem>
                     )}
-                    {bankAccounts.map((account) => (
-                      <SelectItem key={account.id} value={account.id}>
-                        {account.bankName} • {account.accountNumber} •{" "}
-                        {account.accountName}
-                        {account.isPrimary ? " (Primary)" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {disbursementMode === "manual" && selectedDisbursementAccountId === "__none__" && (
-                  <p className="text-slate-500 text-xs">
-                    This record will be finalized without storing a bank-account snapshot.
-                  </p>
+                  </div>
                 )}
-                {bankAccounts.length === 0 &&
-                  !bankAccountsLoading &&
-                  disbursementMode === "paystack" && (
-                    <p className="text-amber-600 text-xs">
-                      The borrower must add a bank account before you can disburse
-                      this loan through Paystack.
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => setDisbursementMode("paystack")}
+                    className={`rounded-xl border px-4 py-3 text-left transition ${
+                      disbursementMode === "paystack"
+                        ? "border-purple-300 bg-purple-50 shadow-sm"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <p className="font-medium text-slate-900">
+                      Paystack Transfer
                     </p>
-                  )}
-                {bankAccountsError && !bankAccountsLoading && (
-                  <p className="text-red-600 text-xs">
-                    Unable to load bank accounts. Please retry in a moment.
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <label className="block font-medium text-gray-700 text-sm">
-                  Repayment Start Date (optional)
-                </label>
-                <input
-                  type="date"
-                  value={repaymentStartDate}
-                  onChange={(e) => setRepaymentStartDate(e.target.value)}
-                  className="px-3 py-2 border rounded-md w-full text-sm"
-                />
-                <p className="text-gray-500 text-xs">
-                  Leave empty to start next month. Guarantors must have accepted
-                  100% liability before disbursement.
-                </p>
-              </div>
-              {disbursementMode === "manual" && (
-                <>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="block font-medium text-gray-700 text-sm">
-                        Settlement Method
-                      </label>
-                      <Select
-                        value={manualDisbursementMethod}
-                        onValueChange={(value) =>
-                          setManualDisbursementMethod(
-                            value as ManualDisbursementMethod,
-                          )
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select manual method" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {manualDisbursementMethodOptions.map((option) => (
-                            <SelectItem key={option.value} value={option.value}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-gray-500 text-xs">
-                        {selectedManualMethodMeta?.description}
+                    <p className="mt-1 text-slate-500 text-xs">
+                      Trigger in-app bank disbursement and finalize with
+                      Paystack OTP if required.
+                    </p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDisbursementMode("manual")}
+                    className={`rounded-xl border px-4 py-3 text-left transition ${
+                      disbursementMode === "manual"
+                        ? "border-emerald-300 bg-emerald-50 shadow-sm"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <p className="font-medium text-slate-900">
+                      Manual Settlement
+                    </p>
+                    <p className="mt-1 text-slate-500 text-xs">
+                      Record cash or offline settlement, then confirm it with
+                      admin OTP.
+                    </p>
+                  </button>
+                </div>
+                {selectedLoan && (
+                  <div className="rounded-xl bg-slate-50 p-3 text-slate-600 text-sm">
+                    {selectedDisbursementAccount ? (
+                      <div>
+                        <p className="font-medium text-slate-700">
+                          {disbursementMode === "manual"
+                            ? "Beneficiary Bank Snapshot"
+                            : "Disbursement Account"}
+                        </p>
+                        <p className="mt-1 text-slate-600 text-sm">
+                          {selectedDisbursementAccount.bankName} •{" "}
+                          {selectedDisbursementAccount.accountNumber} •{" "}
+                          {selectedDisbursementAccount.accountName}
+                        </p>
+                      </div>
+                    ) : bankAccountsLoading ? (
+                      <p>Loading borrower bank accounts...</p>
+                    ) : bankAccountsError ? (
+                      <p>
+                        Unable to load borrower bank accounts right now. Please
+                        retry.
                       </p>
-                    </div>
-                    <div className="space-y-2">
-                      <label className="block font-medium text-gray-700 text-sm">
-                        Settlement Time
-                      </label>
-                      <Input
-                        type="datetime-local"
-                        value={manualDisbursementOccurredAt}
-                        onChange={(e) =>
-                          setManualDisbursementOccurredAt(e.target.value)
+                    ) : bankAccounts.length === 0 ? (
+                      <p>
+                        {disbursementMode === "manual"
+                          ? "No bank account is on file. You can still continue if this was a cash or offline settlement."
+                          : "Borrower has no bank accounts on file. Ask them to add one before Paystack disbursement."}
+                      </p>
+                    ) : (
+                      <p>
+                        {disbursementMode === "manual"
+                          ? "Select a bank account if you want the loan record to keep the beneficiary bank snapshot."
+                          : "Select a bank account below for disbursement."}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  <label className="block font-medium text-gray-700 text-sm">
+                    {disbursementMode === "manual"
+                      ? "Beneficiary Bank Account (optional)"
+                      : "Bank Account for Disbursement"}
+                  </label>
+                  <Select
+                    value={selectedDisbursementAccountId}
+                    onValueChange={setSelectedDisbursementAccountId}
+                    disabled={
+                      disbursementMode === "paystack"
+                        ? bankAccountsLoading || bankAccounts.length === 0
+                        : bankAccountsLoading
+                    }
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={
+                          bankAccountsLoading
+                            ? "Loading accounts..."
+                            : bankAccounts.length === 0
+                              ? "No bank accounts found"
+                              : disbursementMode === "manual"
+                                ? "Select a bank account if applicable"
+                                : "Select bank account"
                         }
                       />
-                      <p className="text-gray-500 text-xs">
-                        Record when the manual settlement actually happened.
+                    </SelectTrigger>
+                    <SelectContent>
+                      {disbursementMode === "manual" && (
+                        <SelectItem value="__none__">No bank account</SelectItem>
+                      )}
+                      {bankAccounts.map((account) => (
+                        <SelectItem key={account.id} value={account.id}>
+                          {account.bankName} • {account.accountNumber} •{" "}
+                          {account.accountName}
+                          {account.isPrimary ? " (Primary)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {disbursementMode === "manual" &&
+                    selectedDisbursementAccountId === "__none__" && (
+                      <p className="text-slate-500 text-xs">
+                        This record will be finalized without storing a
+                        bank-account snapshot.
                       </p>
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <label className="block font-medium text-gray-700 text-sm">
-                      External Reference (optional)
-                    </label>
-                    <Input
-                      value={manualDisbursementReference}
-                      onChange={(e) =>
-                        setManualDisbursementReference(e.target.value)
-                      }
-                      placeholder="Settlement reference, cheque no., teller no., etc."
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="block font-medium text-gray-700 text-sm">
-                      Notes (optional)
-                    </label>
-                    <Textarea
-                      value={manualDisbursementNotes}
-                      onChange={(e) =>
-                        setManualDisbursementNotes(e.target.value)
-                      }
-                      rows={3}
-                      placeholder="Add any reconciliation notes or evidence summary."
-                    />
-                  </div>
-                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="font-medium text-emerald-900">
-                          Manual Disbursement Summary
-                        </p>
-                        <p className="mt-1 text-emerald-700 text-xs">
-                          We will still apply the full approved loan amount and create the normal repayment schedule after OTP confirmation.
+                    )}
+                  {bankAccounts.length === 0 &&
+                    !bankAccountsLoading &&
+                    disbursementMode === "paystack" && (
+                      <p className="text-amber-600 text-xs">
+                        The borrower must add a bank account before you can
+                        disburse this loan through Paystack.
+                      </p>
+                    )}
+                  {bankAccountsError && !bankAccountsLoading && (
+                    <p className="text-red-600 text-xs">
+                      Unable to load bank accounts. Please retry in a moment.
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  <label className="block font-medium text-gray-700 text-sm">
+                    Repayment Start Date (optional)
+                  </label>
+                  <input
+                    type="date"
+                    value={repaymentStartDate}
+                    onChange={(e) => setRepaymentStartDate(e.target.value)}
+                    className="w-full rounded-md border px-3 py-2 text-sm"
+                  />
+                  <p className="text-gray-500 text-xs">
+                    Leave empty to start next month. Guarantors must have
+                    accepted 100% liability before disbursement.
+                  </p>
+                </div>
+                {disbursementMode === "manual" && (
+                  <>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="block font-medium text-gray-700 text-sm">
+                          Settlement Method
+                        </label>
+                        <Select
+                          value={manualDisbursementMethod}
+                          onValueChange={(value) =>
+                            setManualDisbursementMethod(
+                              value as ManualDisbursementMethod,
+                            )
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select manual method" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {manualDisbursementMethodOptions.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-gray-500 text-xs">
+                          {selectedManualMethodMeta?.description}
                         </p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-emerald-700 text-xs">Amount to record</p>
-                        <p className="font-semibold text-emerald-900 text-lg">
-                          {formatCurrency(
-                            selectedLoan?.approvedAmount ?? selectedLoan?.loanAmount,
-                          )}
+                      <div className="space-y-2">
+                        <label className="block font-medium text-gray-700 text-sm">
+                          Settlement Time
+                        </label>
+                        <Input
+                          type="datetime-local"
+                          value={manualDisbursementOccurredAt}
+                          onChange={(e) =>
+                            setManualDisbursementOccurredAt(e.target.value)
+                          }
+                        />
+                        <p className="text-gray-500 text-xs">
+                          Record when the manual settlement actually happened.
                         </p>
                       </div>
                     </div>
-                  </div>
-                </>
-              )}
+                    <div className="space-y-2">
+                      <label className="block font-medium text-gray-700 text-sm">
+                        External Reference (optional)
+                      </label>
+                      <Input
+                        value={manualDisbursementReference}
+                        onChange={(e) =>
+                          setManualDisbursementReference(e.target.value)
+                        }
+                        placeholder="Settlement reference, cheque no., teller no., etc."
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="block font-medium text-gray-700 text-sm">
+                        Notes (optional)
+                      </label>
+                      <Textarea
+                        value={manualDisbursementNotes}
+                        onChange={(e) =>
+                          setManualDisbursementNotes(e.target.value)
+                        }
+                        rows={3}
+                        placeholder="Add any reconciliation notes or evidence summary."
+                      />
+                    </div>
+                    <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="font-medium text-emerald-900">
+                            Manual Disbursement Summary
+                          </p>
+                          <p className="mt-1 text-emerald-700 text-xs">
+                            We will still apply the full approved loan amount
+                            and create the normal repayment schedule after OTP
+                            confirmation.
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-emerald-700 text-xs">
+                            Amount to record
+                          </p>
+                          <p className="font-semibold text-emerald-900 text-lg">
+                            {formatCurrency(
+                              selectedLoan?.approvedAmount ??
+                                selectedLoan?.loanAmount,
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="shrink-0 border-t bg-white/95 px-6 py-4 backdrop-blur">
               <div className="flex gap-3">
                 <Button
                   variant="outline"

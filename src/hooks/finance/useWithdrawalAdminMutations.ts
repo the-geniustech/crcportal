@@ -1,11 +1,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   approveWithdrawal,
+  cancelManualWithdrawalPayout,
   completeWithdrawal,
+  finalizeManualWithdrawalPayout,
   finalizeWithdrawalOtp,
+  initiateManualWithdrawalPayout,
   markWithdrawalProcessing,
   rejectWithdrawal,
+  resendManualWithdrawalPayoutOtp,
   resendWithdrawalOtp,
+  verifyWithdrawalTransfer,
 } from "@/lib/finance";
 
 export function useApproveWithdrawalMutation() {
@@ -71,6 +76,81 @@ export function useResendWithdrawalOtpMutation() {
   return useMutation({
     mutationFn: async (input: { id: string; transferCode: string; reason?: string }) =>
       resendWithdrawalOtp(input.id, { transferCode: input.transferCode, reason: input.reason }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "admin"] });
+    },
+  });
+}
+
+export function useVerifyWithdrawalTransferMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => verifyWithdrawalTransfer(id),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "admin"] });
+      await qc.invalidateQueries({ queryKey: ["transactions", "me"] });
+      await qc.invalidateQueries({ queryKey: ["savings", "me", "summary"] });
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "balance"] });
+    },
+  });
+}
+
+export function useInitiateManualWithdrawalPayoutMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      id: string;
+      method:
+        | "cash"
+        | "bank_transfer"
+        | "bank_settlement"
+        | "cheque"
+        | "pos"
+        | "other";
+      occurredAt?: string | null;
+      externalReference?: string | null;
+      notes?: string | null;
+    }) =>
+      initiateManualWithdrawalPayout(input.id, {
+        method: input.method,
+        occurredAt: input.occurredAt,
+        externalReference: input.externalReference,
+        notes: input.notes,
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "admin"] });
+    },
+  });
+}
+
+export function useFinalizeManualWithdrawalPayoutMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; otp: string }) =>
+      finalizeManualWithdrawalPayout(input.id, { otp: input.otp }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "admin"] });
+      await qc.invalidateQueries({ queryKey: ["transactions", "me"] });
+      await qc.invalidateQueries({ queryKey: ["savings", "me", "summary"] });
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "balance"] });
+    },
+  });
+}
+
+export function useResendManualWithdrawalPayoutOtpMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => resendManualWithdrawalPayoutOtp(id),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["withdrawals", "admin"] });
+    },
+  });
+}
+
+export function useCancelManualWithdrawalPayoutMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => cancelManualWithdrawalPayout(id),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["withdrawals", "admin"] });
     },
