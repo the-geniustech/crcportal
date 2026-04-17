@@ -1828,6 +1828,18 @@ export default function WithdrawalApprovalPanel({
                     Manual payout is OTP-authorized before finalization so the
                     offline settlement is still auditable and controlled.
                   </div>
+                  {String(payoutTarget.payoutGateway || "").toLowerCase() ===
+                    "paystack" &&
+                    payoutTarget.payoutReference &&
+                    String(payoutTarget.payoutStatus || "").toLowerCase() !==
+                      "success" && (
+                      <div className="rounded-lg bg-amber-50 p-3 text-sm text-amber-800">
+                        A previous Paystack attempt exists for this withdrawal.
+                        Switching to manual payout will supersede that attempt in
+                        the audit trail, so only continue after confirming the
+                        member has not already been credited.
+                      </div>
+                    )}
                   <div className="space-y-2">
                     <label className="text-sm font-medium text-gray-700">
                       Manual Payout Method
