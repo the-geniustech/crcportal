@@ -91,7 +91,6 @@ import AdminStats from "@/components/admin/AdminStats";
 import MemberApprovalPanel from "@/components/admin/MemberApprovalPanel";
 import ContributionTracker from "@/components/admin/ContributionTracker";
 
-
 import FinancialReports from "@/components/admin/FinancialReports";
 import ContributionInterestSettings from "@/components/admin/ContributionInterestSettings";
 import ContributionIncomeSummary from "@/components/admin/ContributionIncomeSummary";
@@ -110,7 +109,9 @@ import type { BackendGroup } from "@/lib/groups";
 import { USER_ROLE } from "@/lib/roles";
 
 const LoanTracker = lazy(() => import("@/components/admin/LoanTracker"));
-const LoanReviewPanel = lazy(() => import("@/components/admin/LoanReviewPanel"));
+const LoanReviewPanel = lazy(
+  () => import("@/components/admin/LoanReviewPanel"),
+);
 
 // Sample data
 type ApplicantStatus = "pending" | "approved" | "rejected";
@@ -1066,9 +1067,10 @@ export default function Admin() {
 
   const handleCancelManualLoanOtp = async (id: string) => {
     try {
-      const application = await cancelManualLoanDisbursementMutation.mutateAsync({
-        applicationId: id,
-      });
+      const application =
+        await cancelManualLoanDisbursementMutation.mutateAsync({
+          applicationId: id,
+        });
       toast({
         title: "Manual OTP Cancelled",
         description:
@@ -1644,7 +1646,7 @@ export default function Admin() {
           {activeTab === "contributions" && canAccessCoordinatorPanels && (
             <ContributionTracker
               contributions={contributions}
-              onMarkPaid={handleMarkPaid}
+              // onMarkPaid={handleMarkPaid}
               year={trackerYear}
               month={trackerMonth}
               onYearChange={setTrackerYear}
@@ -1656,7 +1658,7 @@ export default function Admin() {
           {activeTab === "loans" && canAccessCoordinatorPanels && (
             <Suspense
               fallback={
-                <div className="rounded-2xl border border-gray-100 bg-white p-8 text-sm text-gray-500 shadow-sm">
+                <div className="bg-white shadow-sm p-8 border border-gray-100 rounded-2xl text-gray-500 text-sm">
                   Loading loan applications...
                 </div>
               }
@@ -1685,7 +1687,7 @@ export default function Admin() {
           {activeTab === "loan-tracker" && canAccessCoordinatorPanels && (
             <Suspense
               fallback={
-                <div className="rounded-2xl border border-gray-100 bg-white p-8 text-sm text-gray-500 shadow-sm">
+                <div className="bg-white shadow-sm p-8 border border-gray-100 rounded-2xl text-gray-500 text-sm">
                   Loading loan tracker...
                 </div>
               }
@@ -3078,7 +3080,3 @@ export default function Admin() {
     </div>
   );
 }
-
-
-
-
