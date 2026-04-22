@@ -53,6 +53,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import AdminGroupFilter from "@/components/admin/AdminGroupFilter";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLoanBankAccountsQuery } from "@/hooks/admin/useAdminLoanBankAccountsQuery";
 import { useNotificationPreferencesQuery } from "@/hooks/profile/useNotificationPreferencesQuery";
@@ -63,6 +64,7 @@ import {
   downloadAdminLoanApplicationPdf,
   emailAdminLoanApplicationPdf,
   exportAdminLoanApplications,
+  type AdminLoanBankAccount,
 } from "@/lib/adminLoans";
 import { useAdminLoanApplicationsQuery } from "@/hooks/admin/useAdminLoanApplicationsQuery";
 import { useReconcileAdminLoanApplicationMutation } from "@/hooks/admin/useReconcileAdminLoanApplicationMutation";
@@ -261,7 +263,6 @@ interface LoanReviewPanelProps {
     id: string,
   ) => Promise<{ application: LoanPayoutUpdate; retryAfter?: number }>;
   onCancelManualOtp: (id: string) => Promise<LoanPayoutUpdate | null>;
-  groupOptions?: { id: string; name: string }[];
   canDisburse?: boolean;
   canFinalizeOtp?: boolean;
 }
@@ -374,7 +375,6 @@ export default function LoanReviewPanel({
   onResendOtp,
   onResendManualOtp,
   onCancelManualOtp,
-  groupOptions = [],
   canDisburse = true,
   canFinalizeOtp = true,
 }: LoanReviewPanelProps) {
@@ -538,19 +538,6 @@ export default function LoanReviewPanel({
   const pageStart = total === 0 ? 0 : (currentPage - 1) * limit + 1;
   const pageEnd = Math.min(currentPage * limit, total);
 
-  const groupSelectOptions = useMemo(() => {
-    if (groupOptions.length > 0) {
-      return groupOptions;
-    }
-    const dedup = new Map<string, string>();
-    applications.forEach((app) => {
-      if (app.groupId && app.groupName) {
-        dedup.set(app.groupId, app.groupName);
-      }
-    });
-    return Array.from(dedup.entries()).map(([id, name]) => ({ id, name }));
-  }, [applications, groupOptions]);
-
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
     return Array.from({ length: 6 }, (_, idx) => currentYear - idx);
@@ -580,7 +567,7 @@ export default function LoanReviewPanel({
   const bankAccountsLoading = bankAccountsQuery.isLoading;
   const bankAccountsError = bankAccountsQuery.isError;
   const bankAccounts: AdminBankAccount[] = (bankAccountsQuery.data ?? []).map(
-    (acc: any) => ({
+    (acc: AdminLoanBankAccount) => ({
       id: String(acc._id),
       bankName: String(acc.bankName),
       bankCode: acc.bankCode ? String(acc.bankCode) : undefined,
@@ -1970,19 +1957,13 @@ export default function LoanReviewPanel({
                 </SelectContent>
               </Select>
             </div>
-            <Select value={groupFilter} onValueChange={setGroupFilter}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="All Groups" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Groups</SelectItem>
-                {groupSelectOptions.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    {group.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <AdminGroupFilter
+              value={groupFilter}
+              onValueChange={setGroupFilter}
+              allLabel="All groups"
+              placeholder="Filter by group"
+              className="w-full sm:w-48"
+            />
             <Select value={yearFilter} onValueChange={setYearFilter}>
               <SelectTrigger className="w-28">
                 <SelectValue placeholder="Year" />

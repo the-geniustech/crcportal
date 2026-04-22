@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import AdminGroupFilter from "@/components/admin/AdminGroupFilter";
 import {
   Select,
   SelectContent,
@@ -314,19 +315,13 @@ export default function AttendanceTracker() {
                 className="pl-9"
               />
             </div>
-            <Select value={groupFilter} onValueChange={setGroupFilter}>
-              <SelectTrigger className="w-full md:w-64">
-                <SelectValue placeholder="All Groups" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Groups</SelectItem>
-                {groups.map((g) => (
-                  <SelectItem key={g._id} value={g._id}>
-                    {g.groupName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <AdminGroupFilter
+              value={groupFilter}
+              onValueChange={setGroupFilter}
+              allLabel="All groups"
+              placeholder="Filter by group"
+              className="w-full md:w-64"
+            />
           </div>
           <Button
             className="bg-emerald-600 hover:bg-emerald-700 gap-2"

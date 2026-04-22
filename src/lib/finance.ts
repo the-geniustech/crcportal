@@ -267,7 +267,7 @@ export async function createWithdrawalRequest(input: {
 }
 
 export async function listWithdrawals(
-  params: { status?: string; userId?: string } = {},
+  params: { status?: string; userId?: string; groupId?: string } = {},
 ): Promise<BackendWithdrawalListResponse> {
   try {
     const res = await api.get("/withdrawals", { params });

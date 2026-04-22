@@ -274,12 +274,15 @@ export default function Admin() {
   const defaultPeriod = useMemo(() => getEffectiveContributionPeriod(), []);
   const [trackerYear, setTrackerYear] = useState(defaultPeriod.year);
   const [trackerMonth, setTrackerMonth] = useState(defaultPeriod.month);
+  const [trackerGroupFilter, setTrackerGroupFilter] = useState("all");
 
   const now = new Date();
   const trackerQuery = useContributionTrackerQuery(
     {
       year: trackerYear,
       month: trackerMonth,
+      groupId:
+        trackerGroupFilter !== "all" ? trackerGroupFilter : undefined,
     },
     canAccessCoordinatorPanels,
   );
@@ -671,11 +674,6 @@ export default function Admin() {
     to: nowIso,
     limit: 500,
   });
-
-  const loanGroupOptions = manageableGroups.map((group) => ({
-    id: String(group._id),
-    name: String(group.groupName || group.group_name || "Group"),
-  }));
 
   const formatCompactNaira = (amount: number) => {
     const n = Number(amount || 0);
@@ -1651,6 +1649,8 @@ export default function Admin() {
               month={trackerMonth}
               onYearChange={setTrackerYear}
               onMonthChange={setTrackerMonth}
+              selectedGroupId={trackerGroupFilter}
+              onGroupChange={setTrackerGroupFilter}
               canManageActions={isCoordinator}
             />
           )}
@@ -1677,7 +1677,6 @@ export default function Admin() {
                 onResendOtp={handleLoanResendOtp}
                 onResendManualOtp={handleLoanResendManualOtp}
                 onCancelManualOtp={handleCancelManualLoanOtp}
-                groupOptions={loanGroupOptions}
                 canDisburse={isAdmin}
                 canFinalizeOtp={isAdmin}
               />
@@ -1693,7 +1692,6 @@ export default function Admin() {
               }
             >
               <LoanTracker
-                groupOptions={loanGroupOptions}
                 canManageActions={canAccessCoordinatorPanels}
               />
             </Suspense>

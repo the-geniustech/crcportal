@@ -387,3 +387,14 @@ export default function LoanEligibilityCheck({
     </div>
   );
 }
+
+/*
+Act as a senior full-stack engineer with 30+ years of experience building scalable SaaS platforms, so let's continue creating/building professional tailored Loan system/flows in the project.
+- Instead of the first eligibility criteria "Minimum Savings Balance", let's change it to "At least 10% of the money you are requesting for. For instance if someone is
+requesting for 50k he or she must have 5k in his or her Savings (this
+requirement is for old members)"
+
+Ensure all the requirements are consistent with backend <=> frontend flows and implemented in an highly professional way and industry standard of doing things.
+
+You can improvice whenever needed, just ensure you don't digress from the context of this project and you're always highly professional as much as possible.
+*/

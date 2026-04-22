@@ -9,6 +9,7 @@ import {
   Search,
   TrendingUp,
 } from "lucide-react";
+import AdminGroupFilter from "@/components/admin/AdminGroupFilter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -86,6 +87,8 @@ interface ContributionTrackerProps {
   month: number;
   onYearChange?: (year: number) => void;
   onMonthChange?: (month: number) => void;
+  selectedGroupId?: string;
+  onGroupChange?: (groupId: string) => void;
   canManageActions?: boolean;
 }
 
@@ -191,13 +194,15 @@ export default function ContributionTracker({
   month,
   onYearChange,
   onMonthChange,
+  selectedGroupId,
+  onGroupChange,
   canManageActions = true,
 }: ContributionTrackerProps) {
   const { toast } = useToast();
   const markPaidMutation = useMarkContributionPaidMutation();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [groupFilter, setGroupFilter] = useState("all");
+  const [localGroupFilter, setLocalGroupFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [reminderOpen, setReminderOpen] = useState(false);
   const [reminderTargets, setReminderTargets] = useState<ContributionRecord[]>(
@@ -225,6 +230,19 @@ export default function ContributionTracker({
     });
 
   const pageSize = 10;
+  const isGroupFilterControlled =
+    typeof selectedGroupId !== "undefined" &&
+    typeof onGroupChange === "function";
+  const groupFilter = isGroupFilterControlled
+    ? selectedGroupId ?? "all"
+    : localGroupFilter;
+
+  const handleGroupFilterChange = (value: string) => {
+    if (!isGroupFilterControlled) {
+      setLocalGroupFilter(value);
+    }
+    onGroupChange?.(value);
+  };
 
   useEffect(() => {
     setCurrentPage(1);
@@ -253,9 +271,15 @@ export default function ContributionTracker({
     [],
   );
 
-  const groups = [...new Set(contributions.map((record) => record.groupName))];
+  const groupScopedContributions = useMemo(
+    () =>
+      contributions.filter(
+        (record) => groupFilter === "all" || record.groupId === groupFilter,
+      ),
+    [contributions, groupFilter],
+  );
 
-  const filteredContributions = contributions.filter((record) => {
+  const filteredContributions = groupScopedContributions.filter((record) => {
     const query = searchQuery.toLowerCase();
     const matchesSearch =
       record.memberName.toLowerCase().includes(query) ||
@@ -265,9 +289,7 @@ export default function ContributionTracker({
         : false);
     const matchesStatus =
       statusFilter === "all" || record.status === statusFilter;
-    const matchesGroup =
-      groupFilter === "all" || record.groupName === groupFilter;
-    return matchesSearch && matchesStatus && matchesGroup;
+    return matchesSearch && matchesStatus;
   });
 
   const total = filteredContributions.length;
@@ -289,15 +311,15 @@ export default function ContributionTracker({
     }
   }, [currentPage, totalPages]);
 
-  const defaulters = contributions.filter(
+  const defaulters = groupScopedContributions.filter(
     (record) => record.status === "defaulted",
   );
 
-  const totalExpected = contributions.reduce(
+  const totalExpected = groupScopedContributions.reduce(
     (sum, record) => sum + Number(record.expectedAmount || 0),
     0,
   );
-  const totalPaid = contributions.reduce(
+  const totalPaid = groupScopedContributions.reduce(
     (sum, record) => sum + Number(record.paidAmount || 0),
     0,
   );
@@ -336,7 +358,9 @@ export default function ContributionTracker({
   }, [manualAmount]);
 
   const manualQuickAmounts = useMemo(() => {
-    const recommended = selectedRecord ? getDefaultManualAmount(selectedRecord) : 0;
+    const recommended = selectedRecord
+      ? getDefaultManualAmount(selectedRecord)
+      : 0;
     const values = [recommended, expectedAmount, 5000, 10000, 15000, 25000];
     const seen = new Set<number>();
     return values.filter((value) => {
@@ -420,28 +444,28 @@ export default function ContributionTracker({
       case "paid":
         return (
           <Badge className="bg-emerald-100 text-emerald-700">
-            <CheckCircle className="mr-1 h-3 w-3" />
+            <CheckCircle className="mr-1 w-3 h-3" />
             Paid
           </Badge>
         );
       case "partial":
         return (
           <Badge className="bg-blue-100 text-blue-700">
-            <Clock className="mr-1 h-3 w-3" />
+            <Clock className="mr-1 w-3 h-3" />
             Partial
           </Badge>
         );
       case "pending":
         return (
           <Badge className="bg-amber-100 text-amber-700">
-            <Clock className="mr-1 h-3 w-3" />
+            <Clock className="mr-1 w-3 h-3" />
             Pending
           </Badge>
         );
       case "defaulted":
         return (
           <Badge className="bg-red-100 text-red-700">
-            <AlertTriangle className="mr-1 h-3 w-3" />
+            <AlertTriangle className="mr-1 w-3 h-3" />
             {monthsDefaulted}mo Defaulted
           </Badge>
         );
@@ -578,7 +602,11 @@ export default function ContributionTracker({
       return;
     }
 
-    if (!Number.isFinite(manualYear) || manualYear < 2000 || manualYear > 2100) {
+    if (
+      !Number.isFinite(manualYear) ||
+      manualYear < 2000 ||
+      manualYear > 2100
+    ) {
       toast({
         title: "Invalid year",
         description: "Select a valid contribution year.",
@@ -602,7 +630,8 @@ export default function ContributionTracker({
         year: manualYear,
         contributionType: "revolving",
         paymentMethod: manualPaymentForm.paymentMethod,
-        paymentReference: manualPaymentForm.paymentReference.trim() || undefined,
+        paymentReference:
+          manualPaymentForm.paymentReference.trim() || undefined,
         description: manualPaymentForm.description.trim() || undefined,
       });
 
@@ -628,65 +657,65 @@ export default function ContributionTracker({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
+      <div className="gap-4 grid grid-cols-1 md:grid-cols-4">
+        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+          <div className="flex justify-between items-center">
             <div>
-              <p className="text-sm text-gray-500">Collection Rate</p>
-              <p className="text-2xl font-bold text-emerald-600">
+              <p className="text-gray-500 text-sm">Collection Rate</p>
+              <p className="font-bold text-emerald-600 text-2xl">
                 {collectionRate.toFixed(1)}%
               </p>
             </div>
-            <TrendingUp className="h-8 w-8 text-emerald-500" />
+            <TrendingUp className="w-8 h-8 text-emerald-500" />
           </div>
           <Progress value={collectionRate} className="mt-2 h-2" />
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Total Expected</p>
-          <p className="text-2xl font-bold text-gray-900">
+        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+          <p className="text-gray-500 text-sm">Total Expected</p>
+          <p className="font-bold text-gray-900 text-2xl">
             {formatNaira(totalExpected)}
           </p>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Total Collected</p>
-          <p className="text-2xl font-bold text-emerald-600">
+        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+          <p className="text-gray-500 text-sm">Total Collected</p>
+          <p className="font-bold text-emerald-600 text-2xl">
             {formatNaira(totalPaid)}
           </p>
         </div>
 
-        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between">
+        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+          <div className="flex justify-between items-center">
             <div>
-              <p className="text-sm text-gray-500">Defaulters</p>
-              <p className="text-2xl font-bold text-red-600">
+              <p className="text-gray-500 text-sm">Defaulters</p>
+              <p className="font-bold text-red-600 text-2xl">
                 {defaulters.length}
               </p>
             </div>
-            <AlertTriangle className="h-8 w-8 text-red-500" />
+            <AlertTriangle className="w-8 h-8 text-red-500" />
           </div>
         </div>
       </div>
 
       {defaulters.length > 0 && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+        <div className="bg-red-50 p-4 border border-red-200 rounded-xl">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-5 w-5 text-red-600" />
+            <AlertTriangle className="mt-0.5 w-5 h-5 text-red-600" />
             <div className="flex-1">
               <h4 className="font-medium text-red-800">Defaulter Alert</h4>
-              <p className="mt-1 text-sm text-red-600">
+              <p className="mt-1 text-red-600 text-sm">
                 {defaulters.length} member(s) have outstanding contributions.
                 {defaulters.filter((record) => record.monthsDefaulted >= 3)
                   .length > 0 &&
                   ` ${defaulters.filter((record) => record.monthsDefaulted >= 3).length} have been defaulting for 3+ months.`}
               </p>
-              <div className="mt-2 flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2 mt-2">
                 {defaulters.slice(0, 5).map((record) => (
                   <Badge
                     key={record.id}
                     variant="outline"
-                    className="border-red-300 bg-white text-red-700"
+                    className="bg-white border-red-300 text-red-700"
                   >
                     {record.memberName}
                     {record.memberSerial ? ` - ${record.memberSerial}` : ""} (
@@ -696,7 +725,7 @@ export default function ContributionTracker({
                 {defaulters.length > 5 && (
                   <Badge
                     variant="outline"
-                    className="border-red-300 bg-white text-red-700"
+                    className="bg-white border-red-300 text-red-700"
                   >
                     +{defaulters.length - 5} more
                   </Badge>
@@ -716,10 +745,10 @@ export default function ContributionTracker({
         </div>
       )}
 
-      <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-4 md:flex-row">
+      <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
+        <div className="flex md:flex-row flex-col gap-4">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transform text-gray-400" />
+            <Search className="top-1/2 left-3 absolute w-4 h-4 text-gray-400 -translate-y-1/2 transform" />
             <Input
               placeholder="Search members..."
               value={searchQuery}
@@ -741,20 +770,13 @@ export default function ContributionTracker({
             </SelectContent>
           </Select>
 
-          <Select value={groupFilter} onValueChange={setGroupFilter}>
-            <SelectTrigger className="w-full md:w-48">
-              <SelectValue placeholder="Group" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Groups</SelectItem>
-              {groups.map((group) => (
-                <SelectItem key={group} value={group}>
-                  {group}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
+          <AdminGroupFilter
+            value={groupFilter}
+            onValueChange={handleGroupFilterChange}
+            allLabel="All groups"
+            placeholder="Filter by group"
+            className="md:w-56"
+          />
           <Select
             value={String(year)}
             onValueChange={(value) => onYearChange?.(Number(value))}
@@ -790,37 +812,37 @@ export default function ContributionTracker({
           </Select>
 
           <Button variant="outline" className="gap-2" onClick={exportCsv}>
-            <Download className="h-4 w-4" />
+            <Download className="w-4 h-4" />
             Export
           </Button>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+      <div className="bg-white shadow-sm border border-gray-100 rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="border-b border-gray-100 bg-gray-50">
+            <thead className="bg-gray-50 border-gray-100 border-b">
               <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Member
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Group
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Expected
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Paid
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Due Date
                 </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Status
                 </th>
                 {canManageActions && (
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">
+                  <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                     Actions
                   </th>
                 )}
@@ -831,7 +853,7 @@ export default function ContributionTracker({
                 <tr>
                   <td
                     colSpan={canManageActions ? 7 : 6}
-                    className="px-4 py-10 text-center text-sm text-gray-500"
+                    className="px-4 py-10 text-gray-500 text-sm text-center"
                   >
                     No contribution records match the current filters.
                   </td>
@@ -846,16 +868,16 @@ export default function ContributionTracker({
                         {record.memberName}
                       </p>
                       {record.memberSerial && (
-                        <p className="text-xs text-gray-400">
+                        <p className="text-gray-400 text-xs">
                           {record.memberSerial}
                         </p>
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
+                  <td className="px-4 py-3 text-gray-600 text-sm">
                     {record.groupName}
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium">
+                  <td className="px-4 py-3 font-medium text-sm">
                     {formatNaira(record.expectedAmount)}
                   </td>
                   <td className="px-4 py-3 text-sm">
@@ -869,12 +891,12 @@ export default function ContributionTracker({
                       {formatNaira(record.paidAmount)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
+                  <td className="px-4 py-3 text-gray-600 text-sm">
                     <div className="space-y-1">
                       <div>
                         {new Date(record.dueDate).toLocaleDateString("en-NG")}
                       </div>
-                      <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                      <span className="inline-flex bg-emerald-50 px-2 py-0.5 rounded-full font-medium text-[11px] text-emerald-700">
                         Open: 27th-4th
                       </span>
                     </div>
@@ -889,9 +911,9 @@ export default function ContributionTracker({
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8"
+                            className="w-8 h-8"
                           >
-                            <MoreHorizontal className="h-4 w-4" />
+                            <MoreHorizontal className="w-4 h-4" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
@@ -918,8 +940,8 @@ export default function ContributionTracker({
       </div>
 
       {total > 0 && totalPages > 1 && (
-        <div className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-4 py-3">
-          <p className="text-sm text-gray-500">
+        <div className="flex justify-between items-center bg-white px-4 py-3 border border-gray-100 rounded-xl">
+          <p className="text-gray-500 text-sm">
             Showing {pageStart}-{pageEnd} of {total} records
           </p>
           <Pagination className="mx-0 w-auto">
@@ -1020,7 +1042,7 @@ export default function ContributionTracker({
             </div>
 
             {!canSendReminder && (
-              <p className="text-sm text-rose-500">
+              <p className="text-rose-500 text-sm">
                 Select at least one channel to send reminders.
               </p>
             )}
@@ -1055,29 +1077,29 @@ export default function ContributionTracker({
           <DialogHeader>
             <DialogTitle>Record Manual Contribution Payment</DialogTitle>
             <DialogDescription>
-              Post a verified manual remittance for this member. This will create
-              a contribution entry and a successful transaction record.
+              Post a verified manual remittance for this member. This will
+              create a contribution entry and a successful transaction record.
             </DialogDescription>
           </DialogHeader>
 
           {selectedRecord && (
             <div className="space-y-6">
-              <div className="grid gap-3 rounded-xl border border-emerald-100 bg-emerald-50/70 p-4 md:grid-cols-3">
+              <div className="gap-3 grid md:grid-cols-3 bg-emerald-50/70 p-4 border border-emerald-100 rounded-xl">
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+                  <p className="font-medium text-emerald-700 text-xs uppercase tracking-wide">
                     Member
                   </p>
                   <p className="mt-1 font-semibold text-gray-900">
                     {selectedRecord.memberName}
                   </p>
                   {selectedRecord.memberSerial && (
-                    <p className="text-xs text-gray-500">
+                    <p className="text-gray-500 text-xs">
                       {selectedRecord.memberSerial}
                     </p>
                   )}
                 </div>
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+                  <p className="font-medium text-emerald-700 text-xs uppercase tracking-wide">
                     Group
                   </p>
                   <p className="mt-1 font-semibold text-gray-900">
@@ -1085,7 +1107,7 @@ export default function ContributionTracker({
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">
+                  <p className="font-medium text-emerald-700 text-xs uppercase tracking-wide">
                     Contribution Type
                   </p>
                   <p className="mt-1 font-semibold text-gray-900">
@@ -1094,7 +1116,7 @@ export default function ContributionTracker({
                 </div>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="gap-4 grid md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="manual-payment-amount">Amount</Label>
                   <Input
@@ -1134,7 +1156,7 @@ export default function ContributionTracker({
                     ))}
                   </div>
                   {!manualPaymentValidation.valid && (
-                    <p className="text-sm text-rose-500">
+                    <p className="text-rose-500 text-sm">
                       {manualPaymentValidation.message}
                     </p>
                   )}
@@ -1248,8 +1270,8 @@ export default function ContributionTracker({
                 </div>
               </div>
 
-              <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                <div className="mb-3 flex items-center justify-between">
+              <div className="bg-gray-50 p-4 border border-gray-200 rounded-xl">
+                <div className="flex justify-between items-center mb-3">
                   <h4 className="font-semibold text-gray-900">
                     Posting Preview
                   </h4>
@@ -1261,20 +1283,20 @@ export default function ContributionTracker({
                         : "Pending"}
                   </Badge>
                 </div>
-                <div className="grid gap-3 text-sm md:grid-cols-2">
-                  <div className="flex items-center justify-between">
+                <div className="gap-3 grid md:grid-cols-2 text-sm">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-500">Expected this month</span>
                     <span className="font-medium text-gray-900">
                       {formatNaira(expectedAmount)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-500">Already recorded</span>
                     <span className="font-medium text-gray-900">
                       {formatNaira(alreadyPaidAmount)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-500">Posting now</span>
                     <span className="font-medium text-gray-900">
                       {Number.isFinite(manualAmount)
@@ -1282,31 +1304,33 @@ export default function ContributionTracker({
                         : formatNaira(0)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-500">Total after posting</span>
                     <span className="font-medium text-gray-900">
                       {formatNaira(totalAfterPayment)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-500">Equivalent units</span>
                     <span className="font-medium text-gray-900">
                       {computedUnits.toLocaleString()}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-500">Interest to persist</span>
                     <span className="font-medium text-gray-900">
                       {formatNaira(computedInterest)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-500">Remaining after posting</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-gray-500">
+                      Remaining after posting
+                    </span>
                     <span className="font-medium text-gray-900">
                       {formatNaira(remainingAfterPayment)}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-gray-500">Excess above expected</span>
                     <span className="font-medium text-gray-900">
                       {formatNaira(excessAfterPayment)}
@@ -1346,48 +1370,50 @@ export default function ContributionTracker({
           </AlertDialogHeader>
 
           {selectedRecord && (
-            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm">
-              <div className="flex items-center justify-between gap-4">
+            <div className="space-y-3 bg-gray-50 p-4 border border-gray-200 rounded-xl text-sm">
+              <div className="flex justify-between items-center gap-4">
                 <span className="text-gray-500">Member</span>
-                <span className="text-right font-medium text-gray-900">
+                <span className="font-medium text-gray-900 text-right">
                   {selectedRecord.memberName}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex justify-between items-center gap-4">
                 <span className="text-gray-500">Group</span>
-                <span className="text-right font-medium text-gray-900">
+                <span className="font-medium text-gray-900 text-right">
                   {selectedRecord.groupName}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex justify-between items-center gap-4">
                 <span className="text-gray-500">Contribution period</span>
-                <span className="text-right font-medium text-gray-900">
+                <span className="font-medium text-gray-900 text-right">
                   {selectedMonthLabel} {manualYear}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex justify-between items-center gap-4">
                 <span className="text-gray-500">Payment method</span>
-                <span className="text-right font-medium capitalize text-gray-900">
+                <span className="font-medium text-gray-900 text-right capitalize">
                   {manualPaymentForm.paymentMethod.replace(/_/g, " ")}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex justify-between items-center gap-4">
                 <span className="text-gray-500">Amount to post</span>
-                <span className="text-right font-semibold text-gray-900">
-                  {formatNaira(Number.isFinite(manualAmount) ? manualAmount : 0)}
+                <span className="font-semibold text-gray-900 text-right">
+                  {formatNaira(
+                    Number.isFinite(manualAmount) ? manualAmount : 0,
+                  )}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-4">
+              <div className="flex justify-between items-center gap-4">
                 <span className="text-gray-500">Units / Interest</span>
-                <span className="text-right font-medium text-gray-900">
+                <span className="font-medium text-gray-900 text-right">
                   {computedUnits.toLocaleString()} units /{" "}
                   {formatNaira(computedInterest)}
                 </span>
               </div>
               {manualPaymentForm.paymentReference.trim() && (
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex justify-between items-center gap-4">
                   <span className="text-gray-500">External reference</span>
-                  <span className="text-right font-medium text-gray-900">
+                  <span className="font-medium text-gray-900 text-right">
                     {manualPaymentForm.paymentReference.trim()}
                   </span>
                 </div>
@@ -1408,7 +1434,7 @@ export default function ContributionTracker({
             >
               {markPaidMutation.isPending ? (
                 <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="mr-2 w-4 h-4 animate-spin" />
                   Posting...
                 </>
               ) : (

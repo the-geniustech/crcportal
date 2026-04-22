@@ -59,6 +59,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import AdminGroupFilter from "@/components/admin/AdminGroupFilter";
 import {
   Sheet,
   SheetContent,
@@ -93,7 +94,6 @@ import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
 type TrackerStatus = "all" | "active" | "overdue" | "completed";
 
 interface LoanTrackerProps {
-  groupOptions?: { id: string; name: string }[];
   canManageActions?: boolean;
 }
 
@@ -232,7 +232,6 @@ const getDefaultFormState = (
 };
 
 export default function LoanTracker({
-  groupOptions = [],
   canManageActions = true,
 }: LoanTrackerProps) {
   const { toast } = useToast();
@@ -283,7 +282,10 @@ export default function LoanTracker({
   );
   const recordRepaymentMutation = useRecordAdminLoanManualRepaymentMutation();
 
-  const loans = trackerQuery.data?.loans ?? [];
+  const loans = useMemo(
+    () => trackerQuery.data?.loans ?? [],
+    [trackerQuery.data?.loans],
+  );
   const summary = trackerQuery.data?.summary ?? {
     activeLoans: 0,
     completedLoans: 0,
@@ -745,19 +747,13 @@ export default function LoanTracker({
                 <SelectItem value="all">All statuses</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={groupFilter} onValueChange={setGroupFilter}>
-              <SelectTrigger className="min-w-[180px]">
-                <SelectValue placeholder="Group" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All groups</SelectItem>
-                {groupOptions.map((group) => (
-                  <SelectItem key={group.id} value={group.id}>
-                    {group.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <AdminGroupFilter
+              value={groupFilter}
+              onValueChange={setGroupFilter}
+              allLabel="All groups"
+              placeholder="Filter by group"
+              className="min-w-[180px]"
+            />
             <Select value={loanTypeFilter} onValueChange={setLoanTypeFilter}>
               <SelectTrigger className="min-w-[160px]">
                 <SelectValue placeholder="Loan type" />

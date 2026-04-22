@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import AdminGroupFilter from "@/components/admin/AdminGroupFilter";
 import {
   Tooltip,
   TooltipContent,
@@ -66,6 +67,7 @@ import {
   useVerifyWithdrawalTransferMutation,
 } from "@/hooks/finance/useWithdrawalAdminMutations";
 import { getContributionTypeLabel } from "@/lib/contributionPolicy";
+import type { BackendWithdrawalRequest } from "@/lib/finance";
 import {
   ArrowDownRight,
   Building2,
@@ -281,7 +283,9 @@ function buildOtpDeliveryHint(
   return `${primaryMessage} ${leadingBackupLabels} and ${lastBackupLabel} backups attempted.`;
 }
 
-function normalizeWithdrawal(raw: any): WithdrawalRequest {
+function normalizeWithdrawal(
+  raw: BackendWithdrawalRequest & { id?: string; user_id?: string },
+): WithdrawalRequest {
   return {
     id: String(raw?._id || raw?.id || ""),
     userId: String(raw?.userId || raw?.user_id || ""),
@@ -309,7 +313,7 @@ function normalizeWithdrawal(raw: any): WithdrawalRequest {
       ? String(raw.payoutOtpResentAt)
       : null,
     payoutEvents: Array.isArray(raw?.payoutEvents)
-      ? raw.payoutEvents.map((event: any) => ({
+      ? raw.payoutEvents.map((event) => ({
           eventType: String(event?.eventType || "payout_event"),
           gateway: event?.gateway ? String(event.gateway) : null,
           status: event?.status ? String(event.status) : null,
@@ -528,6 +532,7 @@ export default function WithdrawalApprovalPanel({
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filter, setFilter] = useState("pending");
+  const [groupFilter, setGroupFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedWithdrawal, setSelectedWithdrawal] =
     useState<WithdrawalRequest | null>(null);
@@ -557,6 +562,7 @@ export default function WithdrawalApprovalPanel({
 
   const withdrawalsQuery = useWithdrawalsAdminQuery({
     status: filter === "all" ? undefined : filter,
+    groupId: groupFilter === "all" ? undefined : groupFilter,
   });
   const approveMutation = useApproveWithdrawalMutation();
   const rejectMutation = useRejectWithdrawalMutation();
@@ -620,7 +626,7 @@ export default function WithdrawalApprovalPanel({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, filter]);
+  }, [searchTerm, filter, groupFilter]);
 
   const filteredWithdrawals = useMemo(() => {
     return withdrawals.filter((withdrawal) => {
@@ -632,9 +638,11 @@ export default function WithdrawalApprovalPanel({
         withdrawal.bankName.toLowerCase().includes(q) ||
         (withdrawal.groupName || "").toLowerCase().includes(q);
       const matchesFilter = filter === "all" || withdrawal.status === filter;
-      return matchesSearch && matchesFilter;
+      const matchesGroup =
+        groupFilter === "all" || withdrawal.groupId === groupFilter;
+      return matchesSearch && matchesFilter && matchesGroup;
     });
-  }, [filter, searchTerm, withdrawals]);
+  }, [filter, groupFilter, searchTerm, withdrawals]);
 
   const total = filteredWithdrawals.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -1254,6 +1262,13 @@ export default function WithdrawalApprovalPanel({
                 className="pl-10"
               />
             </div>
+            <AdminGroupFilter
+              value={groupFilter}
+              onValueChange={setGroupFilter}
+              allLabel="All groups"
+              placeholder="Filter by group"
+              className="md:w-64"
+            />
             <div className="flex flex-wrap gap-2">
               {["all", "pending", "approved", "processing", "completed", "rejected"].map(
                 (status) => (

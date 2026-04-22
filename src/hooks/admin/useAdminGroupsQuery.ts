@@ -12,7 +12,7 @@ export function useAdminGroupsQuery(params: {
   month?: number;
   limit?: number;
   page?: number;
-} = {}) {
+} = {}, enabled = true) {
   const effectiveLimit = params.limit ?? 100;
   const effectivePage = params.page ?? 1;
   return useQuery({
@@ -30,6 +30,7 @@ export function useAdminGroupsQuery(params: {
       effectiveLimit,
       effectivePage,
     ],
+    enabled,
     queryFn: async () =>
       listAdminGroups({
         ...params,
