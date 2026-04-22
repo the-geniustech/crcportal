@@ -35,6 +35,7 @@ import { useDeleteGroupVoteMutation } from "@/hooks/groups/useDeleteGroupVoteMut
 import { useGroupReminderSettingsQuery } from "@/hooks/groups/useGroupReminderSettingsQuery";
 import { useUpdateGroupReminderSettingsMutation } from "@/hooks/groups/useUpdateGroupReminderSettingsMutation";
 import { useSendGroupReminderMutation } from "@/hooks/groups/useSendGroupReminderMutation";
+import { useGroupContributionsQuery } from "@/hooks/groups/useGroupContributionsQuery";
 import {
   type BackendGroupVote,
   type BackendVoteNotificationResult,
@@ -162,6 +163,12 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
   >("contributions");
   const [selectedContributionType, setSelectedContributionType] =
     useState<ContributionTypeCanonical>("revolving");
+  const [selectedPeriodYear, setSelectedPeriodYear] = useState(
+    () => new Date().getFullYear(),
+  );
+  const [selectedPeriodMonth, setSelectedPeriodMonth] = useState(
+    () => new Date().getMonth() + 1,
+  );
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [meetingModalMode, setMeetingModalMode] = useState<"create" | "edit">(
     "create",
@@ -202,6 +209,10 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     useUpdateGroupReminderSettingsMutation();
   const sendReminderMutation = useSendGroupReminderMutation();
   const groupLoansQuery = useGroupLoansQuery(groupId);
+  const selectedYearContributionsQuery = useGroupContributionsQuery(
+    open ? groupId : undefined,
+    selectedPeriodYear,
+  );
   const createVoteMutation = useCreateGroupVoteMutation(groupId);
   const respondVoteMutation = useRespondGroupVoteMutation(groupId);
   const deleteVoteMutation = useDeleteGroupVoteMutation(groupId);
@@ -243,14 +254,6 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     if (!scopedMemberId) return [];
     return members.filter((member) => String(member.id) === scopedMemberId);
   }, [members, canViewAll, scopedMemberId]);
-  const scopedContributions = useMemo(() => {
-    if (canViewAll) return contributions;
-    if (!scopedMemberId) return [];
-    return contributions.filter(
-      (contribution) => String(contribution.memberId) === scopedMemberId,
-    );
-  }, [contributions, canViewAll, scopedMemberId]);
-
   const formatCurrency = (value: number) => {
     const amount = Number.isFinite(Number(value)) ? Number(value) : 0;
     return `₦${amount.toLocaleString()}`;
@@ -276,21 +279,135 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     };
   }, []);
 
+  const yearOptions = useMemo(() => {
+    const years = new Set<number>();
+    for (let i = 0; i < 6; i += 1) {
+      years.add(nowInfo.year - i);
+    }
+    contributions.forEach((contribution) => {
+      const year = Number(contribution.year);
+      if (Number.isFinite(year)) {
+        years.add(year);
+      }
+    });
+    years.add(selectedPeriodYear);
+    return Array.from(years).sort((a, b) => b - a);
+  }, [contributions, nowInfo.year, selectedPeriodYear]);
+
+  const monthOptions = useMemo(() => {
+    const maxMonth = selectedPeriodYear === nowInfo.year ? nowInfo.month : 12;
+    return Array.from({ length: maxMonth }, (_value, index) => {
+      const month = index + 1;
+      return {
+        value: month,
+        label: new Date(Date.UTC(selectedPeriodYear, month - 1, 1)).toLocaleDateString(
+          "en-US",
+          { month: "long" },
+        ),
+        shortLabel: new Date(
+          Date.UTC(selectedPeriodYear, month - 1, 1),
+        ).toLocaleDateString("en-US", { month: "short" }),
+      };
+    });
+  }, [selectedPeriodYear, nowInfo.year, nowInfo.month]);
+
+  const selectedMonthOption = useMemo(
+    () =>
+      monthOptions.find((option) => option.value === selectedPeriodMonth) ??
+      monthOptions[monthOptions.length - 1] ??
+      null,
+    [monthOptions, selectedPeriodMonth],
+  );
+  const selectedPeriodKey = `${selectedPeriodYear}-${String(
+    selectedPeriodMonth,
+  ).padStart(2, "0")}`;
+  const resolveContributionType = (value?: string | null) => {
+    return normalizeContributionType(value) ?? "revolving";
+  };
+
+  const fallbackSelectedYearContributions = useMemo(() => {
+    return contributions
+      .filter((contribution) => Number(contribution.year) === selectedPeriodYear)
+      .map((contribution) => ({
+        ...contribution,
+        month: Number(contribution.month),
+        year: Number(contribution.year),
+        amount: Number(contribution.amount ?? 0),
+        contributionType: contribution.contributionType ?? null,
+      }));
+  }, [contributions, selectedPeriodYear]);
+
+  const selectedYearContributions = useMemo(() => {
+    if (selectedYearContributionsQuery.data !== undefined) {
+      return selectedYearContributionsQuery.data.map((contribution) => {
+        const userObj =
+          typeof contribution.userId === "object" && contribution.userId
+            ? (contribution.userId as Record<string, unknown>)
+            : null;
+        const memberId =
+          userObj &&
+          (typeof userObj._id === "string" || typeof userObj.id === "string")
+            ? String((userObj._id || userObj.id) as string)
+            : typeof contribution.userId === "string"
+              ? contribution.userId
+              : "";
+
+        return {
+          memberId,
+          month: Number(contribution.month),
+          year: Number(contribution.year),
+          amount: Number(contribution.amount ?? 0),
+          status: contribution.status,
+          contributionType: contribution.contributionType ?? null,
+          paidDate:
+            contribution.status === "pending" ||
+            contribution.status === "overdue"
+              ? undefined
+              : contribution.updatedAt || contribution.createdAt,
+        } satisfies GroupManagementContribution;
+      });
+    }
+
+    if (selectedPeriodYear === nowInfo.year) {
+      return fallbackSelectedYearContributions;
+    }
+
+    return [];
+  }, [
+    fallbackSelectedYearContributions,
+    nowInfo.year,
+    selectedPeriodYear,
+    selectedYearContributionsQuery.data,
+  ]);
+
+  const scopedContributions = useMemo(() => {
+    if (canViewAll) return selectedYearContributions;
+    if (!scopedMemberId) return [];
+    return selectedYearContributions.filter(
+      (contribution) => String(contribution.memberId) === scopedMemberId,
+    );
+  }, [selectedYearContributions, canViewAll, scopedMemberId]);
+
   useEffect(() => {
     if (!open) {
       setSelectedContributionType("revolving");
+      setSelectedPeriodYear(nowInfo.year);
+      setSelectedPeriodMonth(nowInfo.month);
     }
-  }, [open]);
+  }, [open, nowInfo.month, nowInfo.year]);
+
+  useEffect(() => {
+    const maxMonth = selectedPeriodYear === nowInfo.year ? nowInfo.month : 12;
+    if (selectedPeriodMonth > maxMonth) {
+      setSelectedPeriodMonth(maxMonth);
+    }
+  }, [selectedPeriodMonth, selectedPeriodYear, nowInfo.month, nowInfo.year]);
 
   useEffect(() => {
     if (!showRemindersTab && managementTab === "reminders") {
       setManagementTab("contributions");
     }
   }, [showRemindersTab, managementTab]);
-
-  const resolveContributionType = (value?: string | null) => {
-    return normalizeContributionType(value) ?? "revolving";
-  };
 
   const resolvePlannedUnits = (
     settings: GroupManagementMember["contributionSettings"],
@@ -323,7 +440,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     scopedMembers.forEach((member) => {
       const plannedUnits = resolvePlannedUnits(
         member.contributionSettings,
-        nowInfo.year,
+        selectedPeriodYear,
         selectedContributionType,
       );
       let expectedAmount = 0;
@@ -341,7 +458,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     return map;
   }, [
     scopedMembers,
-    nowInfo.year,
+    selectedPeriodYear,
     selectedContributionType,
     group?.monthlyContribution,
   ]);
@@ -357,15 +474,15 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
   const trendMonths = useMemo(() => {
     const months = [];
-    for (let month = 1; month <= nowInfo.month; month += 1) {
-      const d = new Date(nowInfo.year, month - 1, 1);
+    for (let month = 1; month <= selectedPeriodMonth; month += 1) {
+      const d = new Date(selectedPeriodYear, month - 1, 1);
       months.push({
         key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
         label: d.toLocaleDateString("en-US", { month: "short" }),
       });
     }
     return months;
-  }, [nowInfo.month, nowInfo.year]);
+  }, [selectedPeriodMonth, selectedPeriodYear]);
 
   const paidByMonth = useMemo(() => {
     const map = new Map<string, number>();
@@ -390,7 +507,7 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     };
   });
 
-  const monthlyCollected = paidByMonth.get(nowInfo.key) ?? 0;
+  const monthlyCollected = paidByMonth.get(selectedPeriodKey) ?? 0;
   const totalCollected = useMemo(() => {
     return scopedContributions.reduce((sum, contribution) => {
       const resolvedType = resolveContributionType(
@@ -400,16 +517,19 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       if (!["completed", "verified"].includes(String(contribution.status))) {
         return sum;
       }
+      if (Number(contribution.month) > selectedPeriodMonth) {
+        return sum;
+      }
       return sum + Number(contribution.amount || 0);
     }, 0);
-  }, [scopedContributions, selectedContributionType]);
+  }, [scopedContributions, selectedContributionType, selectedPeriodMonth]);
 
   const monthlyCollectionRate =
     monthlyExpected > 0
       ? Math.round((monthlyCollected / monthlyExpected) * 100)
       : 0;
 
-  const loans = groupLoansQuery.data ?? [];
+  const loans = useMemo(() => groupLoansQuery.data ?? [], [groupLoansQuery.data]);
   const resolveLoanBorrowerId = (loan: { userId?: unknown }) => {
     const userObj =
       loan.userId && typeof loan.userId === "object"
@@ -453,8 +573,39 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
       ),
     [activeLoans],
   );
+  const hasFallbackSelectedYearData =
+    selectedPeriodYear === nowInfo.year &&
+    fallbackSelectedYearContributions.length > 0;
+  const selectedYearContributionsLoading =
+    (selectedYearContributionsQuery.isLoading && !hasFallbackSelectedYearData) ||
+    (selectedPeriodYear === nowInfo.year &&
+      contributionsLoading === true &&
+      selectedYearContributionsQuery.data === undefined &&
+      fallbackSelectedYearContributions.length === 0);
+  const hasSelectedTypeYearData = useMemo(
+    () =>
+      scopedContributions.some(
+        (contribution) =>
+          resolveContributionType(contribution.contributionType) ===
+          selectedContributionType,
+      ),
+    [scopedContributions, selectedContributionType],
+  );
+  const hasSelectedTypeMonthData = useMemo(
+    () =>
+      scopedContributions.some(
+        (contribution) =>
+          resolveContributionType(contribution.contributionType) ===
+            selectedContributionType &&
+          Number(contribution.month) === selectedPeriodMonth,
+      ),
+    [scopedContributions, selectedContributionType, selectedPeriodMonth],
+  );
 
-  const voteParticipants = voteParticipantsQuery.data?.participants ?? [];
+  const voteParticipants = useMemo(
+    () => voteParticipantsQuery.data?.participants ?? [],
+    [voteParticipantsQuery.data?.participants],
+  );
   const sortedVoteParticipants = useMemo(
     () =>
       [...voteParticipants].sort((a, b) =>
@@ -760,19 +911,36 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
   const handleDownloadReport = async () => {
     if (!groupId) return;
+    if (selectedYearContributionsLoading) {
+      toast({
+        title: "Report still loading",
+        description: "Please wait for the selected period to finish loading.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!hasSelectedTypeMonthData) {
+      toast({
+        title: "No report data",
+        description:
+          "There is no contribution data for the selected month and type.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsDownloadingReport(true);
     try {
       const blob = await downloadGroupContributionReportPdf(groupId, {
-        year: nowInfo.year,
-        month: nowInfo.month,
+        year: selectedPeriodYear,
+        month: selectedPeriodMonth,
         contributionType: selectedContributionType,
       });
       const label =
         ContributionTypeConfig?.[selectedContributionType]?.label ??
         "contribution";
       const safeLabel = label.toLowerCase().replace(/\s+/g, "-");
-      const filename = `contribution-report-${safeLabel}-${nowInfo.year}-${String(
-        nowInfo.month,
+      const filename = `contribution-report-${safeLabel}-${selectedPeriodYear}-${String(
+        selectedPeriodMonth,
       ).padStart(2, "0")}.pdf`;
       triggerDownload(blob, filename);
       toast({
@@ -793,17 +961,34 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
   const handleDownloadLedger = async () => {
     if (!groupId) return;
+    if (selectedYearContributionsLoading) {
+      toast({
+        title: "Analytics still loading",
+        description: "Please wait for the selected year to finish loading.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!hasSelectedTypeYearData) {
+      toast({
+        title: "No analytics data",
+        description:
+          "There is no contribution data for the selected year and type.",
+        variant: "destructive",
+      });
+      return;
+    }
     setIsDownloadingLedger(true);
     try {
       const blob = await downloadGroupContributionLedgerPdf(groupId, {
-        year: nowInfo.year,
+        year: selectedPeriodYear,
         contributionType: selectedContributionType,
       });
       const label =
         ContributionTypeConfig?.[selectedContributionType]?.label ??
         "contribution";
       const safeLabel = label.toLowerCase().replace(/\s+/g, "-");
-      const filename = `contribution-ledger-${safeLabel}-${nowInfo.year}.pdf`;
+      const filename = `contribution-ledger-${safeLabel}-${selectedPeriodYear}.pdf`;
       triggerDownload(blob, filename);
       toast({
         title: "Analytics ready",
@@ -934,6 +1119,48 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
     }
   });
 
+  const periodFilterControls = (
+    <div className="flex flex-wrap items-end gap-3">
+      <div className="space-y-1">
+        <label className="block text-gray-500 text-xs uppercase tracking-wide">
+          Year
+        </label>
+        <select
+          value={selectedPeriodYear}
+          onChange={(event) => setSelectedPeriodYear(Number(event.target.value))}
+          disabled={selectedYearContributionsLoading}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500"
+        >
+          {yearOptions.map((year) => (
+            <option key={year} value={year}>
+              {year}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="space-y-1">
+        <label className="block text-gray-500 text-xs uppercase tracking-wide">
+          Month
+        </label>
+        <select
+          value={selectedPeriodMonth}
+          onChange={(event) =>
+            setSelectedPeriodMonth(Number(event.target.value))
+          }
+          disabled={selectedYearContributionsLoading}
+          className="rounded-lg border border-gray-300 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500"
+        >
+          {monthOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+
   if (!open || !group) return null;
 
   return (
@@ -1008,9 +1235,28 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
 
         {/* Content */}
         <div className="flex-1 p-6 overflow-y-auto">
+          {selectedYearContributionsQuery.isError && (
+            <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {selectedYearContributionsQuery.error instanceof Error
+                ? selectedYearContributionsQuery.error.message
+                : "Unable to load contribution data for the selected period."}
+            </div>
+          )}
           {managementTab === "contributions" && (
             <>
-              {membersLoading || contributionsLoading ? (
+              <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-gray-900">
+                    Contributions
+                  </h3>
+                  <p className="text-gray-500 text-xs">
+                    Tracking {selectedMonthOption?.label ?? "Selected month"}{" "}
+                    {selectedPeriodYear}
+                  </p>
+                </div>
+                {periodFilterControls}
+              </div>
+              {membersLoading || selectedYearContributionsLoading ? (
                 <div className="py-12 text-gray-500 text-center">
                   Loading contributions...
                 </div>
@@ -1023,6 +1269,11 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                   groupId={group.id}
                   selectedType={selectedContributionType}
                   onSelectedTypeChange={setSelectedContributionType}
+                  selectedPeriod={{
+                    year: selectedPeriodYear,
+                    month: selectedPeriodMonth,
+                  }}
+                  showMonthFilter={false}
                   showScopedHint={!canViewAll}
                 />
               )}
@@ -1036,6 +1287,18 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                   Showing your data only
                 </div>
               )}
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold text-gray-900">
+                    Financial Reports
+                  </h3>
+                  <p className="text-gray-500 text-xs">
+                    Reporting window: Jan-{selectedMonthOption?.shortLabel ?? "—"}{" "}
+                    {selectedPeriodYear}
+                  </p>
+                </div>
+                {periodFilterControls}
+              </div>
               <div className="space-y-2">
                 <div className="flex flex-wrap gap-2">
                   {ContributionTypeOptions.map((option) => {
@@ -1063,16 +1326,28 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                     ?.description ?? ""}
                 </p>
               </div>
+              {selectedYearContributionsLoading && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                  Loading contribution data for {selectedPeriodYear}...
+                </div>
+              )}
+              {!selectedYearContributionsLoading && !hasSelectedTypeYearData && (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+                  No {ContributionTypeConfig?.[selectedContributionType]?.label?.toLowerCase() ?? "contribution"} data was found for{" "}
+                  {selectedMonthOption?.label ?? "the selected month"}{" "}
+                  {selectedPeriodYear}.
+                </div>
+              )}
 
               <div className="gap-4 grid grid-cols-1 md:grid-cols-3">
                 <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-6 rounded-xl text-white">
-                  <p className="text-emerald-100 text-sm">Total Collected</p>
+                  <p className="text-emerald-100 text-sm">Collected To Date</p>
                   <p className="mt-1 font-bold text-3xl">
                     {formatCurrency(totalCollected)}
                   </p>
                   <p className="mt-2 text-emerald-100 text-sm">
-                    {ContributionTypeConfig?.[selectedContributionType]
-                      ?.label ?? "Contribution"}
+                    Jan-{selectedMonthOption?.shortLabel ?? "—"}{" "}
+                    {selectedPeriodYear}
                   </p>
                 </div>
                 <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-6 rounded-xl text-white">
@@ -1090,7 +1365,9 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                     {formatCurrency(monthlyCollected)}
                   </p>
                   <p className="mt-2 text-purple-100 text-sm">
-                    Expected: {formatCurrency(monthlyExpected)} | Rate:{" "}
+                    {selectedMonthOption?.label ?? "Selected month"}{" "}
+                    {selectedPeriodYear} | Expected:{" "}
+                    {formatCurrency(monthlyExpected)} | Rate:{" "}
                     {monthlyCollectionRate}%
                   </p>
                 </div>
@@ -1103,7 +1380,8 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                 <p className="mb-4 text-gray-500 text-xs">
                   {ContributionTypeConfig?.[selectedContributionType]?.label ??
                     "Contribution"}{" "}
-                  - YTD {nowInfo.year}
+                  - Jan-{selectedMonthOption?.shortLabel ?? "—"}{" "}
+                  {selectedPeriodYear}
                 </p>
                 <div className="flex items-end gap-2 h-64">
                   {trendData.map((value) => (
@@ -1127,7 +1405,12 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
               <div className="flex gap-4">
                 <button
                   onClick={handleDownloadReport}
-                  disabled={isDownloadingReport || !groupId}
+                  disabled={
+                    isDownloadingReport ||
+                    !groupId ||
+                    selectedYearContributionsLoading ||
+                    !hasSelectedTypeMonthData
+                  }
                   className="flex flex-1 justify-center items-center gap-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-300 px-4 py-3 rounded-lg text-white transition-colors"
                 >
                   <FileText className="w-4 h-4" />
@@ -1137,7 +1420,12 @@ const GroupManagementPanel: React.FC<GroupManagementPanelProps> = ({
                 </button>
                 <button
                   onClick={handleDownloadLedger}
-                  disabled={isDownloadingLedger || !groupId}
+                  disabled={
+                    isDownloadingLedger ||
+                    !groupId ||
+                    selectedYearContributionsLoading ||
+                    !hasSelectedTypeYearData
+                  }
                   className="flex flex-1 justify-center items-center gap-2 hover:bg-gray-50 disabled:bg-gray-100 px-4 py-3 border border-gray-300 rounded-lg text-gray-700 transition-colors"
                 >
                   <BarChart3 className="w-4 h-4" />

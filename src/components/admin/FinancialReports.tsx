@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 import {
   Select,
   SelectContent,
@@ -28,6 +29,12 @@ import {
 import { useAdminFinancialReportsQuery } from "@/hooks/admin/useAdminFinancialReportsQuery";
 
 type Period = "3months" | "6months" | "12months";
+
+const PERIOD_LABELS: Record<Period, string> = {
+  "3months": "3 Months",
+  "6months": "6 Months",
+  "12months": "12 Months",
+};
 
 const buildPageItems = (currentPage: number, totalPages: number) => {
   if (totalPages <= 5) {
@@ -68,15 +75,70 @@ function formatCompactCurrency(value: number, maximumFractionDigits = 1) {
   }).format(safe);
 }
 
+function csvEscape(value: string | number) {
+  const raw = String(value ?? "");
+  if (/[",\n]/.test(raw)) {
+    return `"${raw.replace(/"/g, '""')}"`;
+  }
+  return raw;
+}
+
+function sanitizeFilenameSegment(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function getCollectionStatus(rate: number) {
+  if (rate >= 90) {
+    return {
+      label: "Excellent",
+      badgeClassName:
+        "bg-emerald-100 px-2 py-1 rounded-full font-medium text-emerald-700 text-xs",
+      progressClassName: "bg-emerald-500",
+    };
+  }
+
+  if (rate >= 70) {
+    return {
+      label: "Good",
+      badgeClassName:
+        "bg-amber-100 px-2 py-1 rounded-full font-medium text-amber-700 text-xs",
+      progressClassName: "bg-amber-500",
+    };
+  }
+
+  return {
+    label: "Needs Attention",
+    badgeClassName:
+      "bg-red-100 px-2 py-1 rounded-full font-medium text-red-700 text-xs",
+    progressClassName: "bg-red-500",
+  };
+}
+
 export default function FinancialReports() {
+  const { toast } = useToast();
   const [selectedPeriod, setSelectedPeriod] = useState<Period>("6months");
+  const [isDownloadingChart, setIsDownloadingChart] = useState(false);
+  const [isExportingReport, setIsExportingReport] = useState(false);
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [currentPage, setCurrentPage] = useState(1);
+  const chartCardRef = useRef<HTMLDivElement | null>(null);
   const pageSize = 8;
-  const reportEndMonth =
-    selectedYear === currentYear ? currentMonth : 12;
+  const reportEndMonth = selectedYear === currentYear ? currentMonth : 12;
   const reportsQuery = useAdminFinancialReportsQuery({
     period: selectedPeriod,
     year: selectedYear,
@@ -167,16 +229,182 @@ export default function FinancialReports() {
     return Array.from({ length: 6 }, (_v, i) => currentYear - i);
   }, [currentYear]);
 
+  const selectedPeriodLabel = PERIOD_LABELS[selectedPeriod];
   const ytdLabel = useMemo(() => {
-    const monthLabel = new Date(Date.UTC(2020, reportEndMonth - 1, 1)).toLocaleDateString(
-      "en-US",
-      { month: "short" },
-    );
+    const monthLabel = new Date(
+      Date.UTC(2020, reportEndMonth - 1, 1),
+    ).toLocaleDateString("en-US", { month: "short" });
     if (selectedYear === currentYear) {
       return `YTD ${selectedYear} (Jan-${monthLabel})`;
     }
     return `YTD ${selectedYear}`;
   }, [selectedYear, currentYear, reportEndMonth]);
+
+  const reportMonthSlug = useMemo(() => {
+    return new Date(Date.UTC(2020, reportEndMonth - 1, 1))
+      .toLocaleDateString("en-US", { month: "short" })
+      .toLowerCase();
+  }, [reportEndMonth]);
+
+  const isRefreshingReports = reportsQuery.isFetching && !reportsQuery.isLoading;
+  const hasChartData = monthlyData.length > 0;
+  const hasTableData = groupPerformance.length > 0;
+
+  const handleDownloadChart = async () => {
+    if (reportsQuery.isLoading || isRefreshingReports) {
+      toast({
+        title: "Report still loading",
+        description:
+          "Please wait for the financial overview to finish loading before downloading.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!hasChartData) {
+      toast({
+        title: "Nothing to download",
+        description: "No chart data is available for the selected report view.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!chartCardRef.current) {
+      toast({
+        title: "Chart unavailable",
+        description:
+          "The financial overview could not be prepared for download. Please refresh and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsDownloadingChart(true);
+
+      const { default: html2canvas } = await import("html2canvas");
+      const canvas = await html2canvas(chartCardRef.current, {
+        backgroundColor: "#ffffff",
+        scale: Math.min(window.devicePixelRatio || 1, 2),
+        logging: false,
+        useCORS: true,
+        ignoreElements: (element) =>
+          element instanceof HTMLElement &&
+          element.dataset.exportIgnore === "true",
+      });
+
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((value) => {
+          if (value) {
+            resolve(value);
+            return;
+          }
+          reject(new Error("Unable to generate the chart image."));
+        }, "image/png");
+      });
+
+      triggerDownload(
+        blob,
+        `financial-overview-${selectedYear}-${sanitizeFilenameSegment(
+          selectedPeriodLabel,
+        )}-to-${reportMonthSlug}.png`,
+      );
+
+      toast({
+        title: "Download ready",
+        description: "Financial overview chart downloaded as PNG.",
+      });
+    } catch (error) {
+      toast({
+        title: "Download failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to download the financial overview chart.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDownloadingChart(false);
+    }
+  };
+
+  const handleExportReport = async () => {
+    if (reportsQuery.isLoading || isRefreshingReports) {
+      toast({
+        title: "Report still loading",
+        description:
+          "Please wait for the group performance report to finish loading before exporting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!hasTableData) {
+      toast({
+        title: "Nothing to export",
+        description:
+          "No group performance rows are available for the selected report view.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setIsExportingReport(true);
+
+      const headers = [
+        "Group Name",
+        "Members",
+        "Collected",
+        "Expected",
+        "Active Loans",
+        "Collection Rate",
+        "Status",
+      ];
+
+      const rows = groupPerformance.map((group) => {
+        const collectionRate = Number.isFinite(group.collectionRate)
+          ? group.collectionRate
+          : 0;
+        return [
+          group.groupName,
+          group.memberCount ?? 0,
+          formatCurrency(group.collectedTotal ?? group.totalContributions ?? 0),
+          formatCurrency(group.expectedTotal ?? 0),
+          group.activeLoans ?? 0,
+          `${collectionRate}%`,
+          getCollectionStatus(collectionRate).label,
+        ];
+      });
+
+      const csvBody = [headers, ...rows]
+        .map((row) => row.map((value) => csvEscape(value)).join(","))
+        .join("\n");
+      const csv = `\uFEFF${csvBody}`;
+
+      triggerDownload(
+        new Blob([csv], { type: "text/csv;charset=utf-8;" }),
+        `group-performance-${selectedYear}-to-${reportMonthSlug}.csv`,
+      );
+
+      toast({
+        title: "Export complete",
+        description: "Group performance report exported as CSV.",
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to export the group performance report.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsExportingReport(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -281,12 +509,20 @@ export default function FinancialReports() {
       {/* Charts Section */}
       <div className="gap-6 grid grid-cols-1 lg:grid-cols-2">
         {/* Main Chart */}
-        <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-xl">
+        <div
+          ref={chartCardRef}
+          className="bg-white shadow-sm p-6 border border-gray-100 rounded-xl"
+        >
           <div className="flex justify-between items-center mb-6">
-            <h3 className="font-semibold text-gray-900 text-lg">
-              Financial Overview
-            </h3>
-            <div className="flex gap-2">
+            <div>
+              <h3 className="font-semibold text-gray-900 text-lg">
+                Financial Overview
+              </h3>
+              <p className="text-gray-500 text-xs">
+                {selectedPeriodLabel} view - {ytdLabel}
+              </p>
+            </div>
+            <div className="flex gap-2" data-export-ignore="true">
               <Select
                 value={String(selectedYear)}
                 onValueChange={(value) => setSelectedYear(Number(value))}
@@ -312,8 +548,23 @@ export default function FinancialReports() {
                   <SelectItem value="12months">12 Months</SelectItem>
                 </SelectContent>
               </Select>
-              <Button variant="outline" size="icon" disabled>
+              <Button
+                variant="outline"
+                className="gap-2"
+                onClick={handleDownloadChart}
+                disabled={
+                  isDownloadingChart ||
+                  reportsQuery.isLoading ||
+                  isRefreshingReports ||
+                  !hasChartData
+                }
+              >
                 <Download className="w-4 h-4" />
+                {isDownloadingChart
+                  ? "Downloading..."
+                  : isRefreshingReports
+                    ? "Refreshing..."
+                    : "Download PNG"}
               </Button>
             </div>
           </div>
@@ -384,11 +635,11 @@ export default function FinancialReports() {
 
         {/* Group Performance */}
         <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-xl">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex justify-between items-center mb-4">
             <h3 className="font-semibold text-gray-900 text-lg">
               Group Performance
             </h3>
-            <span className="text-xs text-gray-500">{ytdLabel}</span>
+            <span className="text-gray-500 text-xs">{ytdLabel}</span>
           </div>
 
           <div className="space-y-6">
@@ -469,7 +720,8 @@ export default function FinancialReports() {
                         {group.collectionRate}%
                       </p>
                       <p className="text-gray-500 text-xs">
-                        {formatCompactCurrency(group.collectionGap ?? 0, 0)} shortfall
+                        {formatCompactCurrency(group.collectionGap ?? 0, 0)}{" "}
+                        shortfall
                       </p>
                     </div>
                   </div>
@@ -487,11 +739,25 @@ export default function FinancialReports() {
             <h3 className="font-semibold text-gray-900 text-lg">
               All Groups Performance
             </h3>
-            <p className="text-xs text-gray-500">{ytdLabel}</p>
+            <p className="text-gray-500 text-xs">{ytdLabel}</p>
           </div>
-          <Button variant="outline" className="gap-2" disabled>
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={handleExportReport}
+            disabled={
+              isExportingReport ||
+              reportsQuery.isLoading ||
+              isRefreshingReports ||
+              !hasTableData
+            }
+          >
             <Download className="w-4 h-4" />
-            Export Report
+            {isExportingReport
+              ? "Exporting..."
+              : isRefreshingReports
+                ? "Refreshing..."
+                : "Export Report"}
           </Button>
         </div>
         <div className="overflow-x-auto">
@@ -522,67 +788,82 @@ export default function FinancialReports() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {pagedGroups.map((group, index) => (
-                <tr key={index} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-900">
-                    {group.groupName}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {group.memberCount}
-                  </td>
-                  <td className="px-4 py-3 text-gray-900">
-                    {formatCurrency(
-                      group.collectedTotal ?? group.totalContributions,
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-gray-900">
-                    {formatCurrency(group.expectedTotal ?? 0)}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {group.activeLoans}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="bg-gray-200 rounded-full w-16 h-2 overflow-hidden">
-                        <div
-                          className={`h-full rounded-full ${
-                            group.collectionRate >= 90
-                              ? "bg-emerald-500"
-                              : group.collectionRate >= 70
-                                ? "bg-amber-500"
-                                : "bg-red-500"
-                          }`}
-                          style={{ width: `${group.collectionRate}%` }}
-                        />
-                      </div>
-                      <span className="font-medium text-sm">
-                        {group.collectionRate}%
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    {group.collectionRate >= 90 ? (
-                      <span className="bg-emerald-100 px-2 py-1 rounded-full font-medium text-emerald-700 text-xs">
-                        Excellent
-                      </span>
-                    ) : group.collectionRate >= 70 ? (
-                      <span className="bg-amber-100 px-2 py-1 rounded-full font-medium text-amber-700 text-xs">
-                        Good
-                      </span>
-                    ) : (
-                      <span className="bg-red-100 px-2 py-1 rounded-full font-medium text-red-700 text-xs">
-                        Needs Attention
-                      </span>
-                    )}
+              {reportsQuery.isLoading && (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-4 py-10 text-center text-gray-500 text-sm"
+                  >
+                    Loading group performance report...
                   </td>
                 </tr>
-              ))}
+              )}
+              {!reportsQuery.isLoading && pagedGroups.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-4 py-10 text-center text-gray-500 text-sm"
+                  >
+                    No group performance data is available for the selected
+                    filters.
+                  </td>
+                </tr>
+              )}
+              {pagedGroups.map((group, index) => {
+                const collectionRate = group.collectionRate ?? 0;
+                const status = getCollectionStatus(collectionRate);
+
+                return (
+                  <tr key={index} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium text-gray-900">
+                      {group.groupName}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {group.memberCount}
+                    </td>
+                    <td className="px-4 py-3 text-gray-900">
+                      {formatCurrency(
+                        group.collectedTotal ?? group.totalContributions,
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-gray-900">
+                      {formatCurrency(group.expectedTotal ?? 0)}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {group.activeLoans}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="bg-gray-200 rounded-full w-16 h-2 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${status.progressClassName}`}
+                            style={{
+                              width: `${Math.max(
+                                0,
+                                Math.min(100, collectionRate),
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                        <span className="font-medium text-sm">
+                          {collectionRate}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={status.badgeClassName}>
+                        {status.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
         {total > 0 && totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3">
-            <p className="text-sm text-gray-500">
+          <div className="flex justify-between items-center px-4 py-3 border-gray-100 border-t">
+            <p className="text-gray-500 text-sm">
               Showing {pageStart}-{pageEnd} of {total} groups
             </p>
             <Pagination className="mx-0 w-auto">
@@ -621,9 +902,7 @@ export default function FinancialReports() {
                     href="#"
                     onClick={(event) => {
                       event.preventDefault();
-                      setCurrentPage((prev) =>
-                        Math.min(totalPages, prev + 1),
-                      );
+                      setCurrentPage((prev) => Math.min(totalPages, prev + 1));
                     }}
                   />
                 </PaginationItem>
@@ -635,6 +914,3 @@ export default function FinancialReports() {
     </div>
   );
 }
-
-
-

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   TrendingUp,
   Users,
@@ -49,8 +49,16 @@ interface ContributionTrackerProps {
   groupId?: string;
   selectedType?: ContributionTypeCanonical;
   onSelectedTypeChange?: (type: ContributionTypeCanonical) => void;
+  selectedPeriod?: {
+    year: number;
+    month: number;
+  };
+  showMonthFilter?: boolean;
   showScopedHint?: boolean;
 }
+
+const formatMonthKey = (year: number, month: number) =>
+  `${year}-${String(month).padStart(2, "0")}`;
 
 const ContributionTracker: React.FC<ContributionTrackerProps> = ({
   members,
@@ -60,6 +68,8 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
   groupId,
   selectedType,
   onSelectedTypeChange,
+  selectedPeriod,
+  showMonthFilter = true,
   showScopedHint = false,
 }) => {
   const { toast } = useToast();
@@ -70,24 +80,26 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
     onSelectedTypeChange ??
     ((value: ContributionTypeCanonical) => setInternalType(value));
   const paidStatuses = useMemo(() => new Set(["completed", "verified"]), []);
-  const formatMonthKey = (year: number, month: number) =>
-    `${year}-${String(month).padStart(2, "0")}`;
-  const now = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(() => {
+  const now = useMemo(() => new Date(), []);
+  const [internalSelectedMonth, setInternalSelectedMonth] = useState(() => {
     return formatMonthKey(now.getFullYear(), now.getMonth() + 1);
   });
+  const controlledSelectedMonth = selectedPeriod
+    ? formatMonthKey(selectedPeriod.year, selectedPeriod.month)
+    : null;
+  const activeSelectedMonth = controlledSelectedMonth ?? internalSelectedMonth;
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<
     "all" | "paid" | "pending" | "overdue"
   >("all");
   const [isExporting, setIsExporting] = useState(false);
-  const selectedPeriod = useMemo(() => {
-    const [yearStr, monthStr] = selectedMonth.split("-");
+  const activePeriod = useMemo(() => {
+    const [yearStr, monthStr] = activeSelectedMonth.split("-");
     return {
       year: Number(yearStr),
       month: Number(monthStr),
     };
-  }, [selectedMonth]);
+  }, [activeSelectedMonth]);
 
   useEffect(() => {
     if (selectedType === undefined) {
@@ -156,13 +168,14 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
         return { value, label };
       })
       .sort((a, b) => (a.value < b.value ? 1 : -1));
-  }, [filteredContributions, now, formatMonthKey]);
+  }, [filteredContributions, now]);
 
   useEffect(() => {
-    if (!monthOptions.find((m) => m.value === selectedMonth)) {
-      setSelectedMonth(monthOptions[0]?.value ?? selectedMonth);
+    if (selectedPeriod) return;
+    if (!monthOptions.find((m) => m.value === activeSelectedMonth)) {
+      setInternalSelectedMonth(monthOptions[0]?.value ?? activeSelectedMonth);
     }
-  }, [monthOptions, selectedMonth]);
+  }, [monthOptions, activeSelectedMonth, selectedPeriod]);
 
   const contributionMap = useMemo(() => {
     const map = new Map<
@@ -202,7 +215,7 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
     });
 
     return map;
-  }, [filteredContributions, paidStatuses, formatMonthKey]);
+  }, [filteredContributions, paidStatuses]);
 
   const resolvePlannedUnits = (
     settings: Member["contributionSettings"],
@@ -235,7 +248,7 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
     members.forEach((member) => {
       const plannedUnits = resolvePlannedUnits(
         member.contributionSettings,
-        selectedPeriod.year,
+        activePeriod.year,
         activeType,
       );
       let expectedAmount = 0;
@@ -250,16 +263,19 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
       map.set(member.id, expectedAmount);
     });
     return map;
-  }, [members, monthlyAmount, selectedPeriod.year, activeType]);
+  }, [members, monthlyAmount, activePeriod.year, activeType]);
 
   const formatCurrency = (value: number) => {
     const amount = Number.isFinite(Number(value)) ? Number(value) : 0;
     return `₦${amount.toLocaleString()}`;
   };
 
-  const getContributionForMember = (memberId: string, monthKey: string) => {
-    return contributionMap.get(`${memberId}-${monthKey}`);
-  };
+  const getContributionForMember = useCallback(
+    (memberId: string, monthKey: string) => {
+      return contributionMap.get(`${memberId}-${monthKey}`);
+    },
+    [contributionMap],
+  );
 
   const resolveStatus = (
     summary:
@@ -287,7 +303,7 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
 
     if (statusFilter === "all") return true;
 
-    const contribution = getContributionForMember(member.id, selectedMonth);
+    const contribution = getContributionForMember(member.id, activeSelectedMonth);
     const status = resolveStatus(contribution);
     return statusFilter === "all" || status === statusFilter;
   });
@@ -302,7 +318,10 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
     let overdueCount = 0;
 
     for (const member of members) {
-      const contribution = getContributionForMember(member.id, selectedMonth);
+      const contribution = getContributionForMember(
+        member.id,
+        activeSelectedMonth,
+      );
       const status = resolveStatus(contribution);
       collected += Number(contribution?.paidAmount ?? 0);
       if (status === "paid") paidCount += 1;
@@ -318,7 +337,7 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
       pendingCount,
       overdueCount,
     };
-  }, [members, selectedMonth, contributionMap, expectedByMemberId]);
+  }, [members, activeSelectedMonth, expectedByMemberId, getContributionForMember]);
 
   const collectionRate =
     stats.totalExpected > 0
@@ -354,7 +373,7 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
 
   const exportReport = async () => {
     if (!groupId) return;
-    const [yearStr, monthStr] = selectedMonth.split("-");
+    const [yearStr, monthStr] = activeSelectedMonth.split("-");
     const year = Number(yearStr);
     const month = Number(monthStr);
 
@@ -368,7 +387,7 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `contribution-report-${selectedMonth}.pdf`;
+      a.download = `contribution-report-${activeSelectedMonth}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (error) {
@@ -505,20 +524,22 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
               />
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-gray-400" />
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
-            >
-              {monthOptions.map((month) => (
-                <option key={month.value} value={month.value}>
-                  {month.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {showMonthFilter && (
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              <select
+                value={activeSelectedMonth}
+                onChange={(e) => setInternalSelectedMonth(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500"
+              >
+                {monthOptions.map((month) => (
+                  <option key={month.value} value={month.value}>
+                    {month.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-gray-400" />
             <select
@@ -573,7 +594,7 @@ const ContributionTracker: React.FC<ContributionTrackerProps> = ({
             {filteredMembers.map((member) => {
               const contribution = getContributionForMember(
                 member.id,
-                selectedMonth,
+                activeSelectedMonth,
               );
               const status = resolveStatus(contribution);
               return (
