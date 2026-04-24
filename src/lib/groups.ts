@@ -745,6 +745,7 @@ export type BackendGroupLoan = {
   userId?: unknown;
   groupId?: string | null;
   groupName?: string | null;
+  memberSerial?: string | null;
   loanCode?: string | null;
   loanType?: string | null;
   loanAmount: number;
@@ -758,6 +759,11 @@ export type BackendGroupLoan = {
   totalRepayable?: number | null;
   remainingBalance?: number | null;
   repaymentToDate?: number | null;
+  remainingPrincipalBalance?: number | null;
+  remainingInterestBalance?: number | null;
+  repaidPrincipalToDate?: number | null;
+  repaidInterestToDate?: number | null;
+  interestPatronageAccrued?: number | null;
   status: string;
   createdAt?: string;
   disbursedAt?: string | null;

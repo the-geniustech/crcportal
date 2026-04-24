@@ -69,6 +69,7 @@ type Contribution = {
 type Loan = {
   id: string;
   borrowerId?: string | null;
+  memberSerial?: string | null;
   loanCode?: string | null;
   loanType?: string | null;
   loanAmount: number;
@@ -83,6 +84,11 @@ type Loan = {
   totalRepayable?: number | null;
   remainingBalance?: number | null;
   repaymentToDate?: number | null;
+  remainingPrincipalBalance?: number | null;
+  remainingInterestBalance?: number | null;
+  repaidPrincipalToDate?: number | null;
+  repaidInterestToDate?: number | null;
+  interestPatronageAccrued?: number | null;
   status: string;
   createdAt?: string;
   disbursedAt?: string | null;
@@ -537,6 +543,7 @@ const GroupsContent: React.FC = () => {
         return null;
       })(),
       id: loan._id,
+      memberSerial: loan.memberSerial ?? null,
       loanCode: loan.loanCode ?? null,
       loanType: loan.loanType ?? null,
       loanAmount: Number(loan.loanAmount ?? 0),
@@ -570,6 +577,31 @@ const GroupsContent: React.FC = () => {
         loan.repaymentToDate === null || loan.repaymentToDate === undefined
           ? null
           : Number(loan.repaymentToDate),
+      remainingPrincipalBalance:
+        loan.remainingPrincipalBalance === null ||
+        loan.remainingPrincipalBalance === undefined
+          ? null
+          : Number(loan.remainingPrincipalBalance),
+      remainingInterestBalance:
+        loan.remainingInterestBalance === null ||
+        loan.remainingInterestBalance === undefined
+          ? null
+          : Number(loan.remainingInterestBalance),
+      repaidPrincipalToDate:
+        loan.repaidPrincipalToDate === null ||
+        loan.repaidPrincipalToDate === undefined
+          ? null
+          : Number(loan.repaidPrincipalToDate),
+      repaidInterestToDate:
+        loan.repaidInterestToDate === null ||
+        loan.repaidInterestToDate === undefined
+          ? null
+          : Number(loan.repaidInterestToDate),
+      interestPatronageAccrued:
+        loan.interestPatronageAccrued === null ||
+        loan.interestPatronageAccrued === undefined
+          ? null
+          : Number(loan.interestPatronageAccrued),
       status: loan.status || "unknown",
       createdAt: loan.createdAt,
       disbursedAt: loan.disbursedAt ?? null,

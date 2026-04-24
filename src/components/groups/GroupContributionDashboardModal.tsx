@@ -32,11 +32,7 @@ import {
   type ContributionTypeCanonical,
 } from "@/lib/contributionPolicy";
 import { downloadGroupContributionLedgerPdf } from "@/lib/groups";
-import {
-  USER_ROLE,
-  ELEVATED_GROUP_ROLES,
-  type GroupRole,
-} from "@/lib/roles";
+import { USER_ROLE, ELEVATED_GROUP_ROLES, type GroupRole } from "@/lib/roles";
 
 interface GroupMember {
   id: string;
@@ -341,7 +337,9 @@ const GroupContributionDashboardModal: React.FC<
   };
 
   const contributionDataset =
-    selectedType === "interest" ? normalizedInterestEntries : normalizedContributions;
+    selectedType === "interest"
+      ? normalizedInterestEntries
+      : normalizedContributions;
 
   const filteredContributions = useMemo(
     () =>
@@ -432,11 +430,12 @@ const GroupContributionDashboardModal: React.FC<
   const visibleRows = useMemo(() => {
     if (!searchQuery) return allMemberRows;
     const query = searchQuery.toLowerCase();
-    return allMemberRows.filter((row) =>
-      row.member.name.toLowerCase().includes(query) ||
-      (row.member.memberSerial
-        ? row.member.memberSerial.toLowerCase().includes(query)
-        : false),
+    return allMemberRows.filter(
+      (row) =>
+        row.member.name.toLowerCase().includes(query) ||
+        (row.member.memberSerial
+          ? row.member.memberSerial.toLowerCase().includes(query)
+          : false),
     );
   }, [allMemberRows, searchQuery]);
 
@@ -474,12 +473,7 @@ const GroupContributionDashboardModal: React.FC<
       collectionRate,
       membersInArrears,
     };
-  }, [
-    filteredContributions,
-    allMemberRows,
-    selectedType,
-    monthsToDate,
-  ]);
+  }, [filteredContributions, allMemberRows, selectedType, monthsToDate]);
 
   const plannedUnitsSummary = useMemo(() => {
     const units = allMemberRows
@@ -575,10 +569,12 @@ const GroupContributionDashboardModal: React.FC<
       ? {
           ...INTEREST_META,
           label: `Interest Earned \u00b7 ${
-            ContributionTypeConfig[selectedInterestType]?.label ?? "Contribution"
+            ContributionTypeConfig[selectedInterestType]?.label ??
+            "Contribution"
           }`,
           description: `Interest earned using the monthly rate schedule for ${
-            ContributionTypeConfig[selectedInterestType]?.label ?? "contributions"
+            ContributionTypeConfig[selectedInterestType]?.label ??
+            "contributions"
           }.`,
         }
       : ContributionTypeConfig[selectedType];
@@ -586,11 +582,15 @@ const GroupContributionDashboardModal: React.FC<
   const isSummaryLoading =
     membersLoading ||
     targetsQuery.isLoading ||
-    (selectedType === "interest" ? interestLedgerLoading : contributionsLoading);
+    (selectedType === "interest"
+      ? interestLedgerLoading
+      : contributionsLoading);
   const isSettingsLoading = contributionSettingsQuery.isLoading;
   const isTableLoading =
     membersLoading ||
-    (selectedType === "interest" ? interestLedgerLoading : contributionsLoading);
+    (selectedType === "interest"
+      ? interestLedgerLoading
+      : contributionsLoading);
   const settingsUnits = contributionSettingsQuery.data?.units ?? null;
   const settingsYear = contributionSettingsQuery.data?.year ?? currentYear;
   const formatUnitsLabel = (value: number | null | undefined) => {
@@ -686,7 +686,8 @@ const GroupContributionDashboardModal: React.FC<
       const blob = await downloadGroupContributionLedgerPdf(group.id, {
         year: selectedYear,
         contributionType: selectedType,
-        interestType: selectedType === "interest" ? selectedInterestType : undefined,
+        interestType:
+          selectedType === "interest" ? selectedInterestType : undefined,
       });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -764,7 +765,7 @@ const GroupContributionDashboardModal: React.FC<
                     </select>
                   )}
                   {!canViewAll && (
-                    <span className="border border-amber-200/40 bg-amber-100/20 px-4 py-2 rounded-full font-semibold text-amber-100 text-xs">
+                    <span className="bg-amber-100/20 px-4 py-2 border border-amber-200/40 rounded-full font-semibold text-amber-100 text-xs">
                       Showing your data only
                     </span>
                   )}
@@ -778,7 +779,7 @@ const GroupContributionDashboardModal: React.FC<
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="flex flex-col gap-6 mx-auto px-6 py-6 w-full max-w-[1500px]">
+          <div className="flex flex-col gap-6 mx-auto px-6 py-6 w-full max-w[1500px]">
             <div className="flex flex-wrap justify-between items-center gap-4">
               <div className="flex flex-wrap gap-2">
                 {DASHBOARD_TYPES.map((type) => (
@@ -797,7 +798,7 @@ const GroupContributionDashboardModal: React.FC<
               </div>
               <div className="flex flex-wrap items-center gap-3 w-full max-w-2xl">
                 {selectedType === "interest" && (
-                  <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-full px-3 py-2 text-xs font-semibold text-gray-600">
+                  <div className="flex items-center gap-2 bg-white px-3 py-2 border border-gray-200 rounded-full font-semibold text-gray-600 text-xs">
                     <span>Interest for</span>
                     <select
                       value={selectedInterestType}
@@ -930,7 +931,7 @@ const GroupContributionDashboardModal: React.FC<
                   </p>
                   <SlidersHorizontal className="w-4 h-4 text-slate-500" />
                 </div>
-                <div className="space-y-1 mt-2 text-xs text-gray-500">
+                <div className="space-y-1 mt-2 text-gray-500 text-xs">
                   <div className="flex justify-between">
                     <span>Revolving</span>
                     <span className="font-semibold text-gray-900">
@@ -1042,7 +1043,8 @@ const GroupContributionDashboardModal: React.FC<
                   ) : (
                     <span>
                       {" "}
-                      | Planned Units (avg): {plannedUnitsSummary.average ?? "-"}
+                      | Planned Units (avg):{" "}
+                      {plannedUnitsSummary.average ?? "-"}
                     </span>
                   )}
                 </div>
@@ -1163,9 +1165,7 @@ const GroupContributionDashboardModal: React.FC<
                         <td className="px-4 py-3 font-semibold text-gray-700 text-sm">
                           {visibleRows.length} members
                         </td>
-                        <td className="px-4 py-3 text-gray-500 text-sm">
-                          -
-                        </td>
+                        <td className="px-4 py-3 text-gray-500 text-sm">-</td>
                         <td className="px-4 py-3 text-gray-600 text-sm">
                           {tableTotals.unitsTotal > 0
                             ? tableTotals.unitsTotal

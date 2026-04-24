@@ -234,7 +234,7 @@ export default function LoanAmountSelector({
         <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-100">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-blue-700">Estimated Monthly Payment ({previewTerm} months)</p>
+              <p className="text-sm text-blue-700">Projected Monthly Due ({previewTerm} months)</p>
               <p className="text-2xl font-bold text-blue-900">
                 ₦{estimatedMonthlyPayment(selectedAmount, interestRate, 10).toLocaleString()}
               </p>

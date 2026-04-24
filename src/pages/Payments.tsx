@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -92,6 +92,7 @@ interface PaymentReminder {
 
 export default function Payments() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -168,12 +169,70 @@ export default function Payments() {
     }
   };
 
+  const loanApplications: BackendLoanApplication[] =
+    myLoanApplicationsQuery.data ?? [];
+  const activeLoans = loanApplications.filter((application) =>
+    ["disbursed", "defaulted"].includes(String(application.status)),
+  );
+  const defaultLoanAction = activeLoans
+    .map((loan) => ({
+      id: loan._id,
+      name: String(loan.loanCode ?? loan.loanPurpose ?? "Loan"),
+      amount:
+        Number(loan.nextPaymentAmount ?? loan.monthlyPayment ?? 0) ||
+        Number(loan.remainingBalance ?? 0),
+      remainingBalance: Number(loan.remainingBalance ?? 0),
+      dueDate: loan.nextPaymentDueDate ?? null,
+    }))
+    .sort((a, b) => {
+      const left = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      const right = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+      return left - right;
+    })[0];
+  const nextLoanPaymentLabel = defaultLoanAction?.dueDate
+    ? new Date(defaultLoanAction.dueDate).toLocaleDateString("en-NG", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "No active due date";
+
+  useEffect(() => {
+    const state = location.state as
+      | {
+          loanPayment?: { paymentId?: string; amount?: number };
+        }
+      | null;
+    const loanPayment = state?.loanPayment;
+    if (!loanPayment?.paymentId) return;
+
+    const loanMatch = activeLoans.find((loan) => loan._id === loanPayment.paymentId);
+    setPreselectedType("loan_repayment");
+    setPreselectedAmount(
+      Number(loanPayment.amount ?? loanMatch?.nextPaymentAmount ?? 0) || undefined,
+    );
+    setPreselectedLoan({
+      id: loanMatch?._id ?? loanPayment.paymentId,
+      name: String(loanMatch?.loanCode ?? loanMatch?.loanPurpose ?? "Loan"),
+    });
+    setIsPaymentModalOpen(true);
+    navigate(location.pathname, { replace: true, state: {} });
+  }, [location.state, location.pathname, activeLoans, navigate]);
+
   const handleQuickAction = (
     type: "loan_repayment" | "group_contribution",
     amount?: number,
   ) => {
     setPreselectedType(type);
     setPreselectedAmount(amount);
+    setPreselectedGroup(undefined);
+    setPreselectedLoan(undefined);
+    if (type === "loan_repayment" && defaultLoanAction) {
+      setPreselectedLoan({
+        id: defaultLoanAction.id,
+        name: defaultLoanAction.name,
+      });
+    }
     setIsPaymentModalOpen(true);
   };
 
@@ -298,11 +357,10 @@ export default function Payments() {
     })
     .reduce((sum, t) => sum + Number(t.amount ?? 0), 0);
 
-  const loanBalance = (myLoanApplicationsQuery.data ?? [])
-    .filter((a: BackendLoanApplication) =>
-      ["disbursed", "defaulted"].includes(String(a.status)),
-    )
-    .reduce((sum, a) => sum + Number(a.remainingBalance ?? 0), 0);
+  const loanBalance = activeLoans.reduce(
+    (sum, application) => sum + Number(application.remainingBalance ?? 0),
+    0,
+  );
 
   const stats = {
     totalSavings: Number(savingsSummaryQuery.data?.ledgerBalance ?? 0),
@@ -333,7 +391,14 @@ export default function Payments() {
               <h1 className="font-bold text-gray-900 text-xl">Payments</h1>
             </div>
             <Button
-              onClick={() => setIsPaymentModalOpen(true)}
+              onClick={() => {
+                setPreselectedType(undefined);
+                setPreselectedAmount(undefined);
+                setPreselectedGroup(undefined);
+                setPreselectedLoan(undefined);
+                setBulkItems(undefined);
+                setIsPaymentModalOpen(true);
+              }}
               className="gap-2 bg-emerald-600 hover:bg-emerald-700"
             >
               <Plus className="w-4 h-4" />
@@ -409,7 +474,7 @@ export default function Payments() {
                   </p>
                   <p className="flex items-center gap-1 mt-2 text-blue-600 text-xs">
                     <Clock className="w-3 h-3" />
-                    Next payment: Dec 28
+                    Next payment: {nextLoanPaymentLabel}
                   </p>
                 </div>
                 <div className="flex justify-center items-center bg-blue-100 rounded-full w-14 h-14">
@@ -448,7 +513,12 @@ export default function Payments() {
           <CardContent>
             <div className="gap-4 grid grid-cols-1 md:grid-cols-2">
               <button
-                onClick={() => handleQuickAction("loan_repayment", 15000)}
+                onClick={() =>
+                  handleQuickAction(
+                    "loan_repayment",
+                    defaultLoanAction?.amount || undefined,
+                  )
+                }
                 className="group flex items-center gap-4 bg-gradient-to-r from-blue-50 to-indigo-50 hover:shadow-md p-4 border border-blue-200 rounded-lg transition-all"
               >
                 <div className="flex justify-center items-center bg-blue-500 rounded-full w-12 h-12 group-hover:scale-110 transition-transform">
@@ -457,7 +527,9 @@ export default function Payments() {
                 <div className="text-left">
                   <p className="font-semibold text-gray-900">Pay Loan</p>
                   <p className="text-gray-500 text-sm">
-                    Repay loan installment
+                    {defaultLoanAction
+                      ? `Next due: ₦${Number(defaultLoanAction.amount || 0).toLocaleString()}`
+                      : "Repay your active loan"}
                   </p>
                 </div>
               </button>

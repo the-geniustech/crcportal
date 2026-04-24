@@ -27,10 +27,9 @@ const testimonials = [
     rating: 5,
   },
   {
-    name: "Ibrahim Musa",
-    role: "Farmer, Kano",
-    image:
-      "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766661862385_210399b4.png",
+    name: "Tayo Michael",
+    role: "Ibadan & UK",
+    image: "/testimonials/tayo-michael.jpeg",
     quote:
       "CRC Connect has transformed how our farming Contributions operates. We pool resources together and everyone benefits. It's truly community banking at its best.",
     rating: 5,

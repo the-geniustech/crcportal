@@ -14,11 +14,7 @@ import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
 import { hasUserRole } from "@/lib/auth";
-import {
-  USER_ROLE,
-  ELEVATED_GROUP_ROLES,
-  type GroupRole,
-} from "@/lib/roles";
+import { USER_ROLE, ELEVATED_GROUP_ROLES, type GroupRole } from "@/lib/roles";
 import {
   LOAN_FACILITIES,
   formatInterestLabel,
@@ -28,6 +24,7 @@ import {
 interface GroupLoan {
   id: string;
   borrowerId?: string | null;
+  memberSerial?: string | null;
   loanCode?: string | null;
   loanType?: string | null;
   loanAmount: number;
@@ -42,6 +39,11 @@ interface GroupLoan {
   totalRepayable?: number | null;
   remainingBalance?: number | null;
   repaymentToDate?: number | null;
+  remainingPrincipalBalance?: number | null;
+  remainingInterestBalance?: number | null;
+  repaidPrincipalToDate?: number | null;
+  repaidInterestToDate?: number | null;
+  interestPatronageAccrued?: number | null;
   status: string;
   createdAt?: string;
   disbursedAt?: string | null;
@@ -119,7 +121,9 @@ const formatDate = (value?: string | null) => {
 };
 
 const normalizeLoanType = (value?: string | null): LoanFacilityKey => {
-  const raw = String(value || "").trim().toLowerCase();
+  const raw = String(value || "")
+    .trim()
+    .toLowerCase();
   if (!raw) return "revolving";
   if (raw.includes("revolv")) return "revolving";
   if (raw.includes("special")) return "special";
@@ -129,14 +133,20 @@ const normalizeLoanType = (value?: string | null): LoanFacilityKey => {
 };
 
 const getLoanStatusKey = (status?: string | null) => {
-  const normalized = String(status || "").trim().toLowerCase();
+  const normalized = String(status || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) return "unknown";
-  if (["overdue", "defaulted", "default"].includes(normalized)) return "overdue";
-  if (["completed", "repaid", "closed", "paid"].includes(normalized)) return "repaid";
+  if (["overdue", "defaulted", "default"].includes(normalized))
+    return "overdue";
+  if (["completed", "repaid", "closed", "paid"].includes(normalized))
+    return "repaid";
   if (["disbursed", "active"].includes(normalized)) return "active";
   if (["approved"].includes(normalized)) return "approved";
-  if (["pending", "under_review", "review"].includes(normalized)) return "pending";
-  if (["rejected", "declined", "cancelled"].includes(normalized)) return "rejected";
+  if (["pending", "under_review", "review"].includes(normalized))
+    return "pending";
+  if (["rejected", "declined", "cancelled"].includes(normalized))
+    return "rejected";
   return "unknown";
 };
 
@@ -188,31 +198,167 @@ const loanStatusMeta = (status?: string | null) => {
   }
 };
 
-const buildSummary = (loans: Array<GroupLoan & { typeKey: LoanFacilityKey }>) => {
+const roundMoney = (value: number) =>
+  Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+
+const toOptionalNumber = (value: unknown) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const deriveRepaymentBreakdown = ({
+  principal,
+  totalRepayable,
+  totalRepaid,
+}: {
+  principal: number;
+  totalRepayable: number | null;
+  totalRepaid: number;
+}) => {
+  const safePrincipal = Math.max(0, roundMoney(principal));
+  const safeTotalRepayable =
+    totalRepayable != null
+      ? Math.max(safePrincipal, roundMoney(totalRepayable))
+      : safePrincipal;
+  const totalInterest = Math.max(
+    0,
+    roundMoney(safeTotalRepayable - safePrincipal),
+  );
+  const safeTotalRepaid = Math.max(
+    0,
+    Math.min(roundMoney(totalRepaid), safeTotalRepayable),
+  );
+  const repaidInterest = Math.min(safeTotalRepaid, totalInterest);
+  const repaidPrincipal = Math.min(
+    safePrincipal,
+    Math.max(0, roundMoney(safeTotalRepaid - repaidInterest)),
+  );
+
+  return {
+    repaidPrincipal: roundMoney(repaidPrincipal),
+    repaidInterest: roundMoney(repaidInterest),
+    remainingPrincipal: roundMoney(
+      Math.max(0, safePrincipal - repaidPrincipal),
+    ),
+    remainingInterest: roundMoney(Math.max(0, totalInterest - repaidInterest)),
+  };
+};
+
+const resolveLoanDisplay = (loan: GroupLoan & { typeKey: LoanFacilityKey }) => {
+  const principal = Math.max(
+    0,
+    roundMoney(toOptionalNumber(loan.approvedAmount) ?? loan.loanAmount ?? 0),
+  );
+  const remainingBalance = toOptionalNumber(loan.remainingBalance);
+  const totalRepayable = toOptionalNumber(loan.totalRepayable);
+  const fallbackRepaymentToDate =
+    toOptionalNumber(loan.repaymentToDate) ??
+    (totalRepayable != null && remainingBalance != null
+      ? roundMoney(Math.max(0, totalRepayable - remainingBalance))
+      : 0);
+  const fallbackSplit = deriveRepaymentBreakdown({
+    principal,
+    totalRepayable,
+    totalRepaid: fallbackRepaymentToDate,
+  });
+  const repaidPrincipal = roundMoney(
+    toOptionalNumber(loan.repaidPrincipalToDate) ??
+      fallbackSplit.repaidPrincipal,
+  );
+  const repaidInterest = roundMoney(
+    toOptionalNumber(loan.repaidInterestToDate) ?? fallbackSplit.repaidInterest,
+  );
+  const remainingPrincipal = roundMoney(
+    toOptionalNumber(loan.remainingPrincipalBalance) ??
+      fallbackSplit.remainingPrincipal,
+  );
+  const remainingInterest = roundMoney(
+    toOptionalNumber(loan.remainingInterestBalance) ??
+      fallbackSplit.remainingInterest,
+  );
+  const remaining =
+    remainingBalance != null
+      ? roundMoney(Math.max(0, remainingBalance))
+      : roundMoney(remainingPrincipal + remainingInterest);
+  const repaymentToDate =
+    toOptionalNumber(loan.repaymentToDate) ??
+    roundMoney(repaidPrincipal + repaidInterest);
+  const interestPatronage = roundMoney(
+    toOptionalNumber(loan.interestPatronageAccrued) ?? repaidInterest * 0.03,
+  );
+  const facility =
+    LOAN_FACILITIES.find((item) => item.key === loan.typeKey) || null;
+  const rateValue = loan.approvedInterestRate ?? loan.interestRate ?? null;
+  const resolvedRate =
+    rateValue != null && Number.isFinite(Number(rateValue))
+      ? Number(rateValue)
+      : null;
+  const rateType = (loan.interestRateType ||
+    facility?.interestRateType ||
+    "annual") as "annual" | "monthly" | "total";
+  const interestLabel =
+    resolvedRate != null
+      ? formatInterestLabel(resolvedRate, rateType)
+      : facility?.interestRateRange
+        ? formatInterestLabel(
+            facility.interestRateRange.min,
+            rateType,
+            facility.interestRateRange,
+          )
+        : "-";
+  const progressBase =
+    totalRepayable != null && totalRepayable > 0 ? totalRepayable : principal;
+  const progressNumerator =
+    totalRepayable != null && totalRepayable > 0
+      ? repaymentToDate
+      : repaidPrincipal;
+  const progressValue =
+    progressBase > 0
+      ? Math.min(100, Math.max(0, (progressNumerator / progressBase) * 100))
+      : null;
+
+  return {
+    principal,
+    remaining,
+    remainingPrincipal,
+    remainingInterest,
+    facility,
+    interestLabel,
+    repaymentToDate,
+    repaidPrincipal,
+    repaidInterest,
+    interestPatronage,
+    progressValue,
+  };
+};
+
+const buildSummary = (
+  loans: Array<GroupLoan & { typeKey: LoanFacilityKey }>,
+) => {
   return loans.reduce(
     (acc, loan) => {
       const statusKey = getLoanStatusKey(loan.status);
-      const principal = Number(loan.approvedAmount ?? loan.loanAmount ?? 0);
-      const remaining =
-        loan.remainingBalance === null || loan.remainingBalance === undefined
-          ? null
-          : Number(loan.remainingBalance);
-      const totalRepayable = Number(loan.totalRepayable ?? 0);
-      const repaymentToDate =
-        loan.repaymentToDate != null
-          ? Number(loan.repaymentToDate)
-          : totalRepayable > 0 && remaining !== null
-            ? Math.max(0, totalRepayable - remaining)
-            : null;
+      const {
+        principal,
+        remaining,
+        repaymentToDate,
+        repaidPrincipal,
+        repaidInterest,
+        interestPatronage,
+      } = resolveLoanDisplay(loan);
 
       acc.total += 1;
-      acc.totalApproved += principal;
+      acc.totalPrincipal += principal;
       if (statusKey === "overdue") acc.overdue += 1;
       if (statusKey === "active") acc.active += 1;
       if (statusKey === "repaid") acc.repaid += 1;
       if (repaymentToDate != null && Number.isFinite(repaymentToDate)) {
         acc.repaidToDate += repaymentToDate;
       }
+      acc.repaidPrincipal += repaidPrincipal;
+      acc.repaidInterest += repaidInterest;
+      acc.patronage += interestPatronage;
       if (statusKey !== "repaid" && statusKey !== "rejected") {
         acc.outstanding += Math.max(remaining ?? 0, 0);
       }
@@ -223,9 +369,12 @@ const buildSummary = (loans: Array<GroupLoan & { typeKey: LoanFacilityKey }>) =>
       active: 0,
       overdue: 0,
       repaid: 0,
-      totalApproved: 0,
+      totalPrincipal: 0,
       outstanding: 0,
       repaidToDate: 0,
+      repaidPrincipal: 0,
+      repaidInterest: 0,
+      patronage: 0,
     },
   );
 };
@@ -282,7 +431,10 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
     const query = searchQuery.trim().toLowerCase();
     return normalizedLoans.filter((loan) => {
       if (loan.typeKey !== selectedType) return false;
-      if (statusFilter !== "all" && getLoanStatusKey(loan.status) !== statusFilter) {
+      if (
+        statusFilter !== "all" &&
+        getLoanStatusKey(loan.status) !== statusFilter
+      ) {
         return false;
       }
       if (!query) return true;
@@ -290,6 +442,10 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
         loan.loanCode || `LN-${String(loan.id).slice(-6).toUpperCase()}`;
       const haystack = [
         loanLabel,
+        loan.borrowerName || "",
+        loan.borrowerEmail || "",
+        loan.borrowerPhone || "",
+        loan.memberSerial || "",
         loan.status || "",
         loan.loanType || "",
       ]
@@ -308,7 +464,9 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
   }, [filteredLoans]);
 
   const selectedSummary = useMemo(() => {
-    const subset = normalizedLoans.filter((loan) => loan.typeKey === selectedType);
+    const subset = normalizedLoans.filter(
+      (loan) => loan.typeKey === selectedType,
+    );
     return buildSummary(subset);
   }, [normalizedLoans, selectedType]);
 
@@ -323,58 +481,6 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
       };
     });
   }, [normalizedLoans]);
-
-  const resolveLoanDisplay = (loan: GroupLoan & { typeKey: LoanFacilityKey }) => {
-    const principal = Number(loan.approvedAmount ?? loan.loanAmount ?? 0);
-    const remaining =
-      loan.remainingBalance === null || loan.remainingBalance === undefined
-        ? null
-        : Number(loan.remainingBalance);
-    const facility =
-      LOAN_FACILITIES.find((item) => item.key === loan.typeKey) || null;
-    const rateValue = loan.approvedInterestRate ?? loan.interestRate ?? null;
-    const resolvedRate =
-      rateValue != null && Number.isFinite(Number(rateValue))
-        ? Number(rateValue)
-        : null;
-    const rateType = (loan.interestRateType ||
-      facility?.interestRateType ||
-      "annual") as "annual" | "monthly" | "total";
-    const interestLabel =
-      resolvedRate != null
-        ? formatInterestLabel(resolvedRate, rateType)
-        : facility?.interestRateRange
-          ? formatInterestLabel(
-              facility.interestRateRange.min,
-              rateType,
-              facility.interestRateRange,
-            )
-          : "-";
-    const totalRepayable = Number(loan.totalRepayable ?? 0);
-    const repaymentToDate =
-      loan.repaymentToDate != null
-        ? Number(loan.repaymentToDate)
-        : totalRepayable > 0 && remaining !== null
-          ? Math.max(0, totalRepayable - remaining)
-          : null;
-    const progressRaw =
-      remaining === null || principal <= 0
-        ? null
-        : ((principal - remaining) / principal) * 100;
-    const progressValue =
-      progressRaw === null
-        ? null
-        : Math.min(100, Math.max(0, progressRaw));
-
-    return {
-      principal,
-      remaining,
-      facility,
-      interestLabel,
-      repaymentToDate,
-      progressValue,
-    };
-  };
 
   const csvEscape = (value: unknown) => {
     const raw = String(value ?? "");
@@ -393,14 +499,16 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
         "Loan Code",
         "Loan Type",
         "Borrower Name",
+        "Membership Serial",
         "Borrower Email",
         "Borrower Phone",
-        "Group Name",
         "Principal",
-        "Approved Amount",
         "Interest Rate",
-        "Remaining Balance",
-        "Repaid So Far",
+        "Remaining Principal Due",
+        "Remaining Interest Due",
+        "Principal Paid",
+        "Interest Paid",
+        "Interest Patronage",
         "Status",
         "Progress",
         "Disbursed At",
@@ -409,35 +517,53 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
 
       const totals = sortedLoans.reduce(
         (acc, loan) => {
-          const { remaining, repaymentToDate } = resolveLoanDisplay(loan);
-          acc.principal += Number(loan.loanAmount ?? 0);
-          acc.approved += Number(loan.approvedAmount ?? 0);
-          acc.remaining += Number(remaining ?? 0);
-          acc.repaid += Number(repaymentToDate ?? 0);
+          const display = resolveLoanDisplay(loan);
+          acc.principal += Number(display.principal ?? 0);
+          acc.remainingPrincipal += Number(display.remainingPrincipal ?? 0);
+          acc.remainingInterest += Number(display.remainingInterest ?? 0);
+          acc.repaidPrincipal += Number(display.repaidPrincipal ?? 0);
+          acc.repaidInterest += Number(display.repaidInterest ?? 0);
+          acc.patronage += Number(display.interestPatronage ?? 0);
           return acc;
         },
-        { principal: 0, approved: 0, remaining: 0, repaid: 0 },
+        {
+          principal: 0,
+          remainingPrincipal: 0,
+          remainingInterest: 0,
+          repaidPrincipal: 0,
+          repaidInterest: 0,
+          patronage: 0,
+        },
       );
 
       const rows = sortedLoans.map((loan) => {
         const loanLabel =
           loan.loanCode || `LN-${String(loan.id).slice(-6).toUpperCase()}`;
-        const { facility, remaining, interestLabel, repaymentToDate, progressValue } =
-          resolveLoanDisplay(loan);
+        const {
+          facility,
+          interestLabel,
+          remainingPrincipal,
+          remainingInterest,
+          repaidPrincipal,
+          repaidInterest,
+          interestPatronage,
+          progressValue,
+          principal,
+        } = resolveLoanDisplay(loan);
         return [
           loanLabel,
           facility?.name || "Loan",
           loan.borrowerName || "-",
+          loan.memberSerial || "-",
           loan.borrowerEmail || "-",
           loan.borrowerPhone || "-",
-          loan.groupName || group.name,
-          formatCurrency(loan.loanAmount),
-          loan.approvedAmount != null
-            ? formatCurrency(loan.approvedAmount)
-            : "-",
+          formatCurrency(principal),
           interestLabel,
-          remaining !== null ? formatCurrency(remaining) : "-",
-          repaymentToDate != null ? formatCurrency(repaymentToDate) : "-",
+          formatCurrency(remainingPrincipal),
+          formatCurrency(remainingInterest),
+          formatCurrency(repaidPrincipal),
+          formatCurrency(repaidInterest),
+          formatCurrency(interestPatronage),
           loan.status || "-",
           progressValue === null ? "-" : `${Math.round(progressValue)}%`,
           formatDate(loan.disbursedAt),
@@ -453,10 +579,12 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
         "-",
         "-",
         formatCurrency(totals.principal),
-        formatCurrency(totals.approved),
         "-",
-        formatCurrency(totals.remaining),
-        formatCurrency(totals.repaid),
+        formatCurrency(totals.remainingPrincipal),
+        formatCurrency(totals.remainingInterest),
+        formatCurrency(totals.repaidPrincipal),
+        formatCurrency(totals.repaidInterest),
+        formatCurrency(totals.patronage),
         "-",
         "-",
         "-",
@@ -506,60 +634,63 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
   });
 
   const summaryTotalLabel = loansLoading ? "-" : selectedSummary.total;
-  const summaryApprovedLabel = loansLoading
+  const summaryPrincipalLabel = loansLoading
     ? "-"
-    : formatCurrency(selectedSummary.totalApproved);
+    : formatCurrency(selectedSummary.totalPrincipal);
   const summaryOutstandingLabel = loansLoading
     ? "-"
     : formatCurrency(selectedSummary.outstanding);
   const summaryRepaidToDateLabel = loansLoading
     ? "-"
     : formatCurrency(selectedSummary.repaidToDate);
+  const summaryPatronageLabel = loansLoading
+    ? "-"
+    : formatCurrency(selectedSummary.patronage);
   const summaryActiveLabel = loansLoading ? "-" : selectedSummary.active;
   const summaryOverdueLabel = loansLoading ? "-" : selectedSummary.overdue;
   const summaryRepaidLabel = loansLoading ? "-" : selectedSummary.repaid;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/60">
-      <div className="flex h-full w-full flex-col bg-slate-50">
+    <div className="z-50 fixed inset-0 bg-slate-950/60">
+      <div className="flex flex-col bg-slate-50 w-full h-full">
         <div className="relative">
-          <div className="h-48 w-full overflow-hidden">
+          <div className="w-full h-48 overflow-hidden">
             <img
               src={group.image}
               alt={group.name}
-              className="h-full w-full object-cover"
+              className="w-full h-full object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-slate-900/90 via-slate-900/60 to-transparent" />
           </div>
           <button
             onClick={onClose}
-            className="absolute right-6 top-6 rounded-full bg-white/20 p-2 text-white transition hover:bg-white/30"
+            className="top-6 right-6 absolute bg-white/20 hover:bg-white/30 p-2 rounded-full text-white transition"
             aria-label="Close loan dashboard"
           >
-            <X className="h-5 w-5" />
+            <X className="w-5 h-5" />
           </button>
-          <div className="absolute bottom-6 left-6 right-6">
+          <div className="right-6 bottom-6 left-6 absolute">
             <div className="flex flex-col gap-3">
-              <span className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-200">
+              <span className="font-semibold text-emerald-200 text-xs uppercase tracking-[0.3em]">
                 Loan Tracking Dashboard
               </span>
-              <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+              <div className="flex lg:flex-row flex-col lg:justify-between lg:items-end gap-2">
                 <div>
-                  <h2 className="text-2xl font-bold text-white">
+                  <h2 className="font-bold text-white text-2xl">
                     {group.name}
                   </h2>
-                  <p className="text-sm text-emerald-100">
+                  <p className="text-emerald-100 text-sm">
                     {selectedFacility?.name || "Loan Portfolio"} |{" "}
                     {summaryTotalLabel} loans
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {!canViewAll && (
-                    <span className="rounded-full border border-amber-200/40 bg-amber-100/20 px-4 py-2 text-xs font-semibold text-amber-100">
+                    <span className="bg-amber-100/20 px-4 py-2 border border-amber-200/40 rounded-full font-semibold text-amber-100 text-xs">
                       Showing your data only
                     </span>
                   )}
-                  <span className="rounded-full border border-white/30 bg-white/10 px-4 py-2 text-xs font-semibold text-white">
+                  <span className="bg-white/10 px-4 py-2 border border-white/30 rounded-full font-semibold text-white text-xs">
                     Updated {updatedLabel}
                   </span>
                 </div>
@@ -569,8 +700,8 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6 px-6 py-6">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-col gap-6 mx-auto px-6 py-6 w-full max-w[1500px]">
+            <div className="flex flex-wrap justify-between items-center gap-4">
               <div className="flex flex-wrap gap-2">
                 {LOAN_FACILITIES.map((facility) => (
                   <button
@@ -586,9 +717,9 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                   </button>
                 ))}
               </div>
-              <div className="flex w-full max-w-2xl items-center gap-3">
+              <div className="flex items-center gap-3 w-full max-w-2xl">
                 <div className="relative w-full max-w-xs">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <Search className="top-1/2 left-3 absolute w-4 h-4 text-gray-400 -translate-y-1/2" />
                   <Input
                     placeholder="Search loans..."
                     value={searchQuery}
@@ -599,7 +730,7 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                 <select
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value)}
-                  className="rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-gray-600"
+                  className="bg-white px-4 py-2 border border-slate-200 rounded-full font-semibold text-gray-600 text-xs"
                 >
                   {statusOptions.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -613,99 +744,97 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                   onClick={handleExportCsv}
                   disabled={isExportingCsv || loansLoading}
                 >
-                  <Download className="h-4 w-4" />
+                  <Download className="w-4 h-4" />
                   {isExportingCsv ? "Exporting..." : "Export CSV"}
                 </Button>
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">
+            <div className="gap-4 grid md:grid-cols-2 xl:grid-cols-5">
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
                     Total Loans
                   </p>
-                  <Wallet className="h-4 w-4 text-emerald-500" />
+                  <Wallet className="w-4 h-4 text-emerald-500" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold text-gray-900">
+                <p className="mt-2 font-semibold text-gray-900 text-2xl">
                   {summaryTotalLabel}
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-gray-500 text-xs">
                   {summaryActiveLabel} active | {summaryRepaidLabel} repaid
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">
-                    Approved Volume
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
+                    Principal Volume
                   </p>
-                  <TrendingUp className="h-4 w-4 text-emerald-500" />
+                  <TrendingUp className="w-4 h-4 text-emerald-500" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold text-emerald-600">
-                  {summaryApprovedLabel}
+                <p className="mt-2 font-semibold text-emerald-600 text-2xl">
+                  {summaryPrincipalLabel}
                 </p>
-                <p className="text-xs text-gray-500">
-                  Principal approved for {selectedFacility?.name || "loans"}
+                <p className="text-gray-500 text-xs">
+                  Principal booked for {selectedFacility?.name || "loans"}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
                     Repaid So Far
                   </p>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold text-emerald-600">
+                <p className="mt-2 font-semibold text-emerald-600 text-2xl">
                   {summaryRepaidToDateLabel}
                 </p>
-                <p className="text-xs text-gray-500">
-                  Total repayments recorded
+                <p className="text-gray-500 text-xs">
+                  Includes patronage accrual of {summaryPatronageLabel}
                 </p>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
                     Outstanding
                   </p>
-                  <CreditCard className="h-4 w-4 text-amber-500" />
+                  <CreditCard className="w-4 h-4 text-amber-500" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold text-gray-900">
+                <p className="mt-2 font-semibold text-gray-900 text-2xl">
                   {summaryOutstandingLabel}
                 </p>
-                <p className="text-xs text-gray-500">Active balance due</p>
+                <p className="text-gray-500 text-xs">Active balance due</p>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-gray-500">
+              <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
+                <div className="flex justify-between items-center">
+                  <p className="text-gray-500 text-xs uppercase tracking-wide">
                     Risk Watch
                   </p>
-                  <AlertTriangle className="h-4 w-4 text-rose-500" />
+                  <AlertTriangle className="w-4 h-4 text-rose-500" />
                 </div>
-                <p className="mt-2 text-2xl font-semibold text-rose-600">
+                <p className="mt-2 font-semibold text-rose-600 text-2xl">
                   {summaryOverdueLabel}
                 </p>
-                <p className="text-xs text-gray-500">
-                  Loans in overdue status
-                </p>
+                <p className="text-gray-500 text-xs">Loans in overdue status</p>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+            <div className="bg-white shadow-sm p-5 border border-slate-200 rounded-2xl">
+              <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">
+                  <p className="font-semibold text-gray-900 text-sm">
                     Totals by Loan Type
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-gray-500 text-xs">
                     Tracking totals across all four loan facilities in the same
                     format.
                   </p>
                 </div>
-                <span className="text-xs text-gray-400">
+                <span className="text-gray-400 text-xs">
                   Portfolio snapshot
                 </span>
               </div>
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="gap-4 grid md:grid-cols-2 xl:grid-cols-4">
                 {totalsByType.map(({ facility, summary }) => (
                   <div
                     key={facility.key}
@@ -715,8 +844,8 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                         : "border-slate-200 bg-white"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-gray-600">
+                    <div className="flex justify-between items-center">
+                      <p className="font-semibold text-gray-600 text-xs uppercase tracking-wide">
                         {facility.name}
                       </p>
                       <span
@@ -727,17 +856,21 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                         {summary.total} loans
                       </span>
                     </div>
-                    <div className="mt-3 space-y-1 text-xs text-gray-500">
+                    <div className="space-y-1 mt-3 text-gray-500 text-xs">
                       <div className="flex justify-between">
-                        <span>Approved</span>
+                        <span>Principal</span>
                         <span className="font-semibold text-gray-900">
-                          {loansLoading ? "-" : formatCurrency(summary.totalApproved)}
+                          {loansLoading
+                            ? "-"
+                            : formatCurrency(summary.totalPrincipal)}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span>Outstanding</span>
                         <span className="font-semibold text-amber-600">
-                          {loansLoading ? "-" : formatCurrency(summary.outstanding)}
+                          {loansLoading
+                            ? "-"
+                            : formatCurrency(summary.outstanding)}
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -758,128 +891,138 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+            <div className="bg-white shadow-sm border border-slate-200 rounded-2xl">
+              <div className="flex flex-wrap justify-between items-center gap-3 px-5 py-4 border-slate-200 border-b">
                 <div>
-                  <p className="text-sm font-semibold text-gray-900">
+                  <p className="font-semibold text-gray-900 text-sm">
                     Loan Portfolio Ledger
                   </p>
-                  <p className="text-xs text-gray-500">
-                    {selectedFacility?.name || "Loan"} tracking for{" "}
-                    {group.name}
+                  <p className="text-gray-500 text-xs">
+                    {selectedFacility?.name || "Loan"} tracking for {group.name}
                   </p>
                 </div>
-                <div className="text-xs text-gray-500">
+                <div className="text-gray-500 text-xs">
                   {loansLoading ? "-" : `${sortedLoans.length} loan record(s)`}
                 </div>
               </div>
 
               {loansLoading ? (
-                <div className="py-16 text-center text-sm text-gray-500">
+                <div className="py-16 text-gray-500 text-sm text-center">
                   Loading loan dashboard...
                 </div>
               ) : sortedLoans.length === 0 ? (
-                <div className="py-16 text-center text-sm text-gray-500">
+                <div className="py-16 text-gray-500 text-sm text-center">
                   No loans found for the current selection.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="min-w-[1500px] w-full text-sm">
-                    <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                  <table className="w-full min-w-[1800px] text-sm">
+                    <thead className="bg-slate-50 text-[11px] text-slate-500 uppercase">
                       <tr>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-left"
+                        >
                           Loan
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-left"
+                        >
                           Borrower
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-left"
+                        >
                           Contact
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-left"
+                        >
                           Type
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-right"
+                        >
                           Principal
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
-                          Approved
-                        </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-left"
+                        >
                           Interest Rate
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          colSpan={2}
+                          className="px-4 py-3 font-semibold text-center"
+                        >
                           Remaining
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          colSpan={2}
+                          className="px-4 py-3 font-semibold text-center"
+                        >
                           Repaid So Far
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-right"
+                        >
+                          Interest Patronage
+                        </th>
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-left"
+                        >
                           Status
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-left"
+                        >
                           Progress
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-left"
+                        >
                           Disbursed
                         </th>
-                        <th className="px-4 py-3 text-left font-semibold">
+                        <th
+                          rowSpan={2}
+                          className="px-4 py-3 font-semibold text-left"
+                        >
                           Updated
+                        </th>
+                      </tr>
+                      <tr>
+                        <th className="px-4 py-3 font-semibold text-right">
+                          Principal Due
+                        </th>
+                        <th className="px-4 py-3 font-semibold text-right">
+                          Interest Due
+                        </th>
+                        <th className="px-4 py-3 font-semibold text-right">
+                          Principal Paid
+                        </th>
+                        <th className="px-4 py-3 font-semibold text-right">
+                          Interest Paid
                         </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {sortedLoans.map((loan) => {
-                        const principal = Number(
-                          loan.approvedAmount ?? loan.loanAmount ?? 0,
-                        );
-                        const remaining =
-                          loan.remainingBalance === null ||
-                          loan.remainingBalance === undefined
-                            ? null
-                            : Number(loan.remainingBalance);
-                        const progressRaw =
-                          remaining === null || principal <= 0
-                            ? null
-                            : ((principal - remaining) / principal) * 100;
-                        const progressValue =
-                          progressRaw === null
-                            ? null
-                            : Math.min(100, Math.max(0, progressRaw));
+                        const display = resolveLoanDisplay(loan);
                         const status = loanStatusMeta(loan.status);
                         const StatusIcon = status.icon;
                         const loanLabel =
                           loan.loanCode ||
                           `LN-${String(loan.id).slice(-6).toUpperCase()}`;
-                        const facility =
-                          LOAN_FACILITIES.find(
-                            (item) => item.key === loan.typeKey,
-                          ) || null;
+                        const facility = display.facility;
                         const typeStyle = loanTypeStyles[loan.typeKey];
-                        const rateValue =
-                          loan.approvedInterestRate ?? loan.interestRate ?? null;
-                        const rateType = (loan.interestRateType ||
-                          facility?.interestRateType ||
-                          "annual") as "annual" | "monthly" | "total";
-                        const interestLabel =
-                          rateValue != null
-                            ? formatInterestLabel(
-                                rateValue,
-                                rateType,
-                              )
-                            : facility?.interestRateRange
-                              ? formatInterestLabel(
-                                  facility.interestRateRange.min,
-                                  rateType,
-                                  facility.interestRateRange,
-                                )
-                              : "-";
-                        const repaymentToDate =
-                          loan.repaymentToDate != null
-                            ? loan.repaymentToDate
-                            : loan.totalRepayable != null && remaining !== null
-                              ? Math.max(0, loan.totalRepayable - remaining)
-                              : null;
 
                         return (
                           <tr key={loan.id} className="hover:bg-slate-50/60">
@@ -887,7 +1030,7 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                               <p className="font-medium text-gray-900">
                                 {loanLabel}
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-gray-500 text-xs">
                                 Created {formatDate(loan.createdAt)}
                               </p>
                             </td>
@@ -895,8 +1038,10 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                               <p className="font-medium text-gray-900">
                                 {loan.borrowerName || "Member"}
                               </p>
-                              <p className="text-xs text-gray-500">
-                                {loan.groupName || group.name}
+                              <p className="text-gray-500 text-xs">
+                                {loan.memberSerial
+                                  ? `Member Serial: ${loan.memberSerial}`
+                                  : "Member Serial pending"}
                               </p>
                             </td>
                             <td className="px-4 py-3 text-gray-700">
@@ -912,52 +1057,56 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                                 {facility?.name || "Loan"}
                               </span>
                             </td>
-                            <td className="px-4 py-3 font-medium text-gray-900">
-                              {formatCurrency(loan.loanAmount)}
+                            <td className="px-4 py-3 font-medium text-gray-900 text-right">
+                              {formatCurrency(display.principal)}
                             </td>
                             <td className="px-4 py-3 text-gray-700">
-                              {loan.approvedAmount != null
-                                ? formatCurrency(loan.approvedAmount)
-                                : "-"}
+                              {display.interestLabel}
                             </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {interestLabel}
+                            <td className="px-4 py-3 text-gray-700 text-right">
+                              {formatCurrency(display.remainingPrincipal)}
                             </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {remaining !== null
-                                ? formatCurrency(remaining)
-                                : "-"}
+                            <td className="px-4 py-3 text-gray-700 text-right">
+                              {formatCurrency(display.remainingInterest)}
                             </td>
-                            <td className="px-4 py-3 text-gray-700">
-                              {repaymentToDate != null
-                                ? formatCurrency(repaymentToDate)
-                                : "-"}
+                            <td className="px-4 py-3 text-gray-700 text-right">
+                              {formatCurrency(display.repaidPrincipal)}
+                            </td>
+                            <td className="px-4 py-3 text-gray-700 text-right">
+                              {formatCurrency(display.repaidInterest)}
+                            </td>
+                            <td className="px-4 py-3 font-medium text-emerald-700 text-right">
+                              {formatCurrency(display.interestPatronage)}
                             </td>
                             <td className="px-4 py-3">
                               <span
                                 className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${status.classes}`}
                               >
-                                <StatusIcon className="h-3.5 w-3.5" />
+                                <StatusIcon className="w-3.5 h-3.5" />
                                 {status.label}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-gray-700">
-                              {progressValue === null ? (
+                              {display.progressValue === null ? (
                                 <span className="text-gray-400">-</span>
                               ) : (
                                 <div className="min-w-[120px]">
-                                  <div className="flex items-center justify-between text-xs text-gray-500">
-                                    <span>{Math.round(progressValue)}%</span>
+                                  <div className="flex justify-between items-center text-gray-500 text-xs">
                                     <span>
-                                      {progressValue >= 100
+                                      {Math.round(display.progressValue)}%
+                                    </span>
+                                    <span>
+                                      {display.progressValue >= 100
                                         ? "Complete"
                                         : "In progress"}
                                     </span>
                                   </div>
-                                  <div className="mt-1 h-1.5 rounded-full bg-gray-200">
+                                  <div className="bg-gray-200 mt-1 rounded-full h-1.5">
                                     <div
-                                      className="h-1.5 rounded-full bg-emerald-500"
-                                      style={{ width: `${progressValue}%` }}
+                                      className="bg-emerald-500 rounded-full h-1.5"
+                                      style={{
+                                        width: `${display.progressValue}%`,
+                                      }}
                                     />
                                   </div>
                                 </div>

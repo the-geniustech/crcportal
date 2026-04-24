@@ -183,7 +183,7 @@ export default function LoanRepaymentTerms({
               </p>
               <div className="mt-3 space-y-2 text-sm text-blue-900">
                 <div className="flex items-center justify-between">
-                  <span className="text-blue-700">Monthly Payment</span>
+                  <span className="text-blue-700">Projected Monthly Due</span>
                   <span className="font-semibold">
                     ₦{selectedOption.monthlyPayment.toLocaleString()}
                   </span>
@@ -219,7 +219,7 @@ export default function LoanRepaymentTerms({
             <p className="text-2xl font-bold">₦{loanAmount.toLocaleString()}</p>
           </div>
           <div>
-            <p className="text-emerald-100 text-sm">Monthly Payment</p>
+            <p className="text-emerald-100 text-sm">Projected Monthly Due</p>
             <p className="text-2xl font-bold">₦{selectedOption.monthlyPayment.toLocaleString()}</p>
           </div>
           <div>

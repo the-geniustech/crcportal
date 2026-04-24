@@ -1,4 +1,4 @@
-﻿import React, { useState } from "react";
+import React, { useState } from "react";
 import {
   CheckCircle,
   FileText,
@@ -162,12 +162,12 @@ export default function LoanReviewSubmit({
         <div className="gap-4 grid grid-cols-2 md:grid-cols-4 mt-6">
           <div className="bg-white/10 p-4 rounded-xl">
             <p className="text-emerald-100 text-sm">Loan Amount</p>
-            <p className="font-bold text-2xl">₦{loanAmount.toLocaleString()}</p>
+            <p className="font-bold text-2xl">?{loanAmount.toLocaleString()}</p>
           </div>
           <div className="bg-white/10 p-4 rounded-xl">
-            <p className="text-emerald-100 text-sm">Monthly Payment</p>
+            <p className="text-emerald-100 text-sm">Projected Monthly Due</p>
             <p className="font-bold text-2xl">
-              ₦{monthlyPayment.toLocaleString()}
+              ?{monthlyPayment.toLocaleString()}
             </p>
           </div>
           <div className="bg-white/10 p-4 rounded-xl">
@@ -247,13 +247,13 @@ export default function LoanReviewSubmit({
               <div className="bg-blue-50 p-4 border border-blue-100 rounded-xl">
                 <p className="mb-1 text-blue-600 text-sm">Total Interest</p>
                 <p className="font-bold text-blue-900 text-xl">
-                  ₦{totalInterest.toLocaleString()}
+                  ?{totalInterest.toLocaleString()}
                 </p>
               </div>
               <div className="bg-emerald-50 p-4 border border-emerald-100 rounded-xl">
                 <p className="mb-1 text-emerald-600 text-sm">Total Repayment</p>
                 <p className="font-bold text-emerald-900 text-xl">
-                  ₦{totalPayment.toLocaleString()}
+                  ?{totalPayment.toLocaleString()}
                 </p>
               </div>
               <div className="bg-purple-50 p-4 border border-purple-100 rounded-xl">
@@ -406,7 +406,7 @@ export default function LoanReviewSubmit({
                         {guarantor.type === "member"
                           ? "Group Member"
                           : "External"}{" "}
-                        • {guarantor.relationship}
+                        � {guarantor.relationship}
                       </p>
                     </div>
                   </div>
@@ -522,7 +522,7 @@ export default function LoanReviewSubmit({
                   {bankAccount.bankName}
                 </p>
                 <p className="text-emerald-700 text-sm">
-                  {bankAccount.accountNumber} • {bankAccount.accountName}
+                  {bankAccount.accountNumber} � {bankAccount.accountName}
                 </p>
                 {bankAccount.isPrimary && (
                   <span className="inline-block bg-emerald-100 mt-2 px-2 py-0.5 rounded-full font-medium text-emerald-700 text-xs">

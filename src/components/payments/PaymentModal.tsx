@@ -147,6 +147,25 @@ export default function PaymentModal({
     }
   }, [isBulk, bulkItems, bulkTotal]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setStep("form");
+    setPaymentType(preselectedType || "");
+    setAmount(preselectedAmount?.toString() || "");
+    setAmountTouched(Boolean(preselectedAmount));
+    setSelectedGroup(preselectedGroup?.id || "");
+    setSelectedLoan(preselectedLoan?.id || "");
+    setDescription("");
+    setErrorMessage("");
+    setTransactionRef("");
+  }, [
+    isOpen,
+    preselectedType,
+    preselectedAmount,
+    preselectedGroup,
+    preselectedLoan,
+  ]);
+
   const groups = useMemo(() => {
     const memberships = groupMembershipsQuery.data ?? [];
     return memberships
@@ -222,6 +241,45 @@ export default function PaymentModal({
     amountTouched,
   ]);
 
+  const loans = useMemo(() => {
+    const apps = loanApplicationsQuery.data ?? [];
+    return apps
+      .filter((a) => ["disbursed", "defaulted"].includes(String(a.status)))
+      .map((a) => {
+        const amountLabel = Number(a.approvedAmount ?? a.loanAmount ?? 0);
+        const code = String(a.loanCode ?? a._id);
+        const remainingBalance = Number(a.remainingBalance ?? 0);
+        const principalOutstanding = Number(
+          a.principalOutstanding ?? a.remainingBalance ?? 0,
+        );
+        const accruedInterestBalance = Number(a.accruedInterestBalance ?? 0);
+        const nextPaymentAmount = Number(
+          a.nextPaymentAmount ?? a.monthlyPayment ?? 0,
+        );
+        const recommendedAmount =
+          nextPaymentAmount > 0
+            ? nextPaymentAmount
+            : remainingBalance > 0
+              ? remainingBalance
+              : 0;
+        return {
+          id: a._id,
+          name: `${code} - NGN ${amountLabel.toLocaleString()}`,
+          remainingBalance,
+          principalOutstanding,
+          accruedInterestBalance,
+          nextPaymentAmount,
+          nextPaymentDueDate: a.nextPaymentDueDate ?? null,
+          recommendedAmount,
+        };
+      });
+  }, [loanApplicationsQuery.data]);
+
+  const selectedLoanInfo = useMemo(
+    () => loans.find((loan) => loan.id === selectedLoan) ?? null,
+    [loans, selectedLoan],
+  );
+
   const quickAmounts = useMemo(() => {
     if (paymentType === "group_contribution") {
       const config = getContributionTypeConfig(contributionType);
@@ -247,23 +305,57 @@ export default function PaymentModal({
         return true;
       });
     }
-    return [1000, 5000, 10000, 25000, 50000, 100000];
-  }, [paymentType, contributionType, expectedMonthlyAmount]);
-
-  const loans = useMemo(() => {
-    const apps = loanApplicationsQuery.data ?? [];
-    return apps
-      .filter((a) => ["disbursed", "defaulted"].includes(String(a.status)))
-      .map((a) => {
-        const amountLabel = Number(a.approvedAmount ?? a.loanAmount ?? 0);
-        const code = String(a.loanCode ?? a._id);
-        return {
-          id: a._id,
-          name: `${code} - NGN ${amountLabel.toLocaleString()}`,
-          monthlyPayment: Number(a.monthlyPayment ?? 0),
-        };
+    if (paymentType === "loan_repayment") {
+      const selected = selectedLoanInfo ?? loans[0] ?? null;
+      if (!selected) return [1000, 5000, 10000, 25000];
+      const candidateValues = [
+        selected.nextPaymentAmount,
+        selected.accruedInterestBalance,
+        selected.remainingBalance >= 2
+          ? Math.round(selected.remainingBalance / 2)
+          : selected.remainingBalance,
+        selected.remainingBalance,
+      ];
+      const seen = new Set<number>();
+      return candidateValues.filter((value) => {
+        const num = Math.round(Number(value));
+        if (!Number.isFinite(num) || num <= 0) return false;
+        if (num > selected.remainingBalance) return false;
+        if (seen.has(num)) return false;
+        seen.add(num);
+        return true;
       });
-  }, [loanApplicationsQuery.data]);
+    }
+    return [1000, 5000, 10000, 25000, 50000, 100000];
+  }, [
+    paymentType,
+    contributionType,
+    expectedMonthlyAmount,
+    loans,
+    selectedLoanInfo,
+  ]);
+
+  useEffect(() => {
+    if (isBulk) return;
+    if (paymentType !== "loan_repayment") return;
+    if (!selectedLoanInfo || amountTouched) return;
+    if (selectedLoanInfo.recommendedAmount > 0) {
+      setAmount(selectedLoanInfo.recommendedAmount.toString());
+    }
+  }, [isBulk, paymentType, selectedLoanInfo, amountTouched]);
+
+  const parsedAmount = Number(amount || 0);
+  const loanAmountError = useMemo(() => {
+    if (paymentType !== "loan_repayment" || !selectedLoanInfo || isBulk) return "";
+    if (!amount) return "";
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      return "Enter a repayment amount greater than 0.";
+    }
+    if (parsedAmount > selectedLoanInfo.remainingBalance) {
+      return `Amount cannot exceed ${formatCurrency(selectedLoanInfo.remainingBalance)} remaining balance.`;
+    }
+    return "";
+  }, [paymentType, selectedLoanInfo, isBulk, amount, parsedAmount]);
 
   const handleInitializePayment = async () => {
     if (isBulk) {
@@ -330,6 +422,15 @@ export default function PaymentModal({
       return;
     }
 
+    if (paymentType === "loan_repayment" && loanAmountError) {
+      toast({
+        title: "Invalid Repayment Amount",
+        description: loanAmountError,
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (paymentType === "group_contribution") {
       const validation = validateContributionAmount(
         contributionType as "revolving" | "special" | "endwell" | "festive",
@@ -351,8 +452,6 @@ export default function PaymentModal({
     try {
       const paymentTypeLabel =
         paymentTypes.find((t) => t.value === paymentType)?.label || paymentType;
-
-      const parsedAmount = parseFloat(amount);
 
       const init = await initializePaystackMutation.mutateAsync({
         amount: parsedAmount,
@@ -588,8 +687,8 @@ export default function PaymentModal({
                   onValueChange={(value) => {
                     setSelectedLoan(value);
                     const loan = loans.find((l) => l.id === value);
-                    if (loan) {
-                      setAmount(loan.monthlyPayment.toString());
+                    if (loan && loan.recommendedAmount > 0) {
+                      setAmount(loan.recommendedAmount.toString());
                       setAmountTouched(true);
                     }
                   }}
@@ -620,10 +719,30 @@ export default function PaymentModal({
                   setAmount(e.target.value);
                   setAmountTouched(true);
                 }}
-                min="100"
+                min={paymentType === "loan_repayment" ? "0.01" : "100"}
+                step="0.01"
                 className="font-semibold text-lg"
                 disabled={isBulk}
               />
+              {paymentType === "loan_repayment" && selectedLoanInfo && (
+                <div className="space-y-1 text-xs">
+                  <p className="text-gray-500">
+                    Enter any amount greater than 0 and up to{" "}
+                    {formatCurrency(selectedLoanInfo.remainingBalance)}.
+                    Repayments settle accrued interest before principal.
+                  </p>
+                  {loanAmountError ? (
+                    <p className="text-red-600">{loanAmountError}</p>
+                  ) : (
+                    <p className="text-emerald-600">
+                      Remaining principal:{" "}
+                      {formatCurrency(selectedLoanInfo.principalOutstanding)} •
+                      Accrued interest due:{" "}
+                      {formatCurrency(selectedLoanInfo.accruedInterestBalance)}
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="flex flex-wrap gap-2 mt-2">
                 {quickAmounts.map((quickAmount) => (
                   <Button
@@ -724,12 +843,46 @@ export default function PaymentModal({
                   </div>
                 )}
                 {selectedLoan && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-gray-600">Loan:</span>
-                    <span className="font-medium">
-                      {loans.find((l) => l.id === selectedLoan)?.name}
-                    </span>
-                  </div>
+                  <>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Loan:</span>
+                      <span className="font-medium">
+                        {loans.find((l) => l.id === selectedLoan)?.name}
+                      </span>
+                    </div>
+                    {selectedLoanInfo && (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Total Remaining:</span>
+                          <span className="font-medium">
+                            {formatCurrency(selectedLoanInfo.remainingBalance)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Interest Due Now:</span>
+                          <span className="font-medium">
+                            {formatCurrency(
+                              selectedLoanInfo.accruedInterestBalance,
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Principal Outstanding:</span>
+                          <span className="font-medium">
+                            {formatCurrency(
+                              selectedLoanInfo.principalOutstanding,
+                            )}
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">Recommended Due:</span>
+                          <span className="font-medium">
+                            {formatCurrency(selectedLoanInfo.nextPaymentAmount)}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -746,7 +899,12 @@ export default function PaymentModal({
               <Button
                 onClick={handleInitializePayment}
                 className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                disabled={!paymentType || !amount || parseFloat(amount) <= 0}
+                disabled={
+                  !paymentType ||
+                  !amount ||
+                  parsedAmount <= 0 ||
+                  Boolean(loanAmountError)
+                }
               >
                 Pay NGN {parseFloat(amount || "0").toLocaleString()}
               </Button>

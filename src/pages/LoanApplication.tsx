@@ -1950,7 +1950,7 @@ const LoanApplicationContent: React.FC = () => {
               </div>
               <div className="mt-3 pt-3 border-t">
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Monthly Payment</span>
+                  <span className="text-gray-600">Projected Monthly Due</span>
                   <span className="font-bold text-emerald-600">
                     ₦{repaymentDetails.monthlyPayment.toLocaleString()}
                   </span>

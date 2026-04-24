@@ -1,23 +1,17 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { useToast } from "@/hooks/use-toast";
-import supabase from "@/lib/supabase";
+import { Input } from "@/components/ui/input";
 import { formatInterestLabel, getLoanFacility } from "@/lib/loanPolicy";
 import {
+  AlertTriangle,
   Calendar,
   CheckCircle,
-  Clock,
-  AlertTriangle,
-  TrendingUp,
-  CreditCard,
-  Wallet,
   ChevronRight,
-  Calculator,
-  Loader2,
-  Download,
-  Bell,
-  ArrowRight,
+  Clock,
+  CreditCard,
   HelpCircle,
+  TrendingUp,
+  Wallet,
 } from "lucide-react";
 
 interface LoanSchedule {
@@ -27,12 +21,17 @@ interface LoanSchedule {
   interestRateType?: "annual" | "monthly" | "total";
   loanType?: string;
   termMonths: number;
-  monthlyPayment: number;
+  projectedMonthlyDue: number;
+  nextPaymentAmount: number;
+  nextPaymentDate: string;
   totalInterest: number;
   totalPayment: number;
   startDate: string;
   endDate: string;
   remainingBalance: number;
+  principalOutstanding: number;
+  accruedInterestBalance: number;
+  repaidSoFar: number;
   status: "active" | "completed" | "defaulted";
   groupName: string;
   purpose: string;
@@ -41,20 +40,53 @@ interface LoanSchedule {
 interface PaymentScheduleItem {
   id: string;
   dueDate: string;
+  openingPrincipalBalance: number;
   principalAmount: number;
   interestAmount: number;
   totalAmount: number;
+  paidPrincipalAmount: number;
+  paidInterestAmount: number;
+  isProjected: boolean;
   status: "paid" | "pending" | "overdue" | "upcoming";
   paidDate?: string;
-  lateFee?: number;
 }
 
 interface LoanRepaymentTrackerProps {
   loan: LoanSchedule;
   paymentSchedule: PaymentScheduleItem[];
-  onMakePayment: (paymentId: string, amount: number) => void;
+  onMakePayment: (loanId: string, amount: number) => void;
   onEarlyRepayment: () => void;
   onOpenFaq?: () => void;
+}
+
+function formatCurrency(amount: number) {
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function getOutstandingAmount(item: PaymentScheduleItem) {
+  return Math.max(
+    0,
+    Number(item.totalAmount || 0) -
+      Number(item.paidPrincipalAmount || 0) -
+      Number(item.paidInterestAmount || 0),
+  );
+}
+
+function getStatusColor(status: PaymentScheduleItem["status"]) {
+  switch (status) {
+    case "paid":
+      return "bg-emerald-100 text-emerald-700";
+    case "pending":
+      return "bg-blue-100 text-blue-700";
+    case "overdue":
+      return "bg-red-100 text-red-700";
+    default:
+      return "bg-gray-100 text-gray-700";
+  }
 }
 
 export default function LoanRepaymentTracker({
@@ -64,204 +96,150 @@ export default function LoanRepaymentTracker({
   onEarlyRepayment,
   onOpenFaq,
 }: LoanRepaymentTrackerProps) {
-  const { toast } = useToast();
-  const [showEarlyRepaymentModal, setShowEarlyRepaymentModal] = useState(false);
-  const [earlyRepaymentAmount, setEarlyRepaymentAmount] = useState(
-    loan.remainingBalance,
+  const [showCustomRepaymentModal, setShowCustomRepaymentModal] = useState(false);
+  const [customRepaymentAmount, setCustomRepaymentAmount] = useState(
+    loan.nextPaymentAmount > 0 ? loan.nextPaymentAmount : loan.remainingBalance,
   );
-  const [isCalculating, setIsCalculating] = useState(false);
 
-  const paidPayments = paymentSchedule.filter((p) => p.status === "paid");
-  const overduePayments = paymentSchedule.filter((p) => p.status === "overdue");
-  const upcomingPayments = paymentSchedule.filter(
-    (p) => p.status === "pending" || p.status === "upcoming",
+  useEffect(() => {
+    setCustomRepaymentAmount(
+      loan.nextPaymentAmount > 0 ? loan.nextPaymentAmount : loan.remainingBalance,
+    );
+  }, [loan.id, loan.nextPaymentAmount, loan.remainingBalance]);
+
+  const scheduleItems = useMemo(
+    () =>
+      [...paymentSchedule].sort((left, right) =>
+        left.dueDate.localeCompare(right.dueDate),
+      ),
+    [paymentSchedule],
   );
-  const nextPayment = upcomingPayments[0];
 
-  const totalPaid = paidPayments.reduce((sum, p) => sum + p.totalAmount, 0);
-  const progressPercentage = Math.round((totalPaid / loan.totalPayment) * 100);
+  const paidPayments = scheduleItems.filter((item) => getOutstandingAmount(item) <= 0);
+  const overduePayments = scheduleItems.filter((item) => item.status === "overdue");
+  const openPayments = scheduleItems.filter((item) => getOutstandingAmount(item) > 0);
+  const nextPayment = openPayments[0] ?? null;
+  const progressBase = Math.max(loan.repaidSoFar + loan.remainingBalance, 0);
+  const progressPercentage =
+    progressBase > 0
+      ? Math.min(100, Math.round((loan.repaidSoFar / progressBase) * 100))
+      : 100;
   const facility = getLoanFacility(loan.loanType || "");
   const interestLabel = formatInterestLabel(
     loan.interestRate,
     loan.interestRateType || facility?.interestRateType || "annual",
     facility?.interestRateRange,
   );
+  const customRepaymentError =
+    customRepaymentAmount <= 0
+      ? "Enter an amount greater than 0."
+      : customRepaymentAmount > loan.remainingBalance
+        ? `Amount cannot exceed ${formatCurrency(loan.remainingBalance)}.`
+        : "";
 
-  // Calculate early repayment savings
-  const calculateEarlyRepaymentSavings = (amount: number) => {
-    const remainingInterest = paymentSchedule
-      .filter((p) => p.status !== "paid")
-      .reduce((sum, p) => sum + p.interestAmount, 0);
-
-    // Simplified calculation - actual would be more complex
-    const interestSaved = Math.round(remainingInterest * 0.7);
-    return interestSaved;
-  };
-
-  const interestSaved = calculateEarlyRepaymentSavings(earlyRepaymentAmount);
-
-  const handleEarlyRepayment = async () => {
-    setIsCalculating(true);
-    try {
-      // Process early repayment
-      await supabase.functions.invoke("send-sms", {
-        body: {
-          action: "early_repayment_confirmation",
-          to: "08012345678", // Would be actual user phone
-          name: "Member",
-          amount: earlyRepaymentAmount,
-          interest_saved: interestSaved,
-        },
-      });
-
-      toast({
-        title: "Early Repayment Initiated",
-        description: `Your early repayment of ₦${earlyRepaymentAmount.toLocaleString()} is being processed`,
-      });
-
-      setShowEarlyRepaymentModal(false);
-      onEarlyRepayment();
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to process early repayment",
-        variant: "destructive",
-      });
-    } finally {
-      setIsCalculating(false);
-    }
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "paid":
-        return "bg-emerald-100 text-emerald-700";
-      case "pending":
-        return "bg-blue-100 text-blue-700";
-      case "overdue":
-        return "bg-red-100 text-red-700";
-      case "upcoming":
-        return "bg-gray-100 text-gray-700";
-      default:
-        return "bg-gray-100 text-gray-700";
-    }
-  };
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "paid":
-        return <CheckCircle className="w-4 h-4 text-emerald-600" />;
-      case "pending":
-        return <Clock className="w-4 h-4 text-blue-600" />;
-      case "overdue":
-        return <AlertTriangle className="w-4 h-4 text-red-600" />;
-      default:
-        return <Calendar className="w-4 h-4 text-gray-600" />;
-    }
+  const handleProceedToPayment = (amount: number) => {
+    onMakePayment(loan.id, amount);
   };
 
   return (
     <div className="space-y-6">
-      {/* Loan Overview Card */}
-      <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 p-6 rounded-2xl text-white">
-        <div className="flex justify-between items-start mb-6">
+      <div className="rounded-2xl bg-gradient-to-br from-emerald-600 via-emerald-600 to-teal-600 p-6 text-white">
+        <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-emerald-100 text-sm">Active Loan</p>
-            <h2 className="mt-1 font-bold text-3xl">
-              ₦{loan.loanAmount.toLocaleString()}
+            <p className="text-sm text-emerald-100">Loan Repayment Dashboard</p>
+            <h2 className="mt-1 text-3xl font-bold">
+              {formatCurrency(loan.loanAmount)}
             </h2>
-            <p className="mt-1 text-emerald-100 text-sm">
+            <p className="mt-1 text-sm text-emerald-100">
               {loan.groupName} • {loan.purpose}
             </p>
           </div>
-          <div
-            className={`px-3 py-1 rounded-full text-sm font-medium ${
-              loan.status === "active" ? "bg-white/20" : "bg-emerald-700"
-            }`}
-          >
-            {loan.status.charAt(0).toUpperCase() + loan.status.slice(1)}
+          <div className="rounded-full bg-white/15 px-4 py-2 text-sm font-medium">
+            {loan.status === "completed" ? "Completed" : "Active"}
           </div>
         </div>
 
-        {/* Progress Bar */}
         <div className="mb-4">
-          <div className="flex justify-between items-center mb-2 text-sm">
+          <div className="mb-2 flex items-center justify-between text-sm">
             <span className="text-emerald-100">Repayment Progress</span>
             <span className="font-medium">{progressPercentage}%</span>
           </div>
-          <div className="bg-white/20 rounded-full h-3 overflow-hidden">
+          <div className="h-3 overflow-hidden rounded-full bg-white/20">
             <div
-              className="bg-white rounded-full h-full transition-all duration-500"
+              className="h-full rounded-full bg-white transition-all"
               style={{ width: `${progressPercentage}%` }}
             />
           </div>
         </div>
 
-        <div className="gap-4 grid grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
           <div>
-            <p className="text-emerald-100 text-xs">Repaid So Far</p>
-            <p className="font-semibold">₦{totalPaid.toLocaleString()}</p>
+            <p className="text-xs text-emerald-100">Repaid So Far</p>
+            <p className="font-semibold">{formatCurrency(loan.repaidSoFar)}</p>
           </div>
           <div>
-            <p className="text-emerald-100 text-xs">Remaining</p>
+            <p className="text-xs text-emerald-100">Total Remaining</p>
             <p className="font-semibold">
-              ₦{loan.remainingBalance.toLocaleString()}
+              {formatCurrency(loan.remainingBalance)}
             </p>
           </div>
           <div>
-            <p className="text-emerald-100 text-xs">Monthly Payment</p>
+            <p className="text-xs text-emerald-100">Principal Outstanding</p>
             <p className="font-semibold">
-              ₦{loan.monthlyPayment.toLocaleString()}
+              {formatCurrency(loan.principalOutstanding)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-emerald-100">Accrued Interest Due</p>
+            <p className="font-semibold">
+              {formatCurrency(loan.accruedInterestBalance)}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Quick Stats */}
-      <div className="gap-4 grid grid-cols-2 md:grid-cols-4">
-        <div className="bg-white p-4 border rounded-xl">
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="rounded-xl border bg-white p-4">
           <div className="flex items-center gap-3">
-            <div className="flex justify-center items-center bg-emerald-100 rounded-lg w-10 h-10">
-              <CheckCircle className="w-5 h-5 text-emerald-600" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100">
+              <CheckCircle className="h-5 w-5 text-emerald-600" />
             </div>
             <div>
-              <p className="font-bold text-gray-900 text-xl">
+              <p className="text-xl font-bold text-gray-900">
                 {paidPayments.length}
               </p>
-              <p className="text-gray-500 text-xs">Payments Made</p>
+              <p className="text-xs text-gray-500">Settled Cycles</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 border rounded-xl">
+        <div className="rounded-xl border bg-white p-4">
           <div className="flex items-center gap-3">
-            <div className="flex justify-center items-center bg-blue-100 rounded-lg w-10 h-10">
-              <Clock className="w-5 h-5 text-blue-600" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
+              <Clock className="h-5 w-5 text-blue-600" />
             </div>
             <div>
-              <p className="font-bold text-gray-900 text-xl">
-                {upcomingPayments.length}
+              <p className="text-xl font-bold text-gray-900">
+                {formatCurrency(loan.nextPaymentAmount || loan.projectedMonthlyDue)}
               </p>
-              <p className="text-gray-500 text-xs">Remaining</p>
+              <p className="text-xs text-gray-500">Recommended Next Due</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 border rounded-xl">
+        <div className="rounded-xl border bg-white p-4">
           <div className="flex items-center gap-3">
-            <div className="flex justify-center items-center bg-purple-100 rounded-lg w-10 h-10">
-              <TrendingUp className="w-5 h-5 text-purple-600" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-100">
+              <TrendingUp className="h-5 w-5 text-purple-600" />
             </div>
             <div>
-              <p className="font-bold text-gray-900 text-xl">
-                {interestLabel}
-              </p>
-              <p className="text-gray-500 text-xs">Interest Rate</p>
+              <p className="text-base font-bold text-gray-900">{interestLabel}</p>
+              <p className="text-xs text-gray-500">Interest on Remaining Principal</p>
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 border rounded-xl">
+        <div className="rounded-xl border bg-white p-4">
           <div className="flex items-center gap-3">
             <div
-              className={`h-10 w-10 rounded-lg flex items-center justify-center ${
+              className={`flex h-10 w-10 items-center justify-center rounded-lg ${
                 overduePayments.length > 0 ? "bg-red-100" : "bg-gray-100"
               }`}
             >
@@ -272,64 +250,55 @@ export default function LoanRepaymentTracker({
               />
             </div>
             <div>
-              <p className="font-bold text-gray-900 text-xl">
+              <p className="text-xl font-bold text-gray-900">
                 {overduePayments.length}
               </p>
-              <p className="text-gray-500 text-xs">Overdue</p>
+              <p className="text-xs text-gray-500">Overdue Cycles</p>
             </div>
           </div>
         </div>
       </div>
 
       {onOpenFaq && (
-        <div className="bg-white border rounded-xl p-4">
+        <div className="rounded-xl border bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-100">
                 <HelpCircle className="h-5 w-5 text-indigo-600" />
               </div>
               <div>
-                <p className="font-medium text-gray-900">Loan FAQ</p>
+                <p className="font-medium text-gray-900">Repayment FAQ</p>
                 <p className="text-sm text-gray-500">
-                  Need clarity on repayment rules or loan terms? Review the
-                  FAQ.
+                  Repayments first clear accrued interest, then reduce your principal.
                 </p>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onOpenFaq}
-              className="whitespace-nowrap"
-            >
+            <Button variant="outline" size="sm" onClick={onOpenFaq}>
               View FAQ
             </Button>
           </div>
         </div>
       )}
 
-      {/* Next Payment Alert */}
       {nextPayment && (
         <div
-          className={`rounded-xl p-5 ${
+          className={`rounded-xl border p-5 ${
             nextPayment.status === "overdue"
-              ? "bg-red-50 border border-red-200"
-              : "bg-blue-50 border border-blue-200"
+              ? "border-red-200 bg-red-50"
+              : "border-blue-200 bg-blue-50"
           }`}
         >
-          <div className="flex justify-between items-center">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-4">
               <div
-                className={`h-12 w-12 rounded-full flex items-center justify-center ${
-                  nextPayment.status === "overdue"
-                    ? "bg-red-100"
-                    : "bg-blue-100"
+                className={`flex h-12 w-12 items-center justify-center rounded-full ${
+                  nextPayment.status === "overdue" ? "bg-red-100" : "bg-blue-100"
                 }`}
               >
                 {nextPayment.status === "overdue" ? (
-                  <AlertTriangle className="w-6 h-6 text-red-600" />
+                  <AlertTriangle className="h-6 w-6 text-red-600" />
                 ) : (
-                  <Calendar className="w-6 h-6 text-blue-600" />
+                  <Calendar className="h-6 w-6 text-blue-600" />
                 )}
               </div>
               <div>
@@ -341,8 +310,8 @@ export default function LoanRepaymentTracker({
                   }`}
                 >
                   {nextPayment.status === "overdue"
-                    ? "Payment Overdue"
-                    : "Next Payment Due"}
+                    ? "Repayment Overdue"
+                    : "Next Repayment Cycle"}
                 </p>
                 <p
                   className={`text-2xl font-bold ${
@@ -351,252 +320,218 @@ export default function LoanRepaymentTracker({
                       : "text-blue-900"
                   }`}
                 >
-                  ₦{nextPayment.totalAmount.toLocaleString()}
-                  {nextPayment.lateFee && nextPayment.lateFee > 0 && (
-                    <span className="ml-2 font-normal text-sm">
-                      (+₦{nextPayment.lateFee.toLocaleString()} late fee)
-                    </span>
-                  )}
+                  {formatCurrency(getOutstandingAmount(nextPayment))}
+                </p>
+                <p className="mt-1 text-sm text-gray-600">
+                  Due on {nextPayment.dueDate || loan.nextPaymentDate || "next cycle"}
                 </p>
               </div>
             </div>
-            <div className="text-right">
-              <p
-                className={`text-sm ${
-                  nextPayment.status === "overdue"
-                    ? "text-red-700"
-                    : "text-blue-700"
-                }`}
+            <div className="flex flex-wrap gap-3">
+              <Button
+                variant="outline"
+                className="border-blue-200 bg-white"
+                onClick={() => setShowCustomRepaymentModal(true)}
               >
-                Due: {nextPayment.dueDate}
-              </p>
+                Custom Amount
+              </Button>
               <Button
                 onClick={() =>
-                  onMakePayment(nextPayment.id, nextPayment.totalAmount)
+                  handleProceedToPayment(
+                    Math.min(getOutstandingAmount(nextPayment), loan.remainingBalance),
+                  )
                 }
-                className={`mt-2 ${
-                  nextPayment.status === "overdue"
-                    ? "bg-red-600 hover:bg-red-700"
-                    : "bg-blue-600 hover:bg-blue-700"
-                }`}
               >
-                <CreditCard className="mr-2 w-4 h-4" />
-                Pay Now
+                <CreditCard className="mr-2 h-4 w-4" />
+                Repay Now
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Early Repayment Option */}
-      <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-5 border border-purple-200 rounded-xl">
-        <div className="flex justify-between items-center">
+      <div className="rounded-xl border border-purple-200 bg-gradient-to-r from-purple-50 to-indigo-50 p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex items-center gap-4">
-            <div className="flex justify-center items-center bg-purple-100 rounded-full w-12 h-12">
-              <Calculator className="w-6 h-6 text-purple-600" />
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-purple-100">
+              <Wallet className="h-6 w-6 text-purple-600" />
             </div>
             <div>
-              <p className="font-medium text-purple-800">
-                Early Repayment Option
-              </p>
-              <p className="text-purple-600 text-sm">
-                Pay off your loan early and save on interest
+              <p className="font-medium text-purple-800">Flexible Repayment</p>
+              <p className="text-sm text-purple-600">
+                Make any repayment above zero up to your total remaining balance.
               </p>
             </div>
           </div>
           <Button
-            onClick={() => setShowEarlyRepaymentModal(true)}
             variant="outline"
-            className="hover:bg-purple-100 border-purple-300 text-purple-700"
+            className="border-purple-300 bg-white text-purple-700 hover:bg-purple-100"
+            onClick={() => setShowCustomRepaymentModal(true)}
           >
-            Calculate Savings
-            <ArrowRight className="ml-2 w-4 h-4" />
+            Custom Repayment
+            <ChevronRight className="ml-2 h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      {/* Payment Schedule */}
-      <div className="bg-white border rounded-xl">
-        <div className="flex justify-between items-center p-5 border-b">
-          <h3 className="font-semibold text-gray-900">Payment Schedule</h3>
-          <Button variant="outline" size="sm" className="gap-2">
-            <Download className="w-4 h-4" />
-            Download Schedule
-          </Button>
+      <div className="overflow-hidden rounded-xl border bg-white">
+        <div className="flex items-center justify-between border-b p-5">
+          <div>
+            <h3 className="font-semibold text-gray-900">Repayment Cycles</h3>
+            <p className="text-sm text-gray-500">
+              Interest accrues monthly on the remaining principal until the loan is fully cleared.
+            </p>
+          </div>
         </div>
-        <div className="divide-y max-h-96 overflow-y-auto">
-          {paymentSchedule.map((payment, index) => (
-            <div
-              key={payment.id}
-              className={`p-4 flex items-center justify-between hover:bg-gray-50 ${
-                payment.status === "overdue" ? "bg-red-50" : ""
-              }`}
-            >
-              <div className="flex items-center gap-4">
-                <div className="flex justify-center items-center bg-gray-100 rounded-full w-10 h-10 font-medium text-gray-600">
-                  {index + 1}
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900">
-                    ₦{payment.totalAmount.toLocaleString()}
-                  </p>
-                  <p className="text-gray-500 text-sm">
-                    Principal: ₦{payment.principalAmount.toLocaleString()} •
-                    Interest: ₦{payment.interestAmount.toLocaleString()}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="text-right">
-                  <p className="text-gray-600 text-sm">{payment.dueDate}</p>
-                  {payment.paidDate && (
-                    <p className="text-emerald-600 text-xs">
-                      Paid: {payment.paidDate}
-                    </p>
+        <div className="max-h-[28rem] overflow-y-auto">
+          {scheduleItems.map((payment, index) => {
+            const outstandingAmount = getOutstandingAmount(payment);
+            const isPayable = outstandingAmount > 0 && loan.remainingBalance > 0;
+            return (
+              <div
+                key={payment.id}
+                className={`border-b p-4 last:border-b-0 ${
+                  payment.status === "overdue" ? "bg-red-50/70" : "bg-white"
+                }`}
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 font-medium text-gray-700">
+                      {index + 1}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-gray-900">
+                          {payment.isProjected ? "Projected Cycle" : "Repayment Cycle"}
+                        </p>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-medium ${getStatusColor(payment.status)}`}
+                        >
+                          {payment.status.replace("_", " ")}
+                        </span>
+                      </div>
+                      <div className="grid gap-2 text-sm text-gray-600 md:grid-cols-2 xl:grid-cols-4">
+                        <p>Due Date: {payment.dueDate}</p>
+                        <p>Opening Principal: {formatCurrency(payment.openingPrincipalBalance)}</p>
+                        <p>Principal Due: {formatCurrency(payment.principalAmount)}</p>
+                        <p>Interest Due: {formatCurrency(payment.interestAmount)}</p>
+                        <p>Principal Paid: {formatCurrency(payment.paidPrincipalAmount)}</p>
+                        <p>Interest Paid: {formatCurrency(payment.paidInterestAmount)}</p>
+                        <p>Total Cycle Due: {formatCurrency(payment.totalAmount)}</p>
+                        <p>Outstanding: {formatCurrency(outstandingAmount)}</p>
+                      </div>
+                      {payment.paidDate && (
+                        <p className="text-xs text-emerald-600">
+                          Settled on {payment.paidDate}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  {isPayable && (
+                    <Button
+                      size="sm"
+                      onClick={() =>
+                        handleProceedToPayment(
+                          Math.min(outstandingAmount, loan.remainingBalance),
+                        )
+                      }
+                    >
+                      Pay {formatCurrency(Math.min(outstandingAmount, loan.remainingBalance))}
+                    </Button>
                   )}
                 </div>
-                <span
-                  className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusColor(payment.status)}`}
-                >
-                  {getStatusIcon(payment.status)}
-                  {payment.status.charAt(0).toUpperCase() +
-                    payment.status.slice(1)}
-                </span>
-                {(payment.status === "pending" ||
-                  payment.status === "overdue") && (
-                  <Button
-                    size="sm"
-                    onClick={() =>
-                      onMakePayment(payment.id, payment.totalAmount)
-                    }
-                    className={
-                      payment.status === "overdue"
-                        ? "bg-red-600 hover:bg-red-700"
-                        : ""
-                    }
-                  >
-                    Pay
-                  </Button>
-                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      {/* Loan Details */}
-      <div className="bg-white p-5 border rounded-xl">
+      <div className="rounded-xl border bg-white p-5">
         <h3 className="mb-4 font-semibold text-gray-900">Loan Details</h3>
-        <div className="gap-4 grid grid-cols-2 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-4">
           <div>
-            <p className="text-gray-500 text-sm">Start Date</p>
+            <p className="text-sm text-gray-500">Start Date</p>
             <p className="font-medium text-gray-900">{loan.startDate}</p>
           </div>
           <div>
-            <p className="text-gray-500 text-sm">End Date</p>
+            <p className="text-sm text-gray-500">End of Original Term</p>
             <p className="font-medium text-gray-900">{loan.endDate}</p>
           </div>
           <div>
-            <p className="text-gray-500 text-sm">Term</p>
-            <p className="font-medium text-gray-900">
-              {loan.termMonths} months
-            </p>
+            <p className="text-sm text-gray-500">Original Term</p>
+            <p className="font-medium text-gray-900">{loan.termMonths} months</p>
           </div>
           <div>
-            <p className="text-gray-500 text-sm">Total Interest</p>
+            <p className="text-sm text-gray-500">Projected Monthly Due</p>
             <p className="font-medium text-gray-900">
-              ₦{loan.totalInterest.toLocaleString()}
+              {formatCurrency(loan.projectedMonthlyDue)}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Early Repayment Modal */}
-      {showEarlyRepaymentModal && (
-        <div className="z-50 fixed inset-0 flex justify-center items-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md">
-            <div className="p-6 border-b">
-              <h2 className="font-bold text-gray-900 text-xl">
-                Early Repayment Calculator
+      {showCustomRepaymentModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white">
+            <div className="border-b p-6">
+              <h2 className="text-xl font-bold text-gray-900">
+                Make Custom Repayment
               </h2>
-              <p className="mt-1 text-gray-500 text-sm">
-                See how much you can save by paying early
+              <p className="mt-1 text-sm text-gray-500">
+                Enter any amount greater than 0 and up to your remaining balance.
               </p>
             </div>
             <div className="space-y-4 p-6">
               <div>
-                <label className="block mb-2 font-medium text-gray-700 text-sm">
+                <label className="mb-2 block text-sm font-medium text-gray-700">
                   Repayment Amount
                 </label>
-                <div className="relative">
-                  <span className="top-1/2 left-4 absolute text-gray-500 -translate-y-1/2">
-                    ₦
-                  </span>
-                  <input
-                    type="number"
-                    value={earlyRepaymentAmount}
-                    onChange={(e) =>
-                      setEarlyRepaymentAmount(Number(e.target.value))
-                    }
-                    className="py-3 pr-4 pl-8 border focus:border-emerald-500 rounded-lg focus:ring-2 focus:ring-emerald-500 w-full"
-                    min={loan.monthlyPayment}
-                    max={loan.remainingBalance}
-                  />
-                </div>
-                <p className="mt-1 text-gray-500 text-sm">
-                  Remaining balance: ₦{loan.remainingBalance.toLocaleString()}
+                <Input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={customRepaymentAmount}
+                  onChange={(event) =>
+                    setCustomRepaymentAmount(Number(event.target.value))
+                  }
+                />
+                <p className="mt-2 text-sm text-gray-500">
+                  Remaining balance: {formatCurrency(loan.remainingBalance)}
                 </p>
+                <p className="mt-1 text-xs text-gray-500">
+                  Interest due now: {formatCurrency(loan.accruedInterestBalance)} •
+                  Principal outstanding: {formatCurrency(loan.principalOutstanding)}
+                </p>
+                {customRepaymentError && (
+                  <p className="mt-2 text-sm text-red-600">
+                    {customRepaymentError}
+                  </p>
+                )}
               </div>
 
-              <div className="bg-emerald-50 p-4 border border-emerald-200 rounded-lg">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-emerald-700">Interest Saved</span>
-                  <span className="font-bold text-emerald-700 text-xl">
-                    ₦{interestSaved.toLocaleString()}
-                  </span>
-                </div>
-                <p className="text-emerald-600 text-sm">
-                  By paying ₦{earlyRepaymentAmount.toLocaleString()} now, you'll
-                  save on future interest payments
-                </p>
-              </div>
-
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-gray-600">New Remaining Balance</span>
-                  <span className="font-medium text-gray-900">
-                    ₦
-                    {Math.max(
-                      0,
-                      loan.remainingBalance - earlyRepaymentAmount,
-                    ).toLocaleString()}
-                  </span>
-                </div>
+              <div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-700">
+                Your payment will be applied to accrued interest first, then the
+                remaining principal.
               </div>
             </div>
-            <div className="flex gap-3 bg-gray-50 p-6 border-t">
+            <div className="flex gap-3 border-t bg-gray-50 p-6">
               <Button
                 variant="outline"
-                onClick={() => setShowEarlyRepaymentModal(false)}
                 className="flex-1"
+                onClick={() => setShowCustomRepaymentModal(false)}
               >
                 Cancel
               </Button>
               <Button
-                onClick={handleEarlyRepayment}
-                disabled={
-                  isCalculating || earlyRepaymentAmount < loan.monthlyPayment
-                }
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                className="flex-1"
+                disabled={Boolean(customRepaymentError)}
+                onClick={() => {
+                  handleProceedToPayment(customRepaymentAmount);
+                  setShowCustomRepaymentModal(false);
+                  onEarlyRepayment();
+                }}
               >
-                {isCalculating ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <>
-                    <Wallet className="mr-2 w-4 h-4" />
-                    Make Payment
-                  </>
-                )}
+                Continue to Payment
               </Button>
             </div>
           </div>

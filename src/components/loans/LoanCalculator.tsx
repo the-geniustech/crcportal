@@ -321,7 +321,7 @@ const LoanCalculator: React.FC<LoanCalculatorProps> = ({ memberData }) => {
             
             <div className="grid grid-cols-3 gap-4 mb-6">
               <div className="text-center p-4 bg-emerald-50 rounded-xl">
-                <p className="text-sm text-gray-600 mb-1">Monthly Payment</p>
+                <p className="text-sm text-gray-600 mb-1">Projected Monthly Due</p>
                 <p className="text-2xl font-bold text-emerald-600">
                   ₦{loanDetails.monthlyPayment.toLocaleString()}
                 </p>

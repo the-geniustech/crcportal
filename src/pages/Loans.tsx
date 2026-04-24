@@ -49,12 +49,17 @@ type LoanScheduleVM = {
   interestRateType?: "annual" | "monthly" | "total";
   loanType?: string;
   termMonths: number;
-  monthlyPayment: number;
+  projectedMonthlyDue: number;
+  nextPaymentAmount: number;
+  nextPaymentDate: string;
   totalInterest: number;
   totalPayment: number;
   startDate: string;
   endDate: string;
   remainingBalance: number;
+  principalOutstanding: number;
+  accruedInterestBalance: number;
+  repaidSoFar: number;
   status: "active" | "completed" | "defaulted";
   groupName: string;
   purpose: string;
@@ -63,9 +68,13 @@ type LoanScheduleVM = {
 type PaymentScheduleItemVM = {
   id: string;
   dueDate: string;
+  openingPrincipalBalance: number;
   principalAmount: number;
   interestAmount: number;
   totalAmount: number;
+  paidPrincipalAmount: number;
+  paidInterestAmount: number;
+  isProjected: boolean;
   status: "paid" | "pending" | "overdue" | "upcoming";
   paidDate?: string;
   lateFee?: number;
@@ -109,6 +118,10 @@ function mapLoanVm(
   const principal = Number(app.approvedAmount ?? app.loanAmount ?? 0);
   const totalPayment = Number(app.totalRepayable ?? principal);
   const remainingBalance = Number(app.remainingBalance ?? 0);
+  const principalOutstanding = Number(
+    app.principalOutstanding ?? app.remainingBalance ?? 0,
+  );
+  const accruedInterestBalance = Number(app.accruedInterestBalance ?? 0);
   const interestRate = Number(
     app.approvedInterestRate ?? app.interestRate ?? 0,
   );
@@ -117,7 +130,12 @@ function mapLoanVm(
     | "monthly"
     | "total";
   const termMonths = Number(app.repaymentPeriod ?? 0);
-  const monthlyPayment = Number(app.monthlyPayment ?? 0);
+  const projectedMonthlyDue = Number(app.monthlyPayment ?? 0);
+  const nextPaymentAmount = Number(
+    app.nextPaymentAmount ?? app.monthlyPayment ?? 0,
+  );
+  const repaidSoFar = Number(app.repaymentToDate ?? Math.max(0, totalPayment - remainingBalance));
+  const nextPaymentDate = app.nextPaymentDueDate ? toYmd(app.nextPaymentDueDate) : "";
 
   const start =
     app.disbursedAt ||
@@ -150,12 +168,17 @@ function mapLoanVm(
     interestRateType,
     loanType: app.loanType ?? undefined,
     termMonths,
-    monthlyPayment,
+    projectedMonthlyDue,
+    nextPaymentAmount,
+    nextPaymentDate,
     totalInterest,
     totalPayment,
     startDate,
     endDate,
     remainingBalance,
+    principalOutstanding,
+    accruedInterestBalance,
+    repaidSoFar,
     status,
     groupName: app.groupName || "CRC Connect",
     purpose: app.loanPurpose || "Loan",
@@ -203,9 +226,13 @@ function LoansContent() {
   ).map((it) => ({
     id: it._id,
     dueDate: toYmd(it.dueDate),
+    openingPrincipalBalance: Number(it.openingPrincipalBalance ?? 0),
     principalAmount: it.principalAmount,
     interestAmount: it.interestAmount,
     totalAmount: it.totalAmount,
+    paidPrincipalAmount: Number(it.paidPrincipalAmount ?? 0),
+    paidInterestAmount: Number(it.paidInterestAmount ?? 0),
+    isProjected: Boolean(it.isProjected),
     status: it.status,
     paidDate: it.paidAt ? toYmd(it.paidAt) : undefined,
   }));
@@ -235,10 +262,7 @@ function LoansContent() {
   };
 
   const handleEarlyRepayment = () => {
-    toast({
-      title: "Early Repayment",
-      description: "Early repayment request has been submitted",
-    });
+    return undefined;
   };
 
   const handleResumeDraft = (draftId: string) => {
@@ -384,12 +408,7 @@ function LoansContent() {
               </div>
               <div>
                 <p className="font-bold text-gray-900 text-2xl">
-                  {paymentSchedule.find(
-                    (p) =>
-                      p.status === "pending" ||
-                      p.status === "overdue" ||
-                      p.status === "upcoming",
-                  )?.dueDate || "No upcoming payment"}
+                  {selectedLoanVm?.nextPaymentDate || "No upcoming payment"}
                 </p>
                 <p className="text-gray-500 text-sm">Next Payment</p>
               </div>

@@ -18,6 +18,17 @@ function roundMoney(value: number) {
   return Math.round(Number.isFinite(value) ? value : 0);
 }
 
+function getMonthlyRate(
+  rate: number,
+  rateType: LoanInterestRateType,
+  months: number,
+) {
+  const normalizedMonths = Math.max(1, Math.floor(months));
+  if (rateType === "monthly") return rate / 100;
+  if (rateType === "total") return rate / 100 / normalizedMonths;
+  return rate / 100 / 12;
+}
+
 export function calculateLoanSummary({
   principal,
   rate,
@@ -58,59 +69,30 @@ export function buildAmortizationSchedule({
   rateType: LoanInterestRateType;
   months: number;
 }): LoanScheduleEntry[] {
-  const P = Number(principal);
+  const P = Math.max(0, Number(principal) || 0);
   const n = Math.max(1, Math.floor(months));
   const r = Math.max(0, Number(rate) || 0);
   const schedule: LoanScheduleEntry[] = [];
 
-  if (rateType === "total") {
-    const totalInterest = roundMoney(P * (r / 100));
-    const basePayment = (P + totalInterest) / n;
-    let remainingPrincipal = P;
-    let remainingInterest = totalInterest;
-
-    for (let i = 1; i <= n; i += 1) {
-      const interest =
-        i === n ? remainingInterest : roundMoney(totalInterest / n);
-      const principalPaid =
-        i === n ? remainingPrincipal : roundMoney(basePayment - interest);
-      const payment = principalPaid + interest;
-      remainingPrincipal = Math.max(0, remainingPrincipal - principalPaid);
-      remainingInterest = Math.max(0, remainingInterest - interest);
-
-      schedule.push({
-        month: i,
-        payment: roundMoney(payment),
-        principal: roundMoney(principalPaid),
-        interest: roundMoney(interest),
-        balance: roundMoney(remainingPrincipal),
-      });
-    }
-
-    return schedule;
-  }
-
-  const monthlyRate = rateType === "monthly" ? r / 100 : r / 100 / 12;
-  const payment =
-    monthlyRate === 0
-      ? P / n
-      : (P * monthlyRate * Math.pow(1 + monthlyRate, n)) /
-        (Math.pow(1 + monthlyRate, n) - 1);
-
+  const monthlyRate = getMonthlyRate(r, rateType, n);
   let balance = P;
 
   for (let i = 1; i <= n; i += 1) {
-    const interest = monthlyRate === 0 ? 0 : balance * monthlyRate;
-    let principalPaid = payment - interest;
-    if (i === n) principalPaid = balance;
-    const total = principalPaid + interest;
-    balance = Math.max(0, balance - principalPaid);
+    const cyclesRemaining = Math.max(1, n - i + 1);
+    const openingBalance = balance;
+    const interest = roundMoney(openingBalance * monthlyRate);
+    const principalPaid =
+      i === n
+        ? roundMoney(openingBalance)
+        : roundMoney(openingBalance / cyclesRemaining);
+    const total = roundMoney(principalPaid + interest);
+    balance = Math.max(0, roundMoney(balance - principalPaid));
 
     schedule.push({
       month: i,
-      payment: roundMoney(total),
-      principal: roundMoney(principalPaid),
-      interest: roundMoney(interest),
+      payment: total,
+      principal: principalPaid,
+      interest,
       balance: roundMoney(balance),
     });
   }

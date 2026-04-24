@@ -195,7 +195,68 @@ export default function RecurringPaymentModal({
     return Number.isFinite(value) && value > 0 ? value : null;
   }, [selectedGroupInfo]);
 
+  const loans = useMemo(() => {
+    const apps = loanApplicationsQuery.data ?? [];
+    return apps
+      .filter((a) => ["disbursed", "defaulted"].includes(String(a.status)))
+      .map((a) => {
+        const amountLabel = Number(a.approvedAmount ?? a.loanAmount ?? 0);
+        const code = String(a.loanCode ?? a._id);
+        return {
+          id: a._id,
+          name: `${code} - ${formatCurrency(amountLabel)}`,
+          remainingBalance: Number(a.remainingBalance ?? 0),
+          principalOutstanding: Number(
+            a.principalOutstanding ?? a.remainingBalance ?? 0,
+          ),
+          accruedInterestBalance: Number(a.accruedInterestBalance ?? 0),
+          nextPaymentAmount: Number(a.nextPaymentAmount ?? a.monthlyPayment ?? 0),
+          recommendedAmount: Number(a.nextPaymentAmount ?? a.monthlyPayment ?? 0) ||
+            Number(a.remainingBalance ?? 0),
+        };
+      });
+  }, [loanApplicationsQuery.data]);
+
+  const selectedLoanInfo = useMemo(
+    () => loans.find((loan) => loan.id === selectedLoan) ?? null,
+    [loans, selectedLoan],
+  );
+  const parsedAmount = Number(amount || 0);
+  const loanAmountError = useMemo(() => {
+    if (paymentType !== "loan_repayment" || !selectedLoanInfo) return "";
+    if (!amount) return "";
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      return "Enter a repayment amount greater than 0.";
+    }
+    if (parsedAmount > selectedLoanInfo.remainingBalance) {
+      return `Amount cannot exceed ${formatCurrency(selectedLoanInfo.remainingBalance)} remaining balance.`;
+    }
+    return "";
+  }, [paymentType, selectedLoanInfo, amount, parsedAmount]);
+
   const quickAmounts = useMemo(() => {
+    if (paymentType === "loan_repayment") {
+      const selected = selectedLoanInfo ?? loans[0] ?? null;
+      if (!selected) return [5000, 10000, 25000, 50000];
+      const candidateValues = [
+        selected.nextPaymentAmount,
+        selected.accruedInterestBalance,
+        selected.remainingBalance >= 2
+          ? Math.round(selected.remainingBalance / 2)
+          : selected.remainingBalance,
+        selected.remainingBalance,
+      ];
+      const seen = new Set<number>();
+      return candidateValues.filter((value) => {
+        const num = Math.round(Number(value));
+        if (!Number.isFinite(num) || num <= 0) return false;
+        if (num > selected.remainingBalance) return false;
+        if (seen.has(num)) return false;
+        seen.add(num);
+        return true;
+      });
+    }
+
     const baseList = [5000, 10000, 25000, 50000];
     if (
       paymentType === "group_contribution" &&
@@ -213,22 +274,13 @@ export default function RecurringPaymentModal({
       });
     }
     return baseList;
-  }, [paymentType, contributionType, expectedMonthlyAmount]);
-
-  const loans = useMemo(() => {
-    const apps = loanApplicationsQuery.data ?? [];
-    return apps
-      .filter((a) => ["disbursed", "defaulted"].includes(String(a.status)))
-      .map((a) => {
-        const amountLabel = Number(a.approvedAmount ?? a.loanAmount ?? 0);
-        const code = String(a.loanCode ?? a._id);
-        return {
-          id: a._id,
-          name: `${code} - ${formatCurrency(amountLabel)}`,
-          monthlyPayment: Number(a.monthlyPayment ?? 0),
-        };
-      });
-  }, [loanApplicationsQuery.data]);
+  }, [
+    paymentType,
+    contributionType,
+    expectedMonthlyAmount,
+    selectedLoanInfo,
+    loans,
+  ]);
 
   useEffect(() => {
     if (editPayment) {
@@ -264,6 +316,15 @@ export default function RecurringPaymentModal({
     expectedMonthlyAmount,
     amountTouched,
   ]);
+
+  useEffect(() => {
+    if (editPayment) return;
+    if (paymentType !== "loan_repayment") return;
+    if (!selectedLoanInfo || amountTouched) return;
+    if (selectedLoanInfo.recommendedAmount > 0) {
+      setAmount(selectedLoanInfo.recommendedAmount.toString());
+    }
+  }, [editPayment, paymentType, selectedLoanInfo, amountTouched]);
 
   const calculateNextPaymentDate = (start: Date, freq: string): Date => {
     const today = new Date();
@@ -315,6 +376,15 @@ export default function RecurringPaymentModal({
       toast({
         title: "Validation Error",
         description: "Please select a loan",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (paymentType === "loan_repayment" && loanAmountError) {
+      toast({
+        title: "Invalid Repayment Amount",
+        description: loanAmountError,
         variant: "destructive",
       });
       return;
@@ -561,8 +631,8 @@ export default function RecurringPaymentModal({
                 onValueChange={(value) => {
                   setSelectedLoan(value);
                   const loan = loans.find((l) => l.id === value);
-                  if (loan) {
-                    setAmount(loan.monthlyPayment.toString());
+                  if (loan && loan.recommendedAmount > 0) {
+                    setAmount(loan.recommendedAmount.toString());
                     setAmountTouched(true);
                   }
                 }}
@@ -592,9 +662,30 @@ export default function RecurringPaymentModal({
                 setAmount(e.target.value);
                 setAmountTouched(true);
               }}
-              min="100"
+              min={paymentType === "loan_repayment" ? "0.01" : "100"}
+              step="0.01"
               className="font-semibold text-lg"
             />
+            {paymentType === "loan_repayment" && selectedLoanInfo && (
+              <div className="space-y-1 text-xs">
+                <p className="text-gray-500">
+                  Set any recurring repayment greater than 0 and not above{" "}
+                  {formatCurrency(selectedLoanInfo.remainingBalance)}.
+                  Each repayment is applied to accrued interest first, then
+                  principal.
+                </p>
+                {loanAmountError ? (
+                  <p className="text-red-600">{loanAmountError}</p>
+                ) : (
+                  <p className="text-emerald-600">
+                    Principal outstanding:{" "}
+                    {formatCurrency(selectedLoanInfo.principalOutstanding)} •
+                    Accrued interest due:{" "}
+                    {formatCurrency(selectedLoanInfo.accruedInterestBalance)}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex flex-wrap gap-2 mt-2">
               {quickAmounts.map((quickAmount) => (
                 <Button
@@ -765,6 +856,14 @@ export default function RecurringPaymentModal({
                   <p className="font-medium">
                     {loans.find((l) => l.id === selectedLoan)?.name}
                   </p>
+                  {selectedLoanInfo && (
+                    <p className="mt-1 text-emerald-700 text-xs">
+                      Remaining:{" "}
+                      {formatCurrency(selectedLoanInfo.remainingBalance)} •
+                      Suggested next due:{" "}
+                      {formatCurrency(selectedLoanInfo.nextPaymentAmount)}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -787,7 +886,8 @@ export default function RecurringPaymentModal({
                 !paymentType ||
                 paymentType === "deposit" ||
                 !amount ||
-                parseFloat(amount) <= 0 ||
+                parsedAmount <= 0 ||
+                Boolean(loanAmountError) ||
                 !frequency ||
                 !startDate ||
                 isLoading

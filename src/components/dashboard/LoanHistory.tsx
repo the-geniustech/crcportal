@@ -153,9 +153,9 @@ const LoanHistory: React.FC<LoanHistoryProps> = ({
 
                 <div className="gap-4 grid grid-cols-2 mb-3">
                   <div>
-                    <p className="text-gray-500 text-xs">Monthly Payment</p>
+                    <p className="text-gray-500 text-xs">Next Amount Due</p>
                     <p className="font-semibold text-gray-900">
-                      {formatCurrency(loan.monthlyPayment)}
+                      {formatCurrency(nextPaymentAmount)}
                     </p>
                   </div>
                   <div>
