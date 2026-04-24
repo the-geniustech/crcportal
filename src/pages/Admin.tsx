@@ -1,4 +1,11 @@
-﻿import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useMemo,
+  useState,
+  type FocusEvent,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -33,6 +40,7 @@ import {
   Wallet,
   Activity,
   Home,
+  Building2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -217,7 +225,7 @@ export default function Admin() {
   const navigate = useNavigate();
   const { user, profile, loading } = useAuth();
   const { toast } = useToast();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const { tab } = useParams();
   const [showAnnouncementModal, setShowAnnouncementModal] = useState(false);
   const [showBulkSMSModal, setShowBulkSMSModal] = useState(false);
@@ -784,7 +792,7 @@ export default function Admin() {
         badge: stats.defaulters > 0 ? stats.defaulters : undefined,
       },
       { id: "members", label: "Members Management", icon: Users },
-      { id: "groups", label: "Group Management", icon: Users },
+      { id: "groups", label: "Group Management", icon: Building2 },
       {
         id: "loans",
         label: "Loan Applications",
@@ -832,6 +840,20 @@ export default function Admin() {
       navigate("/admin/overview", { replace: true });
     }
   }, [tab, menuItems, navigate, isAdminAuthorized]);
+
+  const openSidebar = () => setSidebarOpen(true);
+  const closeSidebar = () => setSidebarOpen(false);
+  const toggleSidebar = () => setSidebarOpen((prev) => !prev);
+  const handleSidebarBlur = (event: FocusEvent<HTMLElement>) => {
+    const nextTarget = event.relatedTarget;
+    if (
+      nextTarget instanceof Node &&
+      event.currentTarget.contains(nextTarget)
+    ) {
+      return;
+    }
+    closeSidebar();
+  };
 
   const handleApprove = async (id: string, notes: string) => {
     try {
@@ -1460,23 +1482,29 @@ export default function Admin() {
     <div className="bg-gray-50 min-h-screen">
       {/* Sidebar */}
       <aside
-        className={`${sidebarOpen ? "w-64" : "w-20"} fixed inset-y-0 left-0 z-30 bg-gray-900 text-white transition-all duration-300 flex flex-col`}
+        className={`${sidebarOpen ? "w-64" : "w-20"} fixed inset-y-0 left-0 z-30 flex flex-col overflow-hidden bg-gray-900 text-white transition-all duration-300`}
+        onMouseEnter={openSidebar}
+        onMouseLeave={closeSidebar}
+        onFocusCapture={openSidebar}
+        onBlur={handleSidebarBlur}
       >
-        <div className="p-4 border-gray-800 border-b">
-          <div className="flex justify-between items-center">
+        <div className="top-0 z-10 sticky bg-gray-900/95 supports-[backdrop-filter]:bg-gray-900/80 backdrop-blur p-4 border-gray-800 border-b">
+          <div className="flex justify-between items-center gap-3">
             {sidebarOpen && (
-              <div className="flex items-center gap-2">
-                <div className="flex justify-center items-center bg-emerald-500 rounded-lg w-8 h-8">
-                  <Shield className="w-5 h-5" />
-                </div>
-                <span className="font-bold">Admin Panel</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <>
+                  <div className="flex flex-shrink-0 justify-center items-center bg-emerald-500 rounded-lg w-8 h-8">
+                    <Shield className="w-5 h-5" />
+                  </div>
+                  <span className="font-bold truncate">Admin Panel</span>
+                </>
               </div>
             )}
             <Button
               variant="ghost"
               size="icon"
-              className="hover:bg-gray-800 text-gray-400 hover:text-white"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="flex-shrink-0 hover:bg-gray-800 text-gray-400 hover:text-white"
+              onClick={toggleSidebar}
             >
               {sidebarOpen ? (
                 <X className="w-5 h-5" />
@@ -1487,33 +1515,35 @@ export default function Admin() {
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1 p-4">
-          {menuItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => navigate(`/admin/${item.id}`)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors ${
-                activeTab === item.id
-                  ? "bg-emerald-600 text-white"
-                  : "text-gray-400 hover:bg-gray-800 hover:text-white"
-              }`}
-            >
-              <item.icon className="flex-shrink-0 w-5 h-5" />
-              {sidebarOpen && (
-                <>
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {item.badge && (
-                    <Badge className="bg-red-500 text-white text-xs">
-                      {item.badge}
-                    </Badge>
-                  )}
-                </>
-              )}
-            </button>
-          ))}
+        <nav className="flex-1 px-3 py-4 min-h-0 overflow-y-auto">
+          <div className="space-y-1 pr-1">
+            {menuItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => navigate(`/admin/${item.id}`)}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
+                  activeTab === item.id
+                    ? "bg-emerald-600 text-white"
+                    : "text-gray-400 hover:bg-gray-800 hover:text-white"
+                }`}
+              >
+                <item.icon className="flex-shrink-0 w-5 h-5" />
+                {sidebarOpen && (
+                  <>
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {item.badge && (
+                      <Badge className="bg-red-500 text-white text-xs">
+                        {item.badge}
+                      </Badge>
+                    )}
+                  </>
+                )}
+              </button>
+            ))}
+          </div>
         </nav>
 
-        <div className="p-4 border-gray-800 border-t">
+        <div className="bottom-0 z-10 sticky bg-gray-900/95 supports-[backdrop-filter]:bg-gray-900/80 backdrop-blur p-4 border-gray-800 border-t">
           <button
             onClick={() => navigate("/")}
             className="flex items-center gap-3 hover:bg-gray-800 px-3 py-2.5 rounded-lg w-full text-gray-400 hover:text-white transition-colors"
