@@ -1,6 +1,8 @@
 import { api, getApiErrorMessage } from "./api/client";
+import type { LoanDocumentType } from "./loanDocuments";
 
 export type BackendLoanDocument = {
+  documentType?: LoanDocumentType | null;
   name: string;
   type: string;
   size: number;
@@ -173,6 +175,7 @@ export type BackendGuarantorNotification = {
 
 export type BackendLoanEligibility = {
   savingsBalance: number;
+  contributionBalance?: number;
   totalContributions: number;
   membershipDuration: number;
   groupsJoined: number;
@@ -229,11 +232,20 @@ export async function createLoanApplication(
 
 export async function uploadLoanDocuments(
   files: File[],
-  opts?: { onProgress?: (percent: number) => void },
+  opts?: {
+    documentType?: LoanDocumentType;
+    documentTypes?: LoanDocumentType[];
+    onProgress?: (percent: number) => void;
+  },
 ): Promise<BackendLoanDocument[]> {
   try {
     const formData = new FormData();
     files.forEach((file) => formData.append("documents", file));
+    if (opts?.documentType) {
+      formData.append("documentType", opts.documentType);
+    } else if (Array.isArray(opts?.documentTypes) && opts?.documentTypes.length) {
+      formData.append("documentTypes", JSON.stringify(opts.documentTypes));
+    }
     const res = await api.post("/loans/documents", formData, {
       headers: { "Content-Type": "multipart/form-data" },
       onUploadProgress: (event) => {

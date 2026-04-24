@@ -1,18 +1,19 @@
 import React from "react";
 import {
-  CheckCircle,
-  XCircle,
   AlertCircle,
+  Calendar,
+  CheckCircle,
   TrendingUp,
   Users,
-  Calendar,
   Wallet,
+  XCircle,
 } from "lucide-react";
 
 interface EligibilityData {
   savingsBalance: number;
+  contributionBalance?: number;
   totalContributions: number;
-  membershipDuration: number; // in months
+  membershipDuration: number;
   groupsJoined: number;
   attendanceRate: number;
   contributionStreak: number;
@@ -35,6 +36,7 @@ interface EligibilityCriteria {
 interface LoanEligibilityCheckProps {
   eligibilityData: EligibilityData;
   selectedGroup: string | null;
+  requestedLoanAmount: number;
   onGroupSelect: (groupId: string) => void;
   onContinue: () => void;
   groups: {
@@ -45,20 +47,48 @@ interface LoanEligibilityCheckProps {
   }[];
 }
 
+const formatCurrency = (amount: number) =>
+  new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(Number.isFinite(amount) ? amount : 0);
+
 export default function LoanEligibilityCheck({
   eligibilityData,
   selectedGroup,
+  requestedLoanAmount,
   onGroupSelect,
   onContinue,
   groups,
 }: LoanEligibilityCheckProps) {
+  const contributionBalance = Number(
+    eligibilityData.contributionBalance ??
+      eligibilityData.totalContributions ??
+      eligibilityData.savingsBalance ??
+      0,
+  );
+  const requiredContributionBalance = Math.max(
+    0,
+    Number(requestedLoanAmount || 0) * 0.1,
+  );
+  const maxLoanAmount = contributionBalance * 10;
+
   const eligibilityCriteria: EligibilityCriteria[] = [
     {
-      name: "Minimum Savings Balance",
-      description: "You must have at least ₦50,000 in savings",
-      met: eligibilityData.savingsBalance >= 50000,
-      value: `₦${eligibilityData.savingsBalance.toLocaleString()}`,
-      required: "₦50,000",
+      name: "Contribution Balance Coverage",
+      description:
+        "Member must have a contribution balance that is at least 10% of the amount requested. Pending withdrawals do not count.",
+      met:
+        requiredContributionBalance > 0
+          ? contributionBalance >= requiredContributionBalance
+          : contributionBalance > 0,
+      value: formatCurrency(contributionBalance),
+      required:
+        requiredContributionBalance > 0
+          ? formatCurrency(requiredContributionBalance)
+          : "10% of request",
     },
     {
       name: "Membership Duration",
@@ -81,13 +111,6 @@ export default function LoanEligibilityCheck({
       met: eligibilityData.contributionStreak >= 3,
       value: `${eligibilityData.contributionStreak} months`,
       required: "3 months",
-    },
-    {
-      name: "Meeting Attendance",
-      description: "You must have at least 70% meeting attendance",
-      met: eligibilityData.attendanceRate >= 70,
-      value: `${eligibilityData.attendanceRate}%`,
-      required: "70%",
     },
     {
       name: "No Loan Defaults",
@@ -121,72 +144,64 @@ export default function LoanEligibilityCheck({
     },
   ];
 
-  const allCriteriaMet = eligibilityCriteria.every((c) => c.met);
-  const metCount = eligibilityCriteria.filter((c) => c.met).length;
-
-  const maxLoanMultiplier =
-    eligibilityData.creditScore >= 800
-      ? 3
-      : eligibilityData.creditScore >= 700
-        ? 2.5
-        : 2;
-  const maxLoanAmount = eligibilityData.savingsBalance * maxLoanMultiplier;
+  const allCriteriaMet = eligibilityCriteria.every((criteria) => criteria.met);
+  const metCount = eligibilityCriteria.filter((criteria) => criteria.met).length;
 
   return (
     <div className="space-y-6">
-      {/* Eligibility Status Banner */}
       <div
-        className={`rounded-2xl p-6 ${allCriteriaMet ? "bg-gradient-to-r from-emerald-500 to-teal-500" : "bg-gradient-to-r from-amber-500 to-orange-500"}`}
+        className={`rounded-2xl p-6 ${
+          allCriteriaMet
+            ? "bg-gradient-to-r from-emerald-500 to-teal-500"
+            : "bg-gradient-to-r from-amber-500 to-orange-500"
+        }`}
       >
         <div className="flex items-start gap-4">
-          <div
-            className={`p-3 rounded-xl ${allCriteriaMet ? "bg-white/20" : "bg-white/20"}`}
-          >
+          <div className="rounded-xl bg-white/20 p-3">
             {allCriteriaMet ? (
-              <CheckCircle className="w-8 h-8 text-white" />
+              <CheckCircle className="h-8 w-8 text-white" />
             ) : (
-              <AlertCircle className="w-8 h-8 text-white" />
+              <AlertCircle className="h-8 w-8 text-white" />
             )}
           </div>
           <div className="flex-1 text-white">
-            <h3 className="mb-1 font-bold text-xl">
+            <h3 className="mb-1 text-xl font-bold">
               {allCriteriaMet
                 ? "You Are Eligible for a Loan!"
                 : "Eligibility Requirements Not Met"}
             </h3>
             <p className="text-white/90">
               {allCriteriaMet
-                ? `You meet all ${metCount} eligibility criteria. You can borrow up to ₦${maxLoanAmount.toLocaleString()}.`
+                ? `You meet all ${metCount} eligibility criteria. Based on your contribution balance, you can request up to ${formatCurrency(maxLoanAmount)}.`
                 : `You meet ${metCount} of ${eligibilityCriteria.length} criteria. Please review the requirements below.`}
             </p>
           </div>
         </div>
       </div>
 
-      {/* Member Stats Overview */}
-      <div className="gap-4 grid grid-cols-2 md:grid-cols-4">
-        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="bg-emerald-100 p-2 rounded-lg">
-              <Wallet className="w-5 h-5 text-emerald-600" />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center gap-3">
+            <div className="rounded-lg bg-emerald-100 p-2">
+              <Wallet className="h-5 w-5 text-emerald-600" />
             </div>
-            <span className="text-gray-500 text-sm">Savings Balance</span>
+            <span className="text-sm text-gray-500">Contribution Balance</span>
           </div>
-          <p className="font-bold text-gray-900 text-xl">
-            ₦{eligibilityData.savingsBalance.toLocaleString()}
+          <p className="text-xl font-bold text-gray-900">
+            {formatCurrency(contributionBalance)}
           </p>
         </div>
-        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="bg-blue-100 p-2 rounded-lg">
-              <TrendingUp className="w-5 h-5 text-blue-600" />
+        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center gap-3">
+            <div className="rounded-lg bg-blue-100 p-2">
+              <TrendingUp className="h-5 w-5 text-blue-600" />
             </div>
-            <span className="text-gray-500 text-sm">Credit Score</span>
+            <span className="text-sm text-gray-500">Credit Score</span>
           </div>
-          <p className="font-bold text-gray-900 text-xl">
+          <p className="text-xl font-bold text-gray-900">
             {eligibilityData.creditScore}
           </p>
-          <p className="font-medium text-emerald-600 text-xs">
+          <p className="text-xs font-medium text-emerald-600">
             {eligibilityData.creditScore >= 800
               ? "Excellent"
               : eligibilityData.creditScore >= 700
@@ -194,66 +209,71 @@ export default function LoanEligibilityCheck({
                 : "Fair"}
           </p>
         </div>
-        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="bg-purple-100 p-2 rounded-lg">
-              <Calendar className="w-5 h-5 text-purple-600" />
+        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center gap-3">
+            <div className="rounded-lg bg-purple-100 p-2">
+              <Calendar className="h-5 w-5 text-purple-600" />
             </div>
-            <span className="text-gray-500 text-sm">Member Since</span>
+            <span className="text-sm text-gray-500">Member Since</span>
           </div>
-          <p className="font-bold text-gray-900 text-xl">
+          <p className="text-xl font-bold text-gray-900">
             {eligibilityData.membershipDuration} months
           </p>
         </div>
-        <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="bg-amber-100 p-2 rounded-lg">
-              <Users className="w-5 h-5 text-amber-600" />
+        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm">
+          <div className="mb-2 flex items-center gap-3">
+            <div className="rounded-lg bg-amber-100 p-2">
+              <Users className="h-5 w-5 text-amber-600" />
             </div>
-            <span className="text-gray-500 text-sm">Groups Joined</span>
+            <span className="text-sm text-gray-500">Groups Joined</span>
           </div>
-          <p className="font-bold text-gray-900 text-xl">
+          <p className="text-xl font-bold text-gray-900">
             {eligibilityData.groupsJoined}
           </p>
         </div>
       </div>
 
-      {/* Eligibility Criteria Checklist */}
-      <div className="bg-white shadow-sm border border-gray-100 rounded-2xl overflow-hidden">
-        <div className="p-6 border-gray-100 border-b">
-          <h3 className="font-semibold text-gray-900 text-lg">
+      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        <div className="border-b border-gray-100 p-6">
+          <h3 className="text-lg font-semibold text-gray-900">
             Eligibility Criteria
           </h3>
-          <p className="mt-1 text-gray-500 text-sm">
+          <p className="mt-1 text-sm text-gray-500">
             You must meet all criteria to apply for a loan
           </p>
         </div>
         <div className="divide-y divide-gray-100">
-          {eligibilityCriteria.map((criteria, index) => (
+          {eligibilityCriteria.map((criteria) => (
             <div
-              key={index}
-              className={`p-4 flex items-center gap-4 ${criteria.met ? "bg-white" : "bg-red-50/50"}`}
+              key={criteria.name}
+              className={`flex items-center gap-4 p-4 ${
+                criteria.met ? "bg-white" : "bg-red-50/50"
+              }`}
             >
               <div
-                className={`p-2 rounded-full ${criteria.met ? "bg-emerald-100" : "bg-red-100"}`}
+                className={`rounded-full p-2 ${
+                  criteria.met ? "bg-emerald-100" : "bg-red-100"
+                }`}
               >
                 {criteria.met ? (
-                  <CheckCircle className="w-5 h-5 text-emerald-600" />
+                  <CheckCircle className="h-5 w-5 text-emerald-600" />
                 ) : (
-                  <XCircle className="w-5 h-5 text-red-600" />
+                  <XCircle className="h-5 w-5 text-red-600" />
                 )}
               </div>
               <div className="flex-1">
                 <h4 className="font-medium text-gray-900">{criteria.name}</h4>
-                <p className="text-gray-500 text-sm">{criteria.description}</p>
+                <p className="text-sm text-gray-500">{criteria.description}</p>
               </div>
               <div className="text-right">
                 <p
-                  className={`font-semibold ${criteria.met ? "text-emerald-600" : "text-red-600"}`}
+                  className={`font-semibold ${
+                    criteria.met ? "text-emerald-600" : "text-red-600"
+                  }`}
                 >
                   {criteria.value}
                 </p>
-                <p className="text-gray-500 text-xs">
+                <p className="text-xs text-gray-500">
                   Required: {criteria.required}
                 </p>
               </div>
@@ -262,38 +282,38 @@ export default function LoanEligibilityCheck({
         </div>
       </div>
 
-      {/* Select Group for Loan */}
       {allCriteriaMet && (
-        <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-2xl">
-          <h3 className="mb-4 font-semibold text-gray-900 text-lg">
+        <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <h3 className="mb-4 text-lg font-semibold text-gray-900">
             Select Group for Loan
           </h3>
-          <p className="mb-4 text-gray-500 text-sm">
-            Choose which group you want to apply for a loan from
+          <p className="mb-4 text-sm text-gray-500">
+            Choose which group you want to apply for a loan from.
           </p>
 
-          <div className="gap-4 grid grid-cols-1 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {groups.map((group) => (
               <button
                 key={group.id}
+                type="button"
                 onClick={() => onGroupSelect(group.id)}
-                className={`p-4 rounded-xl border-2 text-left transition-all ${
+                className={`rounded-xl border-2 p-4 text-left transition-all ${
                   selectedGroup === group.id
                     ? "border-emerald-500 bg-emerald-50"
                     : "border-gray-200 hover:border-emerald-300 hover:bg-gray-50"
                 }`}
               >
-                <div className="flex justify-between items-center mb-2">
+                <div className="mb-2 flex items-center justify-between">
                   <h4 className="font-semibold text-gray-900">{group.name}</h4>
                   {selectedGroup === group.id && (
-                    <CheckCircle className="w-5 h-5 text-emerald-500" />
+                    <CheckCircle className="h-5 w-5 text-emerald-500" />
                   )}
                 </div>
                 <div className="flex items-center gap-4 text-sm">
                   <span className="text-gray-500">
                     Max:{" "}
                     <span className="font-medium text-gray-900">
-                      ₦{group.maxLoanAmount.toLocaleString()}
+                      {formatCurrency(group.maxLoanAmount)}
                     </span>
                   </span>
                   <span className="text-gray-500">
@@ -309,45 +329,44 @@ export default function LoanEligibilityCheck({
         </div>
       )}
 
-      {/* Maximum Loan Amount Info */}
       {allCriteriaMet && (
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 border border-blue-100 rounded-2xl">
+        <div className="rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 p-6">
           <div className="flex items-start gap-4">
-            <div className="bg-blue-100 p-3 rounded-xl">
-              <TrendingUp className="w-6 h-6 text-blue-600" />
+            <div className="rounded-xl bg-blue-100 p-3">
+              <TrendingUp className="h-6 w-6 text-blue-600" />
             </div>
             <div>
               <h4 className="mb-1 font-semibold text-gray-900">
-                Your Maximum Loan Amount
+                Contribution-Based Loan Capacity
               </h4>
-              <p className="mb-2 font-bold text-blue-600 text-3xl">
-                ₦{maxLoanAmount.toLocaleString()}
+              <p className="mb-2 text-3xl font-bold text-blue-600">
+                {formatCurrency(maxLoanAmount)}
               </p>
-              <p className="text-gray-600 text-sm">
-                Based on your savings of ₦
-                {eligibilityData.savingsBalance.toLocaleString()} and credit
-                score of {eligibilityData.creditScore}, you can borrow up to{" "}
-                {maxLoanMultiplier}x your savings balance.
+              <p className="text-sm text-gray-600">
+                With an available contribution balance of{" "}
+                {formatCurrency(contributionBalance)}, you can request up to
+                10x that balance. Pending withdrawals are excluded from this
+                computation.
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Rules & Regulations */}
-      <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-2xl">
-        <h3 className="mb-2 font-semibold text-gray-900 text-lg">
+      <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+        <h3 className="mb-2 text-lg font-semibold text-gray-900">
           Rules & Regulations
         </h3>
-        <p className="mb-4 text-gray-500 text-sm">
-          Please note these Contributions requirements before proceeding.
+        <p className="mb-4 text-sm text-gray-500">
+          Please note these contribution requirements before proceeding.
         </p>
-        <div className="space-y-2 text-gray-600 text-sm">
+        <div className="space-y-2 text-sm text-gray-600">
           <p>
-            Contributions must be paid between the 27th and 4th of each month.
+            Contribution balance used for loan eligibility excludes any pending,
+            approved, or processing withdrawals.
           </p>
           <p>
-            No delay or default is allowed in payments, especially when on loan.
+            No delay or default is allowed in contributions or loan repayments.
           </p>
           <p>All transactions and forms must go through Group Leaders.</p>
           <p>
@@ -356,8 +375,8 @@ export default function LoanEligibilityCheck({
           </p>
         </div>
         {eligibilityData.contributionWindow && (
-          <div className="bg-gray-50 mt-4 p-3 border rounded-lg">
-            <p className="text-gray-700 text-sm">
+          <div className="mt-4 rounded-lg border bg-gray-50 p-3">
+            <p className="text-sm text-gray-700">
               Contribution window: {eligibilityData.contributionWindow.startDay}
               th to {eligibilityData.contributionWindow.endDay}th.
               <span className="ml-2 font-medium">
@@ -370,15 +389,15 @@ export default function LoanEligibilityCheck({
         )}
       </div>
 
-      {/* Continue Button */}
       <div className="flex justify-end">
         <button
+          type="button"
           onClick={onContinue}
           disabled={!allCriteriaMet || !selectedGroup}
-          className={`px-8 py-3 rounded-xl font-semibold transition-all ${
+          className={`rounded-xl px-8 py-3 font-semibold transition-all ${
             allCriteriaMet && selectedGroup
-              ? "bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/30"
-              : "bg-gray-200 text-gray-500 cursor-not-allowed"
+              ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 hover:bg-emerald-600"
+              : "cursor-not-allowed bg-gray-200 text-gray-500"
           }`}
         >
           Continue to Loan Amount
@@ -387,14 +406,3 @@ export default function LoanEligibilityCheck({
     </div>
   );
 }
-
-/*
-Act as a senior full-stack engineer with 30+ years of experience building scalable SaaS platforms, so let's continue creating/building professional tailored Loan system/flows in the project.
-- Instead of the first eligibility criteria "Minimum Savings Balance", let's change it to "At least 10% of the money you are requesting for. For instance if someone is
-requesting for 50k he or she must have 5k in his or her Savings (this
-requirement is for old members)"
-
-Ensure all the requirements are consistent with backend <=> frontend flows and implemented in an highly professional way and industry standard of doing things.
-
-You can improvice whenever needed, just ensure you don't digress from the context of this project and you're always highly professional as much as possible.
-*/

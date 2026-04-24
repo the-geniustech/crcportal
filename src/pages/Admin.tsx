@@ -31,6 +31,8 @@ import {
   Eye,
   Trash2,
   Wallet,
+  Activity,
+  Home,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -112,6 +114,10 @@ const LoanTracker = lazy(() => import("@/components/admin/LoanTracker"));
 const LoanReviewPanel = lazy(
   () => import("@/components/admin/LoanReviewPanel"),
 );
+const MembersManagementPanel = lazy(
+  () => import("@/components/admin/MembersManagementPanel"),
+);
+const AuditLogPanel = lazy(() => import("@/components/admin/AuditLogPanel"));
 
 // Sample data
 type ApplicantStatus = "pending" | "approved" | "rejected";
@@ -266,7 +272,7 @@ export default function Admin() {
 
   const memberApprovalsQuery = useMemberApprovalsQuery(
     { status: "pending" },
-    isCoordinator,
+    canAccessCoordinatorPanels,
   );
   const approveMemberMutation = useApproveMemberApprovalMutation();
   const rejectMemberMutation = useRejectMemberApprovalMutation();
@@ -281,8 +287,7 @@ export default function Admin() {
     {
       year: trackerYear,
       month: trackerMonth,
-      groupId:
-        trackerGroupFilter !== "all" ? trackerGroupFilter : undefined,
+      groupId: trackerGroupFilter !== "all" ? trackerGroupFilter : undefined,
     },
     canAccessCoordinatorPanels,
   );
@@ -778,6 +783,7 @@ export default function Admin() {
         icon: TrendingUp,
         badge: stats.defaulters > 0 ? stats.defaulters : undefined,
       },
+      { id: "members", label: "Members Management", icon: Users },
       { id: "groups", label: "Group Management", icon: Users },
       {
         id: "loans",
@@ -797,29 +803,24 @@ export default function Admin() {
       { id: "interest-sharing", label: "Sharing Formula", icon: PieChart },
       { id: "attendance", label: "Attendance", icon: Calendar },
       { id: "coordinators", label: "Group Coordinators", icon: Users },
+      { id: "audit-logs", label: "Audit Trail", icon: Activity },
       { id: "announcements", label: "Announcements", icon: Bell },
       { id: "sms", label: "SMS Center", icon: MessageSquare },
     ];
 
-    const coordinatorOnly = new Set(["approvals"]);
     const adminOnly = new Set([
+      "audit-logs",
       "interest-settings",
       "summary-income",
       "interest-sharing",
     ]);
 
     if (isAdmin) {
-      return items.filter((item) => !coordinatorOnly.has(item.id));
+      return items;
     }
 
     return items.filter((item) => !adminOnly.has(item.id));
-  }, [
-    stats.pendingApprovals,
-    stats.defaulters,
-    stats.pendingLoans,
-    isCoordinator,
-    isAdmin,
-  ]);
+  }, [stats.pendingApprovals, stats.defaulters, stats.pendingLoans, isAdmin]);
 
   const activeTab = menuItems.some((item) => item.id === tab)
     ? (tab as string)
@@ -1517,7 +1518,7 @@ export default function Admin() {
             onClick={() => navigate("/")}
             className="flex items-center gap-3 hover:bg-gray-800 px-3 py-2.5 rounded-lg w-full text-gray-400 hover:text-white transition-colors"
           >
-            <LogOut className="w-5 h-5" />
+            <Home className="w-5 h-5" />
             {sidebarOpen && <span>Back to Site</span>}
           </button>
         </div>
@@ -1566,10 +1567,10 @@ export default function Admin() {
               />
               <div
                 className={`gap-6 grid grid-cols-1 ${
-                  isCoordinator ? "lg:grid-cols-2" : ""
+                  canAccessCoordinatorPanels ? "lg:grid-cols-2" : ""
                 }`}
               >
-                {isCoordinator && (
+                {canAccessCoordinatorPanels && (
                   <MemberApprovalPanel
                     applicants={applicants}
                     onApprove={handleApprove}
@@ -1633,7 +1634,7 @@ export default function Admin() {
             </div>
           )}
 
-          {activeTab === "approvals" && isCoordinator && (
+          {activeTab === "approvals" && canAccessCoordinatorPanels && (
             <MemberApprovalPanel
               applicants={applicants}
               onApprove={handleApprove}
@@ -1691,9 +1692,7 @@ export default function Admin() {
                 </div>
               }
             >
-              <LoanTracker
-                canManageActions={canAccessCoordinatorPanels}
-              />
+              <LoanTracker canManageActions={canAccessCoordinatorPanels} />
             </Suspense>
           )}
 
@@ -2097,6 +2096,18 @@ export default function Admin() {
             </div>
           )}
 
+          {activeTab === "members" && canAccessCoordinatorPanels && (
+            <Suspense
+              fallback={
+                <div className="bg-white shadow-sm p-8 border border-gray-100 rounded-2xl text-gray-500 text-sm">
+                  Loading members management...
+                </div>
+              }
+            >
+              <MembersManagementPanel />
+            </Suspense>
+          )}
+
           {activeTab === "coordinators" && (
             <div className="bg-white shadow-sm border border-gray-100 rounded-xl overflow-hidden">
               <div className="p-4 border-gray-100 border-b">
@@ -2300,6 +2311,18 @@ export default function Admin() {
                 </div>
               </div>
             </div>
+          )}
+
+          {activeTab === "audit-logs" && isAdmin && (
+            <Suspense
+              fallback={
+                <div className="bg-white shadow-sm p-8 border border-gray-100 rounded-2xl text-gray-500 text-sm">
+                  Loading audit trail...
+                </div>
+              }
+            >
+              <AuditLogPanel />
+            </Suspense>
           )}
 
           {activeTab === "announcements" && (

@@ -2,6 +2,7 @@ import axios from "axios";
 import { api, getApiErrorMessage } from "@/lib/api/client";
 
 export type AdminLoanDocument = {
+  documentType?: string | null;
   name: string;
   type: string;
   size: number;

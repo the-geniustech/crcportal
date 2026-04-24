@@ -37,7 +37,7 @@ const ImpactSection: React.FC = () => {
                   />
                 </svg>
               </div>
-              <p className="mb-1 font-bold text-3xl">5,000+</p>
+              <p className="mb-1 font-bold text-3xl">800+</p>
               <p className="text-emerald-100">Active Members</p>
             </div>
 
@@ -97,7 +97,7 @@ const ImpactSection: React.FC = () => {
                   />
                 </svg>
               </div>
-              <p className="mb-1 font-bold text-3xl">150+</p>
+              <p className="mb-1 font-bold text-3xl">28+</p>
               <p className="text-orange-100">Active Groups</p>
             </div>
           </div>

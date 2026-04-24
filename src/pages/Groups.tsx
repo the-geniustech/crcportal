@@ -94,8 +94,7 @@ const sampleChatMessages = [
     id: "1",
     userId: "1",
     userName: "Adaeze Okonkwo",
-    userAvatar:
-      "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png",
+    userAvatar: "/testimonials/adaeze-okonkwo.jpeg",
     message:
       "Good morning everyone! Don't forget our meeting this Saturday at 2 PM.",
     timestamp: new Date(Date.now() - 86400000 * 2).toISOString(),
@@ -133,8 +132,7 @@ const sampleChatMessages = [
     id: "5",
     userId: "1",
     userName: "Adaeze Okonkwo",
-    userAvatar:
-      "https://res.cloudinary.com/dhngpbp2y/image/upload/v1759249303/default-avatar_qh8mcr.png",
+    userAvatar: "/testimonials/adaeze-okonkwo.jpeg",
     message:
       "Also, we have two new loan applications to review. Please come prepared with your thoughts.",
     timestamp: new Date(Date.now() - 3600000 * 5).toISOString(),

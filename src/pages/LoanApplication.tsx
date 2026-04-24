@@ -20,11 +20,15 @@ import { useSaveLoanDraftMutation } from "@/hooks/loans/useSaveLoanDraftMutation
 import { useDeleteLoanDraftMutation } from "@/hooks/loans/useDeleteLoanDraftMutation";
 import { useLoanApplicationQuery } from "@/hooks/loans/useLoanApplicationQuery";
 import { useCreateLoanEditRequestMutation } from "@/hooks/loans/useCreateLoanEditRequestMutation";
-import { useUploadLoanDocumentsMutation } from "@/hooks/loans/useUploadLoanDocumentsMutation";
 import { calculateLoanSummary } from "@/lib/loanMath";
 import { getApiErrorMessage } from "@/lib/api/client";
 import type { BackendLoanApplication } from "@/lib/loans";
 import { normalizeNigerianPhone } from "@/lib/phone";
+import {
+  inferLoanDocumentType,
+  REQUIRED_LOAN_DOCUMENTS,
+  type LoanDocumentType,
+} from "@/lib/loanDocuments";
 import {
   LOAN_FACILITIES,
   LoanFacilityKey,
@@ -38,9 +42,6 @@ import {
   Calculator,
   Info,
   AlertCircle,
-  Upload,
-  RotateCw,
-  X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,6 +58,7 @@ import {
 
 interface Document {
   id: string;
+  documentType?: LoanDocumentType | null;
   name: string;
   type: string;
   size: number;
@@ -242,7 +244,6 @@ const LoanApplicationContent: React.FC = () => {
   const createEditRequestMutation = useCreateLoanEditRequestMutation();
   const saveDraftMutation = useSaveLoanDraftMutation();
   const deleteDraftMutation = useDeleteLoanDraftMutation();
-  const uploadDocumentsMutation = useUploadLoanDocumentsMutation();
 
   // Get pre-filled data from calculator
   const prefilledData = location.state as {
@@ -282,7 +283,6 @@ const LoanApplicationContent: React.FC = () => {
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [showLoanFaq, setShowLoanFaq] = useState(false);
   const [showExitPrompt, setShowExitPrompt] = useState(false);
-  const editDocInputRef = useRef<HTMLInputElement | null>(null);
   const initialSnapshotRef = useRef<string | null>(null);
   const pendingExitRef = useRef<null | {
     proceed: () => void;
@@ -320,14 +320,28 @@ const LoanApplicationContent: React.FC = () => {
 
   // Derived values
   const selectedGroupData = groupOptions.find((g) => g.id === selectedGroup);
-  const totalContributions = Number(
-    eligibilityQuery.data?.totalContributions ?? 0,
+  const contributionBalance = Number(
+    eligibilityQuery.data?.contributionBalance ??
+      eligibilityQuery.data?.savingsBalance ??
+      0,
   );
   const baseMaxLoanAmount = selectedGroupData?.maxLoanAmount || 500000;
+  const contributionBasedCap = contributionBalance > 0 ? contributionBalance * 10 : 0;
   const maxLoanAmount =
-    loanType === "revolving" && totalContributions > 0
-      ? totalContributions
+    contributionBasedCap > 0
+      ? Math.min(baseMaxLoanAmount, contributionBasedCap)
       : baseMaxLoanAmount;
+  const allRequiredDocumentsUploaded = REQUIRED_LOAN_DOCUMENTS.every(
+    (requiredDoc) =>
+      documents.some((doc) => {
+        const documentType = inferLoanDocumentType({
+          documentType: doc.documentType ?? null,
+          id: doc.id,
+          name: doc.name,
+        });
+        return documentType === requiredDoc.id && doc.status === "uploaded";
+      }),
+  );
   const minLoanAmount = 50000;
   const loanFacility = getLoanFacility(loanType);
   const appInterestRate = isEditMode
@@ -453,14 +467,22 @@ const LoanApplicationContent: React.FC = () => {
 
   const buildLeaveSnapshot = React.useCallback(() => {
     const normalizedDocuments = documents
-      .map((doc) => ({
-        id: doc.id,
-        name: doc.name,
-        type: doc.type,
-        size: doc.size,
-        status: doc.status,
-        url: doc.url ?? null,
-      }))
+      .map((doc) => {
+        const documentType = inferLoanDocumentType({
+          documentType: doc.documentType ?? null,
+          id: doc.id,
+          name: doc.name,
+        });
+        return {
+          id: doc.id,
+          documentType,
+          name: doc.name,
+          type: doc.type,
+          size: doc.size,
+          status: doc.status,
+          url: doc.url ?? null,
+        };
+      })
       .sort((a, b) => a.id.localeCompare(b.id));
 
     const normalizedGuarantors = guarantors
@@ -566,14 +588,27 @@ const LoanApplicationContent: React.FC = () => {
       setSelectedBankAccountId(String(app.disbursementBankAccountId));
     }
     const draftDocs = Array.isArray(app.documents)
-      ? app.documents.map((doc, idx) => ({
-          id: `draft_doc_${idx}`,
-          name: doc.name,
-          type: doc.type,
-          size: doc.size,
-          status: "uploaded" as const,
-          url: doc.url ?? undefined,
-        }))
+      ? app.documents
+          .map((doc, idx) => {
+            const documentType = inferLoanDocumentType({
+              documentType: doc.documentType ?? null,
+              name: doc.name,
+            });
+            if (!documentType) return null;
+            const definition = REQUIRED_LOAN_DOCUMENTS.find(
+              (item) => item.id === documentType,
+            );
+            return {
+              id: `draft_doc_${documentType}_${idx}`,
+              documentType,
+              name: definition?.name || doc.name,
+              type: doc.type,
+              size: doc.size,
+              status: "uploaded" as const,
+              url: doc.url ?? undefined,
+            };
+          })
+          .filter(Boolean)
       : [];
     setDocuments(draftDocs);
 
@@ -625,14 +660,27 @@ const LoanApplicationContent: React.FC = () => {
     }
 
     const editDocs = Array.isArray(app.documents)
-      ? app.documents.map((doc, idx) => ({
-          id: `edit_doc_${idx}`,
-          name: doc.name,
-          type: doc.type,
-          size: doc.size,
-          status: "uploaded" as const,
-          url: doc.url ?? undefined,
-        }))
+      ? app.documents
+          .map((doc, idx) => {
+            const documentType = inferLoanDocumentType({
+              documentType: doc.documentType ?? null,
+              name: doc.name,
+            });
+            if (!documentType) return null;
+            const definition = REQUIRED_LOAN_DOCUMENTS.find(
+              (item) => item.id === documentType,
+            );
+            return {
+              id: `edit_doc_${documentType}_${idx}`,
+              documentType,
+              name: definition?.name || doc.name,
+              type: doc.type,
+              size: doc.size,
+              status: "uploaded" as const,
+              url: doc.url ?? undefined,
+            };
+          })
+          .filter(Boolean)
       : [];
     setDocuments(editDocs);
 
@@ -804,18 +852,36 @@ const LoanApplicationContent: React.FC = () => {
 
   const normalizeDocList = (
     docs: {
+      documentType?: string | null;
       name: string;
       type: string;
       size: number;
       url?: string | null;
     }[],
   ) =>
-    docs.map((doc) => ({
-      name: String(doc.name || "document"),
-      type: String(doc.type || "application/octet-stream"),
-      size: Number(doc.size || 0),
-      url: doc.url ? String(doc.url) : null,
-    }));
+    docs
+      .map((doc) => {
+        const documentType = inferLoanDocumentType({
+          documentType: doc.documentType ?? null,
+          name: doc.name,
+        });
+        if (!documentType) return null;
+        return {
+          documentType,
+          name:
+            REQUIRED_LOAN_DOCUMENTS.find((item) => item.id === documentType)
+              ?.name || String(doc.name || "document"),
+          type: String(doc.type || "application/octet-stream"),
+          size: Number(doc.size || 0),
+          url: doc.url ? String(doc.url) : null,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) =>
+        String(a?.documentType || "").localeCompare(
+          String(b?.documentType || ""),
+        ),
+      );
 
   const normalizeSignature = (
     signature:
@@ -860,6 +926,7 @@ const LoanApplicationContent: React.FC = () => {
     purposeDescription?: string;
     repaymentPeriod?: number;
     documents?: {
+      documentType: LoanDocumentType;
       name: string;
       type: string;
       size: number;
@@ -875,6 +942,7 @@ const LoanApplicationContent: React.FC = () => {
       purposeDescription?: string;
       repaymentPeriod?: number;
       documents?: {
+        documentType: LoanDocumentType;
         name: string;
         type: string;
         size: number;
@@ -913,13 +981,26 @@ const LoanApplicationContent: React.FC = () => {
 
     const uploadedDocs = documents
       .filter((doc) => doc.status === "uploaded")
-      .map((doc) => ({
-        name: doc.name,
-        type: doc.type,
-        size: doc.size,
-        status: "uploaded",
-        url: doc.url ?? null,
-      }));
+      .map((doc) => {
+        const documentType = inferLoanDocumentType({
+          documentType: doc.documentType ?? null,
+          id: doc.id,
+          name: doc.name,
+        });
+        if (!documentType) return null;
+        const docDefinition = REQUIRED_LOAN_DOCUMENTS.find(
+          (item) => item.id === documentType,
+        );
+        return {
+          documentType,
+          name: docDefinition?.name || doc.name,
+          type: doc.type,
+          size: doc.size,
+          status: "uploaded",
+          url: doc.url ?? null,
+        };
+      })
+      .filter(Boolean);
     const currentDocs = normalizeDocList(editTarget.documents ?? []);
     const nextDocs = normalizeDocList(uploadedDocs);
     if (JSON.stringify(nextDocs) !== JSON.stringify(currentDocs)) {
@@ -1066,13 +1147,27 @@ const LoanApplicationContent: React.FC = () => {
     interestRate,
     interestRateType,
     bankAccountId: selectedBankAccountId || null,
-    documents: documents.map((d) => ({
-      name: d.name,
-      type: d.type,
-      size: d.size,
-      status: d.status,
-      url: d.url,
-    })),
+    documents: documents
+      .map((d) => {
+        const documentType = inferLoanDocumentType({
+          documentType: d.documentType ?? null,
+          id: d.id,
+          name: d.name,
+        });
+        if (!documentType) return null;
+        const definition = REQUIRED_LOAN_DOCUMENTS.find(
+          (item) => item.id === documentType,
+        );
+        return {
+          documentType,
+          name: definition?.name || d.name,
+          type: d.type,
+          size: d.size,
+          status: d.status,
+          url: d.url,
+        };
+      })
+      .filter(Boolean),
     guarantors: guarantors.map((g) => ({
       type: g.type,
       profileId: g.type === "member" ? g.profileId : undefined,
@@ -1089,117 +1184,6 @@ const LoanApplicationContent: React.FC = () => {
       signature: g.signature ?? null,
     })),
   });
-
-  const updateEditDocument = (
-    docId: string,
-    updater: (doc: Document) => Document,
-  ) => {
-    setDocuments((prev) =>
-      prev.map((doc) => (doc.id === docId ? updater(doc) : doc)),
-    );
-  };
-
-  const uploadEditDocument = async (docId: string, file: File) => {
-    updateEditDocument(docId, (doc) => ({ ...doc, status: "uploading" }));
-    try {
-      const uploadedDocs = await uploadDocumentsMutation.mutateAsync({
-        file,
-        onProgress: (percent) => {
-          updateEditDocument(docId, (doc) => ({ ...doc, progress: percent }));
-        },
-      });
-      const uploaded = uploadedDocs[0];
-      updateEditDocument(docId, (doc) => ({
-        ...doc,
-        status: "uploaded",
-        progress: 100,
-        url: uploaded?.url ?? doc.url,
-        type: uploaded?.type ?? doc.type,
-        size: uploaded?.size ?? doc.size,
-      }));
-    } catch (error) {
-      updateEditDocument(docId, (doc) => ({ ...doc, status: "error" }));
-      toast({
-        title: "Upload failed",
-        description: "Unable to upload this document. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleEditDocFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const fileArray = Array.from(files);
-    if (editDocInputRef.current) {
-      editDocInputRef.current.value = "";
-    }
-
-    for (const file of fileArray) {
-      if (!file.type.startsWith("image/") && file.type !== "application/pdf") {
-        toast({
-          title: "Unsupported file type",
-          description: "Only images or PDF documents are allowed.",
-          variant: "destructive",
-        });
-        continue;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        toast({
-          title: "File too large",
-          description: "Each file must be 10MB or smaller.",
-          variant: "destructive",
-        });
-        continue;
-      }
-
-      const previewUrl = URL.createObjectURL(file);
-      const docId = `edit_doc_${Date.now()}_${Math.random()
-        .toString(36)
-        .slice(2, 7)}`;
-      const newDoc: Document = {
-        id: docId,
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        status: "uploading",
-        url: previewUrl,
-        progress: 0,
-        file,
-      };
-      setDocuments((prev) => [...prev, newDoc]);
-      await uploadEditDocument(docId, file);
-    }
-  };
-
-  const handleRemoveEditDocument = (docId: string) => {
-    setDocuments((prev) => {
-      const target = prev.find((doc) => doc.id === docId);
-      if (target?.url && target.url.startsWith("blob:")) {
-        URL.revokeObjectURL(target.url);
-      }
-      return prev.filter((doc) => doc.id !== docId);
-    });
-  };
-
-  const handleRetryEditDocument = (docId: string) => {
-    const doc = documents.find((item) => item.id === docId);
-    if (!doc?.file) {
-      toast({
-        title: "Cannot retry",
-        description: "Original file is missing. Please re-upload.",
-        variant: "destructive",
-      });
-      return;
-    }
-    uploadEditDocument(docId, doc.file);
-  };
-
-  const formatEditFileSize = (bytes: number) => {
-    if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
 
   const handleSaveDraft = async (exitAfter = false, onExit?: () => void) => {
     if (isEditMode) return;
@@ -1389,13 +1373,27 @@ const LoanApplicationContent: React.FC = () => {
         interestRate,
         interestRateType,
         bankAccountId: selectedBankAccountId,
-        documents: documents.map((d) => ({
-          name: d.name,
-          type: d.type,
-          size: d.size,
-          status: d.status,
-          url: d.url,
-        })),
+        documents: documents
+          .map((d) => {
+            const documentType = inferLoanDocumentType({
+              documentType: d.documentType ?? null,
+              id: d.id,
+              name: d.name,
+            });
+            if (!documentType) return null;
+            const definition = REQUIRED_LOAN_DOCUMENTS.find(
+              (item) => item.id === documentType,
+            );
+            return {
+              documentType,
+              name: definition?.name || d.name,
+              type: d.type,
+              size: d.size,
+              status: d.status,
+              url: d.url,
+            };
+          })
+          .filter(Boolean),
         guarantors: backendGuarantors,
       });
 
@@ -1709,107 +1707,21 @@ const LoanApplicationContent: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="bg-white shadow-sm p-6 border border-gray-100 rounded-2xl">
-                    <h4 className="font-semibold text-gray-900 text-base">
-                      Supporting Documents (Optional)
-                    </h4>
-                    <p className="mt-1 text-gray-500 text-xs">
-                      Attach images or PDFs to support your edit request. Max
-                      10MB per file.
-                    </p>
-                    <input
-                      ref={editDocInputRef}
-                      type="file"
-                      accept="image/*,application/pdf"
-                      multiple
-                      className="hidden"
-                      onChange={(event) =>
-                        handleEditDocFiles(event.target.files)
-                      }
-                    />
-                    <div className="mt-3">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="gap-2"
-                        onClick={() => editDocInputRef.current?.click()}
-                      >
-                        <Upload className="w-4 h-4" />
-                        Upload Documents
-                      </Button>
+                  <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+                    <div className="mb-4">
+                      <h4 className="text-base font-semibold text-gray-900">
+                        Required Documents
+                      </h4>
+                      <p className="mt-1 text-xs text-gray-500">
+                        Keep the same three required documents aligned with the
+                        main application flow when requesting edits.
+                      </p>
                     </div>
-
-                    {documents.length > 0 ? (
-                      <div className="space-y-2 mt-4">
-                        {documents.map((doc) => (
-                          <div
-                            key={doc.id}
-                            className="flex flex-wrap justify-between items-center gap-2 bg-slate-50 px-3 py-2 border border-slate-100 rounded-lg"
-                          >
-                            <div className="min-w-0">
-                              <p className="font-medium text-slate-700 text-sm truncate">
-                                {doc.name}
-                              </p>
-                              <p className="text-slate-500 text-xs">
-                                {formatEditFileSize(doc.size)} •{" "}
-                                {doc.type || "document"}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {doc.status === "uploading" && (
-                                <span className="text-amber-600 text-xs">
-                                  Uploading {doc.progress ?? 0}%
-                                </span>
-                              )}
-                              {doc.status === "uploaded" && (
-                                <span className="text-emerald-600 text-xs">
-                                  Uploaded
-                                </span>
-                              )}
-                              {doc.status === "error" && (
-                                <span className="text-red-600 text-xs">
-                                  Failed
-                                </span>
-                              )}
-                              {doc.url && (
-                                <a
-                                  href={doc.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="font-medium text-emerald-700 hover:text-emerald-800 text-xs"
-                                >
-                                  View
-                                </a>
-                              )}
-                              {doc.status === "error" && (
-                                <button
-                                  type="button"
-                                  className="inline-flex items-center gap-1 text-amber-600 hover:text-amber-700 text-xs"
-                                  onClick={() =>
-                                    handleRetryEditDocument(doc.id)
-                                  }
-                                >
-                                  <RotateCw className="w-3 h-3" />
-                                  Retry
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1 text-slate-500 hover:text-slate-700 text-xs"
-                                onClick={() => handleRemoveEditDocument(doc.id)}
-                              >
-                                <X className="w-3 h-3" />
-                                Remove
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="bg-slate-50 mt-4 px-3 py-4 border border-slate-200 border-dashed rounded-lg text-slate-500 text-xs text-center">
-                        No supporting documents uploaded yet.
-                      </div>
-                    )}
+                    <LoanDocumentUpload
+                      documents={documents}
+                      onDocumentsChange={setDocuments}
+                      showNavigation={false}
+                    />
                   </div>
 
                   <div className="flex flex-wrap justify-between gap-3">
@@ -1822,6 +1734,7 @@ const LoanApplicationContent: React.FC = () => {
                     <Button
                       className="bg-emerald-600 hover:bg-emerald-700"
                       onClick={() => goToStep(1)}
+                      disabled={!allRequiredDocumentsUploaded}
                     >
                       Continue to Guarantors
                     </Button>
@@ -1891,6 +1804,7 @@ const LoanApplicationContent: React.FC = () => {
                   eligibilityData={
                     eligibilityQuery.data ?? {
                       savingsBalance: 0,
+                      contributionBalance: 0,
                       totalContributions: 0,
                       membershipDuration: 0,
                       groupsJoined: 0,
@@ -1909,6 +1823,7 @@ const LoanApplicationContent: React.FC = () => {
                     }
                   }
                   selectedGroup={selectedGroup}
+                  requestedLoanAmount={loanAmount}
                   onGroupSelect={setSelectedGroup}
                   onContinue={() => goToStep(1)}
                   groups={groupOptions}
@@ -1955,7 +1870,6 @@ const LoanApplicationContent: React.FC = () => {
                   onDocumentsChange={setDocuments}
                   onContinue={() => goToStep(4)}
                   onBack={() => goToStep(2)}
-                  loanAmount={loanAmount}
                 />
               )}
 

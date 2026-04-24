@@ -1,12 +1,11 @@
 ﻿import React, { useState } from "react";
 const testimonials = [
   {
-    name: "Adaeze Okonkwo",
-    role: "Business Owner, Lagos",
-    image:
-      "https://d64gsuwffb70l.cloudfront.net/694d1e2d65df4113e9e6f7e1_1766661829287_d50f7ebe.png",
+    name: "Tunde Ramoni Oladipo ",
+    role: "Business Owner, Abeokuta",
+    image: "/testimonials/adaeze-okonkwo.jpeg",
     quote:
-      "CRC Connect helped me save for my business expansion. Within 8 months, I was able to access a loan that doubled my inventory. My shop revenue has increased by 150%!",
+      "CRC is a partner in progress by many standards! Consistently reliable and always supportive.",
     rating: 5,
   },
   {
@@ -94,7 +93,7 @@ const TestimonialsSection: React.FC = () => {
             <div className="flex md:flex-row flex-col items-center gap-8">
               <div className="flex-shrink-0">
                 <img
-                  src="https://d64gsuwffb70l.cloudfront.net/68ed26695c7de94124437f9e_1766782160546_995bc827.jfif"
+                  src={testimonials[activeIndex].image}
                   alt={testimonials[activeIndex].name}
                   className="shadow-xl border-4 border-emerald-400 rounded-full w-24 md:w-32 h-24 md:h-32 object-cover"
                 />
@@ -116,9 +115,7 @@ const TestimonialsSection: React.FC = () => {
                   className="mb-6 text-white text-lg md:text-xl leading-relaxed"
                   data-mixed-content="true"
                 >
-                  {testimonials[activeIndex].quote}CRC is a partner in progress
-                  by many standards! Consistently reliable and always
-                  supportive. ... 'Tunde Ramoni-Oladipo Business Owner, Abeokuta
+                  {testimonials[activeIndex].quote}
                 </blockquote>
                 <div>
                   <p className="font-bold text-white text-xl">
@@ -178,9 +175,6 @@ const TestimonialsSection: React.FC = () => {
                 </svg>
               </button>
             </div>
-            CRC is a partner in progress by many standards! Consistently
-            reliable and always supportive ... 'Tunde Ramoni-Oladipo Business
-            Owner, Abeokuta
           </div>
         </div>
 
