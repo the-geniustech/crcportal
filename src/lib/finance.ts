@@ -57,8 +57,128 @@ export type BackendTransaction = {
   loanId?: string | null;
   loanName?: string | null;
   gateway?: string | null;
-  metadata?: unknown;
+  metadata?: BackendTransactionMetadata | null;
 };
+
+export type BackendLoanRepaymentAllocation = {
+  allocationType?: string | null;
+  scheduleItemId?: string | null;
+  installmentNumber?: number | null;
+  dueDate?: string | null;
+  appliedAmount?: number | null;
+  interestApplied?: number | null;
+  principalApplied?: number | null;
+  remainingInterestBalance?: number | null;
+  remainingPrincipalBalance?: number | null;
+  remainingInstallmentBalance?: number | null;
+};
+
+export type BackendLoanRepaymentMetadata = {
+  allocations?: BackendLoanRepaymentAllocation[] | null;
+  settledInstallmentCount?: number | null;
+  principalPaid?: number | null;
+  interestPaid?: number | null;
+  remainingBalanceAfterPayment?: number | null;
+  remainingPrincipalAfterPayment?: number | null;
+  remainingInterestAfterPayment?: number | null;
+  paidAt?: string | null;
+  [key: string]: unknown;
+};
+
+export type BackendTransactionMetadata =
+  | (BackendLoanRepaymentMetadata & Record<string, unknown>)
+  | Record<string, unknown>;
+
+export type LoanRepaymentBreakdown = {
+  principalPaid: number;
+  interestPaid: number;
+  remainingBalanceAfterPayment: number;
+  remainingPrincipalAfterPayment: number;
+  remainingInterestAfterPayment: number;
+  settledInstallmentCount: number;
+  interestOnly: boolean;
+};
+
+export type PaymentTransaction = {
+  id: string;
+  reference: string;
+  amount: number;
+  type: BackendTransaction["type"];
+  status: BackendTransaction["status"];
+  description: string;
+  date: string;
+  channel?: string;
+  groupName?: string;
+  loanName?: string;
+  metadata?: BackendTransactionMetadata | null;
+  repaymentBreakdown?: LoanRepaymentBreakdown | null;
+};
+
+function toMoney(value: unknown): number {
+  const numeric = Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+export function getLoanRepaymentBreakdown(
+  metadata?: BackendTransactionMetadata | null,
+): LoanRepaymentBreakdown | null {
+  if (!metadata || typeof metadata !== "object") return null;
+
+  const principalPaid = toMoney(metadata.principalPaid);
+  const interestPaid = toMoney(metadata.interestPaid);
+  const remainingBalanceAfterPayment = toMoney(
+    metadata.remainingBalanceAfterPayment,
+  );
+  const remainingPrincipalAfterPayment = toMoney(
+    metadata.remainingPrincipalAfterPayment,
+  );
+  const remainingInterestAfterPayment = toMoney(
+    metadata.remainingInterestAfterPayment,
+  );
+  const settledInstallmentCount = Math.max(
+    0,
+    Math.trunc(Number(metadata.settledInstallmentCount ?? 0) || 0),
+  );
+
+  const hasBreakdown =
+    principalPaid > 0 ||
+    interestPaid > 0 ||
+    remainingBalanceAfterPayment > 0 ||
+    remainingPrincipalAfterPayment > 0 ||
+    remainingInterestAfterPayment > 0 ||
+    settledInstallmentCount > 0;
+
+  if (!hasBreakdown) return null;
+
+  return {
+    principalPaid,
+    interestPaid,
+    remainingBalanceAfterPayment,
+    remainingPrincipalAfterPayment,
+    remainingInterestAfterPayment,
+    settledInstallmentCount,
+    interestOnly: interestPaid > 0 && principalPaid <= 0,
+  };
+}
+
+export function mapBackendTransaction(
+  transaction: BackendTransaction,
+): PaymentTransaction {
+  return {
+    id: transaction._id,
+    reference: transaction.reference,
+    amount: toMoney(transaction.amount),
+    type: transaction.type,
+    status: transaction.status,
+    description: transaction.description,
+    date: transaction.date,
+    channel: transaction.channel ?? undefined,
+    groupName: transaction.groupName ?? undefined,
+    loanName: transaction.loanName ?? undefined,
+    metadata: transaction.metadata ?? null,
+    repaymentBreakdown: getLoanRepaymentBreakdown(transaction.metadata ?? null),
+  };
+}
 
 export async function listMyTransactions(params: {
   page?: number;

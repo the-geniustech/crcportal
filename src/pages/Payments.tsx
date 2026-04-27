@@ -23,7 +23,6 @@ import {
   Plus,
   RefreshCw,
   CheckCircle,
-  AlertCircle,
   Clock,
   ArrowDownLeft,
   ArrowUpRight,
@@ -32,51 +31,16 @@ import {
   Bell,
   Repeat,
   Mail,
-  Shield,
 } from "lucide-react";
+import {
+  mapBackendTransaction,
+  type BackendTransaction,
+  type PaymentTransaction,
+} from "@/lib/finance";
 import { BackendLoanApplication } from "@/lib/loans";
 import type { BulkPaymentItem } from "@/lib/payments";
 
-interface Transaction {
-  id: string;
-  reference: string;
-  amount: number;
-  type:
-    | "deposit"
-    | "loan_repayment"
-    | "group_contribution"
-    | "withdrawal"
-    | "interest";
-  status: "success" | "pending" | "failed";
-  description: string;
-  date: string;
-  channel?: string;
-  groupName?: string;
-  loanName?: string;
-}
 
-interface RawTransaction {
-  _id: string;
-  reference: string;
-  amount: number;
-  type: string;
-  status: string;
-  description: string;
-  date: string;
-  channel?: string;
-  groupName?: string;
-  loanName?: string;
-}
-
-interface RawLoanApplication {
-  status: string;
-  remainingBalance: number;
-}
-
-interface PaymentVerificationResponse {
-  status: string;
-  amount: number;
-}
 
 interface PaymentReminder {
   type: "loan_repayment" | "group_contribution";
@@ -98,7 +62,7 @@ export default function Payments() {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] =
-    useState<Transaction | null>(null);
+    useState<PaymentTransaction | null>(null);
   const [preselectedType, setPreselectedType] = useState<
     "loan_repayment" | "group_contribution" | undefined
   >();
@@ -139,22 +103,30 @@ export default function Payments() {
   const verifyPayment = async (reference: string) => {
     setIsVerifying(true);
     try {
-      const tx = (await verifyPaystackMutation.mutateAsync(
-        reference,
-      )) as PaymentVerificationResponse;
+      const tx = await verifyPaystackMutation.mutateAsync(reference);
+      const verifiedTransaction = tx
+        ? mapBackendTransaction(tx as BackendTransaction)
+        : null;
 
-      if (tx?.status === "success") {
+      if (verifiedTransaction?.status === "success") {
         toast({
           title: "Payment Successful!",
-          description: `Your payment of ₦${Number(tx.amount ?? 0).toLocaleString()} has been confirmed.`,
+          description: `Your payment of NGN ${Number(
+            verifiedTransaction.amount ?? 0,
+          ).toLocaleString()} has been confirmed.`,
         });
-        // Clear the URL params
+        setSelectedTransaction(verifiedTransaction);
+        setIsReceiptModalOpen(true);
+        setActiveTab("overview");
         window.history.replaceState({}, "", "/payments");
       } else {
         toast({
           title: "Payment Status",
-          description: `Payment status: ${tx?.status || "Unknown"}`,
-          variant: tx?.status === "failed" ? "destructive" : undefined,
+          description: `Payment status: ${verifiedTransaction?.status || "Unknown"}`,
+          variant:
+            verifiedTransaction?.status === "failed"
+              ? "destructive"
+              : undefined,
         });
       }
     } catch (error: unknown) {
@@ -236,7 +208,7 @@ export default function Payments() {
     setIsPaymentModalOpen(true);
   };
 
-  const handleViewReceipt = (transaction: Transaction) => {
+  const handleViewReceipt = (transaction: PaymentTransaction) => {
     setSelectedTransaction(transaction);
     setIsReceiptModalOpen(true);
   };
@@ -340,7 +312,7 @@ export default function Payments() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const monthStartTs = monthStart.getTime();
 
-  const txList: RawTransaction[] = myTransactionsQuery.data?.transactions ?? [];
+  const txList: BackendTransaction[] = myTransactionsQuery.data?.transactions ?? [];
   const monthlyDepositCount = txList.filter((t) => {
     const ts = new Date(t.date).getTime();
     return t.type === "deposit" && t.status === "success" && ts >= monthStartTs;

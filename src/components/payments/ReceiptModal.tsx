@@ -23,29 +23,12 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useEmailTransactionReceiptMutation } from "@/hooks/finance/useEmailTransactionReceiptMutation";
 import { downloadMyTransactionReceiptPdf } from "@/lib/finance";
-
-interface Transaction {
-  id: string;
-  reference: string;
-  amount: number;
-  type:
-    | "deposit"
-    | "loan_repayment"
-    | "group_contribution"
-    | "withdrawal"
-    | "interest";
-  status: "success" | "pending" | "failed";
-  description: string;
-  date: string;
-  channel?: string;
-  groupName?: string;
-  loanName?: string;
-}
+import type { PaymentTransaction } from "@/lib/finance";
 
 interface ReceiptModalProps {
   isOpen: boolean;
   onClose: () => void;
-  transaction: Transaction | null;
+  transaction: PaymentTransaction | null;
 }
 
 const typeLabels = {
@@ -81,6 +64,47 @@ export default function ReceiptModal({
       minute: "2-digit",
     });
   };
+
+  const formatCurrency = (amount: number) =>
+    new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(Number(amount ?? 0));
+
+  const repaymentBreakdown =
+    transaction.type === "loan_repayment"
+      ? transaction.repaymentBreakdown ?? null
+      : null;
+
+  const breakdownRows = repaymentBreakdown
+    ? [
+        {
+          label: "Interest Covered",
+          value: formatCurrency(repaymentBreakdown.interestPaid),
+        },
+        {
+          label: "Principal Covered",
+          value: formatCurrency(repaymentBreakdown.principalPaid),
+        },
+        {
+          label: "Remaining Interest",
+          value: formatCurrency(repaymentBreakdown.remainingInterestAfterPayment),
+        },
+        {
+          label: "Remaining Principal",
+          value: formatCurrency(
+            repaymentBreakdown.remainingPrincipalAfterPayment,
+          ),
+        },
+      ]
+    : [];
+
+  const interestOnlyNote =
+    repaymentBreakdown?.interestOnly
+      ? "This repayment covered accrued interest only. Principal outstanding stays unchanged until accrued interest is fully cleared."
+      : "Interest accrues only for elapsed months on the remaining principal until the loan is fully repaid.";
 
   const handleSendEmail = async () => {
     const emails = email
@@ -158,6 +182,43 @@ export default function ReceiptModal({
     }
   };
 
+  const repaymentBreakdownPrintHtml = repaymentBreakdown
+    ? `
+      <div class="details">
+        <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px;">Repayment Allocation</div>
+        ${breakdownRows
+          .map(
+            (row) => `
+          <div class="detail-row">
+            <span class="label">${row.label}</span>
+            <span class="value">${row.value}</span>
+          </div>
+        `,
+          )
+          .join("")}
+        <div class="detail-row">
+          <span class="label">Remaining Total</span>
+          <span class="value">${formatCurrency(
+            repaymentBreakdown.remainingBalanceAfterPayment,
+          )}</span>
+        </div>
+        ${
+          repaymentBreakdown.settledInstallmentCount > 0
+            ? `
+          <div class="detail-row">
+            <span class="label">Installments Settled</span>
+            <span class="value">${repaymentBreakdown.settledInstallmentCount}</span>
+          </div>
+        `
+            : ""
+        }
+        <div style="margin-top: 12px; color: ${repaymentBreakdown.interestOnly ? "#92400e" : "#475569"}; background: ${repaymentBreakdown.interestOnly ? "#fffbeb" : "#f8fafc"}; border: 1px solid ${repaymentBreakdown.interestOnly ? "#fcd34d" : "#e2e8f0"}; border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.5;">
+          ${interestOnlyNote}
+        </div>
+      </div>
+    `
+    : "";
+
   const handlePrint = () => {
     const printWindow = window.open("", "_blank");
     if (printWindow) {
@@ -187,7 +248,7 @@ export default function ReceiptModal({
               <div class="success-badge">✓ Payment Successful</div>
             </div>
 
-            <div class="amount">₦${transaction.amount.toLocaleString()}</div>
+            <div class="amount">${formatCurrency(transaction.amount)}</div>
 
             <div class="details">
               <div class="detail-row">
@@ -238,6 +299,8 @@ export default function ReceiptModal({
               }
             </div>
 
+            ${repaymentBreakdownPrintHtml}
+
             <div class="footer">
               <p>Thank you for your payment!</p>
               <p>Ogun Baptist Conference Secretariat</p>
@@ -255,7 +318,7 @@ export default function ReceiptModal({
   const handleShare = async () => {
     const shareData = {
       title: "CRC Payment Receipt",
-      text: `Payment Receipt - ₦${transaction.amount.toLocaleString()} - ${transaction.reference}`,
+      text: `Payment Receipt - ${formatCurrency(transaction.amount)} - ${transaction.reference}`,
       url: window.location.href,
     };
 
@@ -266,9 +329,22 @@ export default function ReceiptModal({
         console.log("Share cancelled");
       }
     } else {
+      const breakdownText = repaymentBreakdown
+        ? `\nInterest Covered: ${formatCurrency(
+            repaymentBreakdown.interestPaid,
+          )}\nPrincipal Covered: ${formatCurrency(
+            repaymentBreakdown.principalPaid,
+          )}\nRemaining Interest: ${formatCurrency(
+            repaymentBreakdown.remainingInterestAfterPayment,
+          )}\nRemaining Principal: ${formatCurrency(
+            repaymentBreakdown.remainingPrincipalAfterPayment,
+          )}\nRemaining Total: ${formatCurrency(
+            repaymentBreakdown.remainingBalanceAfterPayment,
+          )}\nNote: ${interestOnlyNote}`
+        : "";
       // Fallback: copy to clipboard
       navigator.clipboard.writeText(
-        `CRC Payment Receipt\nAmount: ₦${transaction.amount.toLocaleString()}\nReference: ${transaction.reference}\nDate: ${formatDate(transaction.date)}`,
+        `CRC Payment Receipt\nAmount: ${formatCurrency(transaction.amount)}\nReference: ${transaction.reference}\nDate: ${formatDate(transaction.date)}${breakdownText}`,
       );
       toast({
         title: "Copied to Clipboard",
@@ -279,12 +355,15 @@ export default function ReceiptModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md max-h-[90vh] overflow-hidden">
         <DialogHeader>
           <DialogTitle className="text-center">Payment Receipt</DialogTitle>
         </DialogHeader>
 
-        <div ref={receiptRef} className="space-y-6 py-4">
+        <div
+          ref={receiptRef}
+          className="space-y-6 max-h-[calc(90vh-5rem)] overflow-y-auto py-4 pr-1"
+        >
           {/* Header */}
           <div className="space-y-2 text-center">
             <div className="flex justify-center items-center bg-emerald-100 mx-auto rounded-full w-16 h-16">
@@ -298,7 +377,7 @@ export default function ReceiptModal({
           {/* Amount */}
           <div className="text-center">
             <p className="font-bold text-gray-900 text-4xl">
-              ₦{transaction.amount.toLocaleString()}
+              {formatCurrency(transaction.amount)}
             </p>
             <p className="mt-1 text-gray-500">{typeLabels[transaction.type]}</p>
           </div>
@@ -372,6 +451,63 @@ export default function ReceiptModal({
               </p>
             </div>
           </div>
+
+          {repaymentBreakdown && (
+            <div className="space-y-4 bg-slate-50 p-4 border border-slate-200 rounded-lg">
+              <div className="flex flex-wrap justify-between items-center gap-2">
+                <div>
+                  <p className="font-semibold text-gray-900 text-sm">
+                    Repayment Allocation
+                  </p>
+                  <p className="text-gray-500 text-xs">
+                    Interest is settled before principal, and interest accrues
+                    only for elapsed months on the remaining principal.
+                  </p>
+                </div>
+                <div className="bg-white px-3 py-1 rounded-full font-medium text-slate-700 text-xs">
+                  Remaining Total:{" "}
+                  {formatCurrency(
+                    repaymentBreakdown.remainingBalanceAfterPayment,
+                  )}
+                </div>
+              </div>
+
+              <div className="gap-3 grid grid-cols-2">
+                {breakdownRows.map((row) => (
+                  <div
+                    key={row.label}
+                    className="bg-white p-3 border border-slate-200 rounded-lg"
+                  >
+                    <p className="text-gray-500 text-[11px] uppercase tracking-[0.14em]">
+                      {row.label}
+                    </p>
+                    <p className="mt-1 font-semibold text-gray-900 text-sm">
+                      {row.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {repaymentBreakdown.settledInstallmentCount > 0 && (
+                <div className="bg-emerald-50 px-3 py-2 border border-emerald-200 rounded-lg text-emerald-700 text-sm">
+                  Installments fully settled:{" "}
+                  <span className="font-semibold">
+                    {repaymentBreakdown.settledInstallmentCount}
+                  </span>
+                </div>
+              )}
+
+              <div
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  repaymentBreakdown.interestOnly
+                    ? "border-amber-200 bg-amber-50 text-amber-800"
+                    : "border-slate-200 bg-white text-slate-700"
+                }`}
+              >
+                {interestOnlyNote}
+              </div>
+            </div>
+          )}
 
           {/* Email Receipt Section */}
           {showEmailInput ? (

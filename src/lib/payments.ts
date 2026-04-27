@@ -1,3 +1,4 @@
+import type { BackendTransaction } from "./finance";
 import { api, getApiErrorMessage } from "./api/client";
 
 export type InitializePaystackPaymentInput = {
@@ -70,10 +71,12 @@ export async function initializePaystackBulkPayment(
   }
 }
 
-export async function verifyPaystackPayment(reference: string) {
+export async function verifyPaystackPayment(
+  reference: string,
+): Promise<BackendTransaction> {
   try {
     const res = await api.post("/payments/paystack/verify", { reference });
-    return res.data?.data?.transaction as unknown;
+    return res.data?.data?.transaction as BackendTransaction;
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }

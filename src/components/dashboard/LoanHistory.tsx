@@ -15,6 +15,10 @@ export interface Loan {
   monthlyPayment: number;
   nextPaymentAmount?: number;
   remainingBalance: number;
+  principalOutstanding: number;
+  accruedInterestBalance: number;
+  totalPrincipalPaid: number;
+  totalInterestPaid: number;
   nextPaymentDate: string;
   progress: number;
 }
@@ -166,6 +170,53 @@ const LoanHistory: React.FC<LoanHistoryProps> = ({
                   </div>
                 </div>
 
+                <div className="gap-3 grid grid-cols-2 lg:grid-cols-4 mb-3">
+                  <div className="bg-slate-50 p-3 rounded-xl">
+                    <p className="text-gray-500 text-[11px] uppercase tracking-[0.14em]">
+                      Principal Due
+                    </p>
+                    <p className="mt-1 font-semibold text-gray-900 text-sm">
+                      {formatCurrency(loan.principalOutstanding)}
+                    </p>
+                  </div>
+                  <div className="bg-amber-50 p-3 rounded-xl">
+                    <p className="text-amber-700 text-[11px] uppercase tracking-[0.14em]">
+                      Interest Due
+                    </p>
+                    <p className="mt-1 font-semibold text-amber-900 text-sm">
+                      {formatCurrency(loan.accruedInterestBalance)}
+                    </p>
+                  </div>
+                  <div className="bg-emerald-50 p-3 rounded-xl">
+                    <p className="text-emerald-700 text-[11px] uppercase tracking-[0.14em]">
+                      Principal Repaid
+                    </p>
+                    <p className="mt-1 font-semibold text-emerald-900 text-sm">
+                      {formatCurrency(loan.totalPrincipalPaid)}
+                    </p>
+                  </div>
+                  <div className="bg-blue-50 p-3 rounded-xl">
+                    <p className="text-blue-700 text-[11px] uppercase tracking-[0.14em]">
+                      Interest Repaid
+                    </p>
+                    <p className="mt-1 font-semibold text-blue-900 text-sm">
+                      {formatCurrency(loan.totalInterestPaid)}
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  className={`mb-3 rounded-xl border px-3 py-2 text-sm ${
+                    loan.accruedInterestBalance > 0
+                      ? "border-amber-200 bg-amber-50 text-amber-800"
+                      : "border-slate-200 bg-slate-50 text-slate-600"
+                  }`}
+                >
+                  {loan.accruedInterestBalance > 0
+                    ? "Your next repayment will clear accrued interest first. Principal starts reducing once the accrued interest balance is fully covered."
+                    : "Interest accrues only for elapsed months on the remaining principal until this loan is fully repaid."}
+                </div>
+
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-gray-100 border-t">
                   <div className="flex items-center gap-2 text-gray-500 text-sm">
                     <svg
@@ -205,21 +256,31 @@ const LoanHistory: React.FC<LoanHistoryProps> = ({
             )}
 
             {loan.status === "completed" && (
-              <div className="flex items-center gap-2 text-emerald-600 text-sm">
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                Fully repaid
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-emerald-600 text-sm">
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  Fully repaid
+                </div>
+                <div className="flex flex-wrap gap-3 text-xs">
+                  <span className="bg-emerald-50 px-3 py-1 rounded-full font-medium text-emerald-700">
+                    Principal repaid: {formatCurrency(loan.totalPrincipalPaid)}
+                  </span>
+                  <span className="bg-blue-50 px-3 py-1 rounded-full font-medium text-blue-700">
+                    Interest paid: {formatCurrency(loan.totalInterestPaid)}
+                  </span>
+                </div>
               </div>
             )}
 

@@ -729,7 +729,9 @@ export default function PaymentModal({
                   <p className="text-gray-500">
                     Enter any amount greater than 0 and up to{" "}
                     {formatCurrency(selectedLoanInfo.remainingBalance)}.
-                    Repayments settle accrued interest before principal.
+                    Repayments settle accrued interest before principal, and
+                    interest only accrues for elapsed months on the remaining
+                    principal until the loan is cleared.
                   </p>
                   {loanAmountError ? (
                     <p className="text-red-600">{loanAmountError}</p>

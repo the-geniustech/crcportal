@@ -38,22 +38,6 @@ interface RawTransaction {
   description: string;
 }
 
-interface RawLoanApplication {
-  _id: string;
-  totalRepayable: number;
-  remainingBalance: number;
-  status: string;
-  approvedAmount: number;
-  loanAmount: number;
-  loanPurpose: string;
-  loanCode: string;
-  monthlyPayment: number;
-  repaymentStartDate: string;
-  disbursedAt: string;
-  approvedAt: string;
-  createdAt: string;
-}
-
 interface RawMembership {
   groupId:
     | string
@@ -262,11 +246,16 @@ const DashboardContent: React.FC = () => {
   const loans: Loan[] = useMemo(() => {
     const apps: BackendLoanApplication[] = myLoanApplicationsQuery.data ?? [];
     return apps.map((a) => {
-      const total = Number(a.totalRepayable ?? 0);
+      const principalOutstanding = Number(a.principalOutstanding ?? 0);
+      const accruedInterestBalance = Number(a.accruedInterestBalance ?? 0);
+      const totalPrincipalPaid = Number(a.totalPrincipalPaid ?? 0);
+      const totalInterestPaid = Number(a.totalInterestPaid ?? 0);
       const remaining = Number(a.remainingBalance ?? 0);
+      const settledAmount = totalPrincipalPaid + totalInterestPaid;
+      const repaymentExposure = settledAmount + remaining;
       const progress =
-        total > 0
-          ? Math.round((1 - remaining / total) * 100)
+        repaymentExposure > 0
+          ? Math.round((settledAmount / repaymentExposure) * 100)
           : remaining === 0
             ? 100
             : 0;
@@ -301,11 +290,31 @@ const DashboardContent: React.FC = () => {
         monthlyPayment: Number(a.monthlyPayment ?? a.nextPaymentAmount ?? 0),
         nextPaymentAmount: Number(a.nextPaymentAmount ?? a.monthlyPayment ?? 0),
         remainingBalance: remaining,
+        principalOutstanding,
+        accruedInterestBalance,
+        totalPrincipalPaid,
+        totalInterestPaid,
         nextPaymentDate,
         progress: Math.min(100, Math.max(0, progress)),
       };
     });
   }, [myLoanApplicationsQuery.data]);
+
+  const activeLoanBreakdown = useMemo(
+    () =>
+      loans.reduce(
+        (acc, loan) => {
+          if (loan.status !== "active" && loan.status !== "defaulted") {
+            return acc;
+          }
+          acc.principalOutstanding += Number(loan.principalOutstanding ?? 0);
+          acc.accruedInterestBalance += Number(loan.accruedInterestBalance ?? 0);
+          return acc;
+        },
+        { principalOutstanding: 0, accruedInterestBalance: 0 },
+      ),
+    [loans],
+  );
 
   const groups = useMemo(() => {
     const memberships: BackendGroupMembership[] = myGroupsQuery.data ?? [];
@@ -552,6 +561,12 @@ const DashboardContent: React.FC = () => {
             <SavingsOverview
               totalContribution={totalContribution}
               activeLoanOutstanding={activeLoanOutstanding}
+              activeLoanPrincipalOutstanding={
+                activeLoanBreakdown.principalOutstanding
+              }
+              activeLoanInterestOutstanding={
+                activeLoanBreakdown.accruedInterestBalance
+              }
               nextPayment={nextPayment}
               onContribute={handleContributeOverview}
               onMakeRepayment={handleMakeRepaymentOverview}

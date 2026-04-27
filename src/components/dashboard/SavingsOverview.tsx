@@ -3,6 +3,8 @@ import React from 'react';
 interface SavingsOverviewProps {
   totalContribution: number;
   activeLoanOutstanding: number;
+  activeLoanPrincipalOutstanding?: number;
+  activeLoanInterestOutstanding?: number;
   nextPayment: { amount: number; dueDate: string } | null;
   onContribute: () => void;
   onMakeRepayment: () => void;
@@ -13,6 +15,8 @@ interface SavingsOverviewProps {
 const SavingsOverview: React.FC<SavingsOverviewProps> = ({
   totalContribution,
   activeLoanOutstanding,
+  activeLoanPrincipalOutstanding = 0,
+  activeLoanInterestOutstanding = 0,
   nextPayment,
   onContribute,
   onMakeRepayment,
@@ -52,6 +56,10 @@ const SavingsOverview: React.FC<SavingsOverviewProps> = ({
           <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
             <p className="text-emerald-100 text-xs font-medium">Active Loan Outstanding</p>
             <p className="text-xl font-bold mt-1">{formatCurrency(activeLoanOutstanding)}</p>
+            <p className="text-emerald-200 text-xs mt-1">
+              Principal {formatCurrency(activeLoanPrincipalOutstanding)} • Interest{" "}
+              {formatCurrency(activeLoanInterestOutstanding)}
+            </p>
           </div>
           <div className="bg-white/10 rounded-xl p-4 backdrop-blur-sm">
             <p className="text-emerald-100 text-xs font-medium">Next Payment</p>

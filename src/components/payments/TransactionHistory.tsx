@@ -13,6 +13,10 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useMyTransactionsQuery } from "@/hooks/finance/useMyTransactionsQuery";
 import {
+  mapBackendTransaction,
+  type PaymentTransaction,
+} from "@/lib/finance";
+import {
   Search,
   Download,
   ArrowUpRight,
@@ -27,26 +31,8 @@ import {
   TrendingUp,
 } from "lucide-react";
 
-interface Transaction {
-  id: string;
-  reference: string;
-  amount: number;
-  type:
-    | "deposit"
-    | "loan_repayment"
-    | "group_contribution"
-    | "withdrawal"
-    | "interest";
-  status: "success" | "pending" | "failed";
-  description: string;
-  date: string;
-  channel?: string;
-  groupName?: string;
-  loanName?: string;
-}
-
 interface TransactionHistoryProps {
-  onViewReceipt: (transaction: Transaction) => void;
+  onViewReceipt: (transaction: PaymentTransaction) => void;
 }
 
 const typeConfig = {
@@ -100,20 +86,9 @@ export default function TransactionHistory({
 
   const transactionsQuery = useMyTransactionsQuery({ limit: 200 });
 
-  const transactions: Transaction[] = useMemo(() => {
+  const transactions: PaymentTransaction[] = useMemo(() => {
     const list = transactionsQuery.data?.transactions ?? [];
-    return list.map((t) => ({
-      id: t._id,
-      reference: t.reference,
-      amount: Number(t.amount ?? 0),
-      type: t.type,
-      status: t.status,
-      description: t.description,
-      date: t.date,
-      channel: t.channel ?? undefined,
-      groupName: t.groupName ?? undefined,
-      loanName: t.loanName ?? undefined,
-    }));
+    return list.map((transaction) => mapBackendTransaction(transaction));
   }, [transactionsQuery.data?.transactions]);
 
   useEffect(() => {
@@ -341,6 +316,19 @@ export default function TransactionHistory({
                           {formatDate(transaction.date)}
                         </span>
                       </div>
+                      {transaction.type === "loan_repayment" &&
+                        transaction.repaymentBreakdown && (
+                          <div className="flex flex-wrap gap-2 mt-2 text-[11px]">
+                            <span className="bg-blue-50 px-2 py-1 rounded-full font-medium text-blue-700">
+                              Interest: NGN{" "}
+                              {transaction.repaymentBreakdown.interestPaid.toLocaleString()}
+                            </span>
+                            <span className="bg-emerald-50 px-2 py-1 rounded-full font-medium text-emerald-700">
+                              Principal: NGN{" "}
+                              {transaction.repaymentBreakdown.principalPaid.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
