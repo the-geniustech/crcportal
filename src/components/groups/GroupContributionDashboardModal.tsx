@@ -31,7 +31,7 @@ import {
   normalizeContributionType,
   type ContributionTypeCanonical,
 } from "@/lib/contributionPolicy";
-import { downloadGroupContributionLedgerPdf } from "@/lib/groups";
+import { downloadGroupContributionLedgerExport } from "@/lib/groups";
 import { USER_ROLE, ELEVATED_GROUP_ROLES, type GroupRole } from "@/lib/roles";
 
 interface GroupMember {
@@ -117,6 +117,19 @@ const DASHBOARD_TYPES: Array<{
   description: string;
 }> = [...ContributionTypeOptions, INTEREST_META];
 
+const CONTRIBUTION_SORT_OPTIONS = [
+  { value: "name_asc", label: "Name A-Z" },
+  { value: "name_desc", label: "Name Z-A" },
+  { value: "serial_asc", label: "Serial Asc" },
+  { value: "serial_desc", label: "Serial Desc" },
+  { value: "ytd_desc", label: "YTD Highest" },
+  { value: "ytd_asc", label: "YTD Lowest" },
+  { value: "arrears_desc", label: "Arrears Highest" },
+  { value: "arrears_asc", label: "Arrears Lowest" },
+] as const;
+
+type ContributionSortOption = (typeof CONTRIBUTION_SORT_OPTIONS)[number]["value"];
+
 const paidStatuses = new Set(["completed", "verified"]);
 
 const currencyFormatter = new Intl.NumberFormat("en-NG", {
@@ -129,6 +142,11 @@ const formatCurrency = (value: number) => {
   const safe = Number.isFinite(Number(value)) ? Number(value) : 0;
   return currencyFormatter.format(safe);
 };
+
+const contributionSortCollator = new Intl.Collator("en", {
+  numeric: true,
+  sensitivity: "base",
+});
 
 const GroupContributionDashboardModal: React.FC<
   GroupContributionDashboardModalProps
@@ -151,8 +169,10 @@ const GroupContributionDashboardModal: React.FC<
   const [selectedInterestType, setSelectedInterestType] =
     useState<ContributionTypeCanonical>("revolving");
   const [searchQuery, setSearchQuery] = useState("");
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
-  const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [sortBy, setSortBy] = useState<ContributionSortOption>("name_asc");
+  const [exportingFormat, setExportingFormat] = useState<
+    null | "pdf" | "csv" | "xlsx"
+  >(null);
   const currentDate = new Date();
   const currentYear = currentDate.getFullYear();
   const currentMonth = currentDate.getMonth() + 1;
@@ -274,6 +294,7 @@ const GroupContributionDashboardModal: React.FC<
       setSearchQuery("");
       setSelectedType("revolving");
       setSelectedInterestType("revolving");
+      setSortBy("name_asc");
     }
   }, [isOpen]);
 
@@ -428,16 +449,51 @@ const GroupContributionDashboardModal: React.FC<
   ]);
 
   const visibleRows = useMemo(() => {
-    if (!searchQuery) return allMemberRows;
-    const query = searchQuery.toLowerCase();
-    return allMemberRows.filter(
-      (row) =>
-        row.member.name.toLowerCase().includes(query) ||
-        (row.member.memberSerial
-          ? row.member.memberSerial.toLowerCase().includes(query)
-          : false),
-    );
-  }, [allMemberRows, searchQuery]);
+    const query = searchQuery.trim().toLowerCase();
+    const filteredRows = query
+      ? allMemberRows.filter(
+          (row) =>
+            row.member.name.toLowerCase().includes(query) ||
+            (row.member.memberSerial
+              ? row.member.memberSerial.toLowerCase().includes(query)
+              : false),
+        )
+      : allMemberRows;
+
+    return [...filteredRows].sort((left, right) => {
+      switch (sortBy) {
+        case "name_desc":
+          return contributionSortCollator.compare(
+            right.member.name,
+            left.member.name,
+          );
+        case "serial_asc":
+          return contributionSortCollator.compare(
+            left.member.memberSerial ?? "",
+            right.member.memberSerial ?? "",
+          );
+        case "serial_desc":
+          return contributionSortCollator.compare(
+            right.member.memberSerial ?? "",
+            left.member.memberSerial ?? "",
+          );
+        case "ytd_desc":
+          return right.ytdTotal - left.ytdTotal;
+        case "ytd_asc":
+          return left.ytdTotal - right.ytdTotal;
+        case "arrears_desc":
+          return right.arrears - left.arrears;
+        case "arrears_asc":
+          return left.arrears - right.arrears;
+        case "name_asc":
+        default:
+          return contributionSortCollator.compare(
+            left.member.name,
+            right.member.name,
+          );
+      }
+    });
+  }, [allMemberRows, searchQuery, sortBy]);
 
   const collectionSummary = useMemo(() => {
     const collectedTotal = filteredContributions
@@ -604,92 +660,20 @@ const GroupContributionDashboardModal: React.FC<
       ? `Planned units for ${settingsYear}`
       : `Planned units (current year ${settingsYear})`;
 
-  const csvEscape = (value: string | number) => {
-    const raw = String(value ?? "");
-    if (/[",\n]/.test(raw)) {
-      return `"${raw.replace(/"/g, '""')}"`;
-    }
-    return raw;
-  };
-
-  const handleExportCsv = () => {
+  const handleExport = async (format: "pdf" | "csv" | "xlsx") => {
     if (!group) return;
-    setIsExportingCsv(true);
-
+    setExportingFormat(format);
     try {
-      const headers = [
-        "S/N",
-        "Member Serial",
-        "Member Name",
-        "Units",
-        ...MONTHS.map((month) => month.label),
-        "YTD Total",
-        "Expected YTD",
-        "Arrears",
-        "Status",
-      ];
-
-      const rows = visibleRows.map((row, index) => [
-        index + 1,
-        row.member.memberSerial ?? "-",
-        row.member.name,
-        row.units ?? "-",
-        ...row.monthAmounts.map((month) =>
-          month.amount > 0 ? formatCurrency(month.amount) : "-",
-        ),
-        formatCurrency(row.ytdTotal),
-        formatCurrency(row.expectedYtd),
-        formatCurrency(row.arrears),
-        row.status,
-      ]);
-
-      const totals = [
-        "Totals",
-        "-",
-        `${visibleRows.length} members`,
-        tableTotals.unitsTotal > 0 ? tableTotals.unitsTotal : "-",
-        ...tableTotals.monthTotals.map((total) =>
-          total > 0 ? formatCurrency(total) : "-",
-        ),
-        formatCurrency(tableTotals.ytdTotal),
-        formatCurrency(tableTotals.expectedYtd),
-        formatCurrency(tableTotals.arrears),
-        tableTotals.status,
-      ];
-
-      const csvBody = [headers, ...rows, totals]
-        .map((row) => row.map((value) => csvEscape(value)).join(","))
-        .join("\n");
-      const csv = `\uFEFF${csvBody}`;
-
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      const safeName = group.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      const typeLabel =
-        selectedType === "interest"
-          ? `interest-${selectedInterestType}`
-          : selectedType;
-      link.href = url;
-      link.download = `contribution-ledger-${safeName}-${typeLabel}-${selectedYear}.csv`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } finally {
-      setIsExportingCsv(false);
-    }
-  };
-
-  const handleExportPdf = async () => {
-    if (!group) return;
-    setIsExportingPdf(true);
-    try {
-      const blob = await downloadGroupContributionLedgerPdf(group.id, {
+      const response = await downloadGroupContributionLedgerExport(group.id, {
         year: selectedYear,
         contributionType: selectedType,
         interestType:
           selectedType === "interest" ? selectedInterestType : undefined,
+        search: searchQuery || undefined,
+        sortBy,
+        format,
       });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(response.blob);
       const link = document.createElement("a");
       const safeName = group.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       const typeLabel =
@@ -697,18 +681,24 @@ const GroupContributionDashboardModal: React.FC<
           ? `interest-${selectedInterestType}`
           : selectedType;
       link.href = url;
-      link.download = `contribution-ledger-${safeName}-${typeLabel}-${selectedYear}.pdf`;
+      link.download =
+        response.filename ||
+        `contribution-ledger-${safeName}-${typeLabel}-${selectedYear}.${format}`;
       link.click();
       URL.revokeObjectURL(url);
+      toast({
+        title: "Export Complete",
+        description: `Contribution ledger exported as ${format.toUpperCase()}.`,
+      });
     } catch (error) {
       toast({
         title: "Export failed",
         description:
-          error instanceof Error ? error.message : "Unable to export PDF",
+          error instanceof Error ? error.message : `Unable to export ${format}`,
         variant: "destructive",
       });
     } finally {
-      setIsExportingPdf(false);
+      setExportingFormat(null);
     }
   };
 
@@ -796,7 +786,7 @@ const GroupContributionDashboardModal: React.FC<
                   </button>
                 ))}
               </div>
-              <div className="flex flex-wrap items-center gap-3 w-full max-w-2xl">
+              <div className="flex flex-wrap items-center gap-3 w-full max-w-3xl">
                 {selectedType === "interest" && (
                   <div className="flex items-center gap-2 bg-white px-3 py-2 border border-gray-200 rounded-full font-semibold text-gray-600 text-xs">
                     <span>Interest for</span>
@@ -826,31 +816,48 @@ const GroupContributionDashboardModal: React.FC<
                     className="pl-9"
                   />
                 </div>
+                <select
+                  value={sortBy}
+                  onChange={(event) =>
+                    setSortBy(event.target.value as ContributionSortOption)
+                  }
+                  className="bg-white px-4 py-2 border border-slate-200 rounded-full font-semibold text-gray-600 text-xs"
+                >
+                  {CONTRIBUTION_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      Sort: {option.label}
+                    </option>
+                  ))}
+                </select>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
                       variant="outline"
                       className="gap-2"
-                      disabled={isExportingPdf || isExportingCsv}
+                      disabled={!!exportingFormat || isTableLoading}
                     >
                       <Download className="w-4 h-4" />
-                      {isExportingPdf || isExportingCsv
-                        ? "Exporting..."
-                        : "Export"}
+                      {exportingFormat ? "Exporting..." : "Export"}
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem
-                      onClick={handleExportPdf}
-                      disabled={isExportingPdf}
+                      onClick={() => void handleExport("pdf")}
+                      disabled={exportingFormat === "pdf"}
                     >
                       Export PDF
                     </DropdownMenuItem>
                     <DropdownMenuItem
-                      onClick={handleExportCsv}
-                      disabled={isExportingCsv}
+                      onClick={() => void handleExport("csv")}
+                      disabled={exportingFormat === "csv"}
                     >
                       Export CSV
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => void handleExport("xlsx")}
+                      disabled={exportingFormat === "xlsx"}
+                    >
+                      Export XLSX
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

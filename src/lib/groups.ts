@@ -729,12 +729,34 @@ export async function downloadGroupContributionLedgerPdf(
   groupId: string,
   params: { year?: number; contributionType?: string; interestType?: string } = {},
 ): Promise<Blob> {
+  const response = await downloadGroupContributionLedgerExport(groupId, {
+    ...params,
+    format: "pdf",
+  });
+  return response.blob;
+}
+
+export async function downloadGroupContributionLedgerExport(
+  groupId: string,
+  params: {
+    year?: number;
+    contributionType?: string;
+    interestType?: string;
+    search?: string;
+    sortBy?: string;
+    format?: "pdf" | "csv" | "xlsx";
+  } = {},
+): Promise<{ blob: Blob; filename: string | null; mimeType: string | null }> {
   try {
     const res = await api.get(`/groups/${groupId}/contributions/ledger`, {
       params,
       responseType: "blob",
     });
-    return res.data as Blob;
+    return {
+      blob: res.data as Blob,
+      filename: extractFilename(res.headers?.["content-disposition"]),
+      mimeType: (res.headers?.["content-type"] as string) || null,
+    };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
@@ -780,4 +802,37 @@ export async function listGroupLoans(
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
+}
+
+export async function downloadGroupLoanLedgerExport(
+  groupId: string,
+  params: {
+    loanType?: string;
+    status?: string;
+    search?: string;
+    sortBy?: string;
+    format: "pdf" | "csv" | "xlsx";
+  },
+): Promise<{ blob: Blob; filename: string | null; mimeType: string | null }> {
+  try {
+    const res = await api.get(`/groups/${groupId}/loans/export`, {
+      params,
+      responseType: "blob",
+    });
+    return {
+      blob: res.data as Blob,
+      filename: extractFilename(res.headers?.["content-disposition"]),
+      mimeType: (res.headers?.["content-type"] as string) || null,
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+function extractFilename(value: unknown): string | null {
+  if (!value) return null;
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  const match = /filename="?([^"]+)"?/i.exec(String(raw));
+  return match?.[1] || null;
 }

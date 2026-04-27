@@ -10,6 +10,12 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,6 +26,7 @@ import {
   formatInterestLabel,
   type LoanFacilityKey,
 } from "@/lib/loanPolicy";
+import { downloadGroupLoanLedgerExport } from "@/lib/groups";
 
 interface GroupLoan {
   id: string;
@@ -83,6 +90,23 @@ const statusOptions = [
   { value: "rejected", label: "Rejected" },
 ];
 
+const LOAN_SORT_OPTIONS = [
+  { value: "updated_desc", label: "Recently Updated" },
+  { value: "updated_asc", label: "Oldest Updated" },
+  { value: "name_asc", label: "Borrower A-Z" },
+  { value: "name_desc", label: "Borrower Z-A" },
+  { value: "serial_asc", label: "Serial Asc" },
+  { value: "serial_desc", label: "Serial Desc" },
+  { value: "principal_desc", label: "Principal Highest" },
+  { value: "principal_asc", label: "Principal Lowest" },
+  { value: "outstanding_desc", label: "Outstanding Highest" },
+  { value: "outstanding_asc", label: "Outstanding Lowest" },
+  { value: "repaid_desc", label: "Repaid Highest" },
+  { value: "repaid_asc", label: "Repaid Lowest" },
+] as const;
+
+type LoanSortOption = (typeof LOAN_SORT_OPTIONS)[number]["value"];
+
 const loanTypeStyles: Record<LoanFacilityKey, { badge: string }> = {
   revolving: {
     badge: "bg-emerald-100 text-emerald-700",
@@ -108,6 +132,11 @@ const formatCurrency = (value: number) => {
   const safe = Number.isFinite(Number(value)) ? Number(value) : 0;
   return currencyFormatter.format(safe);
 };
+
+const loanSortCollator = new Intl.Collator("en", {
+  numeric: true,
+  sensitivity: "base",
+});
 
 const formatDate = (value?: string | null) => {
   if (!value) return "-";
@@ -393,7 +422,10 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
     useState<LoanFacilityKey>("revolving");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [sortBy, setSortBy] = useState<LoanSortOption>("updated_desc");
+  const [exportingFormat, setExportingFormat] = useState<
+    null | "csv" | "pdf" | "xlsx"
+  >(null);
   const normalizedMemberRole = currentMemberRole ?? null;
   const hasElevatedMembership = normalizedMemberRole
     ? ELEVATED_GROUP_ROLES.includes(normalizedMemberRole)
@@ -415,6 +447,7 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
       setSelectedType("revolving");
       setSearchQuery("");
       setStatusFilter("all");
+      setSortBy("updated_desc");
     }
   }, [isOpen]);
 
@@ -457,11 +490,55 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
 
   const sortedLoans = useMemo(() => {
     return [...filteredLoans].sort((a, b) => {
-      const dateA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-      const dateB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-      return dateB - dateA;
+      const leftDisplay = resolveLoanDisplay(a);
+      const rightDisplay = resolveLoanDisplay(b);
+      switch (sortBy) {
+        case "updated_asc":
+          return (
+            new Date(a.updatedAt || a.createdAt || 0).getTime() -
+            new Date(b.updatedAt || b.createdAt || 0).getTime()
+          );
+        case "name_asc":
+          return loanSortCollator.compare(
+            a.borrowerName || "",
+            b.borrowerName || "",
+          );
+        case "name_desc":
+          return loanSortCollator.compare(
+            b.borrowerName || "",
+            a.borrowerName || "",
+          );
+        case "serial_asc":
+          return loanSortCollator.compare(
+            a.memberSerial || "",
+            b.memberSerial || "",
+          );
+        case "serial_desc":
+          return loanSortCollator.compare(
+            b.memberSerial || "",
+            a.memberSerial || "",
+          );
+        case "principal_desc":
+          return rightDisplay.principal - leftDisplay.principal;
+        case "principal_asc":
+          return leftDisplay.principal - rightDisplay.principal;
+        case "outstanding_desc":
+          return rightDisplay.remaining - leftDisplay.remaining;
+        case "outstanding_asc":
+          return leftDisplay.remaining - rightDisplay.remaining;
+        case "repaid_desc":
+          return rightDisplay.repaymentToDate - leftDisplay.repaymentToDate;
+        case "repaid_asc":
+          return leftDisplay.repaymentToDate - rightDisplay.repaymentToDate;
+        case "updated_desc":
+        default:
+          return (
+            new Date(b.updatedAt || b.createdAt || 0).getTime() -
+            new Date(a.updatedAt || a.createdAt || 0).getTime()
+          );
+      }
     });
-  }, [filteredLoans]);
+  }, [filteredLoans, sortBy]);
 
   const selectedSummary = useMemo(() => {
     const subset = normalizedLoans.filter(
@@ -482,144 +559,44 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
     });
   }, [normalizedLoans]);
 
-  const csvEscape = (value: unknown) => {
-    const raw = String(value ?? "");
-    if (/[",\n]/.test(raw)) {
-      return `"${raw.replace(/"/g, '""')}"`;
-    }
-    return raw;
-  };
-
-  const handleExportCsv = () => {
+  const handleExport = async (format: "csv" | "pdf" | "xlsx") => {
     if (!group) return;
-    setIsExportingCsv(true);
+    setExportingFormat(format);
 
     try {
-      const headers = [
-        "Loan Code",
-        "Loan Type",
-        "Borrower Name",
-        "Membership Serial",
-        "Borrower Email",
-        "Borrower Phone",
-        "Principal",
-        "Interest Rate",
-        "Remaining Principal Due",
-        "Remaining Interest Due",
-        "Principal Paid",
-        "Interest Paid",
-        "Interest Patronage",
-        "Status",
-        "Progress",
-        "Disbursed At",
-        "Updated At",
-      ];
-
-      const totals = sortedLoans.reduce(
-        (acc, loan) => {
-          const display = resolveLoanDisplay(loan);
-          acc.principal += Number(display.principal ?? 0);
-          acc.remainingPrincipal += Number(display.remainingPrincipal ?? 0);
-          acc.remainingInterest += Number(display.remainingInterest ?? 0);
-          acc.repaidPrincipal += Number(display.repaidPrincipal ?? 0);
-          acc.repaidInterest += Number(display.repaidInterest ?? 0);
-          acc.patronage += Number(display.interestPatronage ?? 0);
-          return acc;
-        },
-        {
-          principal: 0,
-          remainingPrincipal: 0,
-          remainingInterest: 0,
-          repaidPrincipal: 0,
-          repaidInterest: 0,
-          patronage: 0,
-        },
-      );
-
-      const rows = sortedLoans.map((loan) => {
-        const loanLabel =
-          loan.loanCode || `LN-${String(loan.id).slice(-6).toUpperCase()}`;
-        const {
-          facility,
-          interestLabel,
-          remainingPrincipal,
-          remainingInterest,
-          repaidPrincipal,
-          repaidInterest,
-          interestPatronage,
-          progressValue,
-          principal,
-        } = resolveLoanDisplay(loan);
-        return [
-          loanLabel,
-          facility?.name || "Loan",
-          loan.borrowerName || "-",
-          loan.memberSerial || "-",
-          loan.borrowerEmail || "-",
-          loan.borrowerPhone || "-",
-          formatCurrency(principal),
-          interestLabel,
-          formatCurrency(remainingPrincipal),
-          formatCurrency(remainingInterest),
-          formatCurrency(repaidPrincipal),
-          formatCurrency(repaidInterest),
-          formatCurrency(interestPatronage),
-          loan.status || "-",
-          progressValue === null ? "-" : `${Math.round(progressValue)}%`,
-          formatDate(loan.disbursedAt),
-          formatDate(loan.updatedAt || loan.createdAt),
-        ];
+      const response = await downloadGroupLoanLedgerExport(group.id, {
+        loanType: selectedType,
+        status: statusFilter,
+        search: searchQuery || undefined,
+        sortBy,
+        format,
       });
 
-      const totalsRow = [
-        "Totals",
-        `${sortedLoans.length} loans`,
-        "-",
-        "-",
-        "-",
-        "-",
-        formatCurrency(totals.principal),
-        "-",
-        formatCurrency(totals.remainingPrincipal),
-        formatCurrency(totals.remainingInterest),
-        formatCurrency(totals.repaidPrincipal),
-        formatCurrency(totals.repaidInterest),
-        formatCurrency(totals.patronage),
-        "-",
-        "-",
-        "-",
-        "-",
-      ];
-
-      const csvBody = [headers, ...rows, totalsRow]
-        .map((row) => row.map((value) => csvEscape(value)).join(","))
-        .join("\n");
-      const csv = `\uFEFF${csvBody}`;
-
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
+      const url = URL.createObjectURL(response.blob);
       const link = document.createElement("a");
       const safeName = group.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
       link.href = url;
-      link.download = `loan-ledger-${safeName}-${selectedType}-${new Date()
-        .toISOString()
-        .slice(0, 10)}.csv`;
+      link.download =
+        response.filename ||
+        `loan-ledger-${safeName}-${selectedType}-${new Date()
+          .toISOString()
+          .slice(0, 10)}.${format}`;
       link.click();
       URL.revokeObjectURL(url);
 
       toast({
         title: "Export Complete",
-        description: "Loan ledger exported as CSV.",
+        description: `Loan ledger exported as ${format.toUpperCase()}.`,
       });
     } catch (error) {
       toast({
         title: "Export failed",
         description:
-          error instanceof Error ? error.message : "Unable to export CSV",
+          error instanceof Error ? error.message : `Unable to export ${format}`,
         variant: "destructive",
       });
     } finally {
-      setIsExportingCsv(false);
+      setExportingFormat(null);
     }
   };
 
@@ -717,7 +694,7 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-3 w-full max-w-2xl">
+              <div className="flex flex-wrap items-center gap-3 w-full max-w-4xl">
                 <div className="relative w-full max-w-xs">
                   <Search className="top-1/2 left-3 absolute w-4 h-4 text-gray-400 -translate-y-1/2" />
                   <Input
@@ -738,15 +715,51 @@ const GroupLoanDashboardModal: React.FC<GroupLoanDashboardModalProps> = ({
                     </option>
                   ))}
                 </select>
-                <Button
-                  variant="outline"
-                  className="gap-2"
-                  onClick={handleExportCsv}
-                  disabled={isExportingCsv || loansLoading}
+                <select
+                  value={sortBy}
+                  onChange={(event) =>
+                    setSortBy(event.target.value as LoanSortOption)
+                  }
+                  className="bg-white px-4 py-2 border border-slate-200 rounded-full font-semibold text-gray-600 text-xs"
                 >
-                  <Download className="w-4 h-4" />
-                  {isExportingCsv ? "Exporting..." : "Export CSV"}
-                </Button>
+                  {LOAN_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      Sort: {option.label}
+                    </option>
+                  ))}
+                </select>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="gap-2"
+                      disabled={!!exportingFormat || loansLoading}
+                    >
+                      <Download className="w-4 h-4" />
+                      {exportingFormat ? "Exporting..." : "Export"}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={() => void handleExport("csv")}
+                      disabled={exportingFormat === "csv"}
+                    >
+                      Export CSV
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => void handleExport("pdf")}
+                      disabled={exportingFormat === "pdf"}
+                    >
+                      Export PDF
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => void handleExport("xlsx")}
+                      disabled={exportingFormat === "xlsx"}
+                    >
+                      Export XLSX
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 
