@@ -101,6 +101,7 @@ export type AdminContributionTrackerEntry = {
   units: number;
   interestAmount: number;
   contributionType?: ContributionTypeCanonical | null;
+  recurringPaymentId?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
   verifiedAt?: string | null;
@@ -258,6 +259,34 @@ export async function updateTrackedContribution(
   try {
     const res = await api.patch(`/admin/contributions/${contributionId}`, payload);
     return res.data?.data as AdminManualContributionPaymentResult;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminContributionPeriodDeletePayload = {
+  userId: string;
+  groupId: string;
+  month: number;
+  year: number;
+  contributionType?: ContributionTypeCanonical;
+};
+
+export type AdminContributionPeriodDeleteResult = {
+  deletedContributions: number;
+  deletedAmount: number;
+  countedAmount: number;
+  deletedTransactions: number;
+  updatedTransactions: number;
+  recurringSchedulesRebuilt: number;
+};
+
+export async function markContributionUnpaid(
+  payload: AdminContributionPeriodDeletePayload,
+): Promise<AdminContributionPeriodDeleteResult> {
+  try {
+    const res = await api.post("/admin/contributions/mark-unpaid", payload);
+    return res.data?.data as AdminContributionPeriodDeleteResult;
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
