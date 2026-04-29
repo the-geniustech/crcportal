@@ -60,23 +60,102 @@ export type AdminContributionTrackerRecord = {
   id: string; // `${userId}|${groupId}|${year}|${month}`
   userId: string;
   groupId: string;
+  contributionType?: ContributionTypeCanonical | null;
   memberName: string;
   memberSerial?: string | null;
   groupName: string;
   expectedAmount: number;
   paidAmount: number;
-  dueDate: string;
+  dueDate: string | null;
   status: "paid" | "partial" | "pending" | "defaulted";
   monthsDefaulted: number;
 };
 
 export async function listContributionTracker(
-  params: { month?: number; year?: number; groupId?: string } = {},
+  params: {
+    month?: number;
+    year?: number;
+    groupId?: string;
+    contributionType?: ContributionTypeCanonical;
+    sort?: string;
+  } = {},
 ) {
   try {
     const res = await api.get("/admin/contributions/tracker", { params });
     return (res.data?.data?.contributions ??
       []) as AdminContributionTrackerRecord[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminContributionTrackerEntry = {
+  id: string;
+  amount: number;
+  month: number;
+  year: number;
+  status: string;
+  paymentMethod?: string | null;
+  paymentReference?: string | null;
+  notes?: string | null;
+  units: number;
+  interestAmount: number;
+  contributionType?: ContributionTypeCanonical | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  verifiedAt?: string | null;
+  transaction?: {
+    id: string;
+    reference?: string | null;
+    amount: number;
+    status?: string | null;
+    channel?: string | null;
+    description?: string | null;
+    date?: string | null;
+  } | null;
+};
+
+export async function listContributionTrackerEntries(params: {
+  userId: string;
+  groupId: string;
+  month: number;
+  year: number;
+  contributionType: ContributionTypeCanonical;
+}) {
+  try {
+    const res = await api.get("/admin/contributions/tracker/entries", {
+      params,
+    });
+    return (res.data?.data?.entries ?? []) as AdminContributionTrackerEntry[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function downloadContributionTrackerExport(params: {
+  month?: number;
+  year?: number;
+  groupId?: string;
+  contributionType?: ContributionTypeCanonical;
+  status?: string;
+  search?: string;
+  sort?: string;
+  format: "csv" | "xlsx";
+}): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const res = await api.get("/admin/contributions/tracker/export", {
+      params,
+      responseType: "blob",
+    });
+    const contentType =
+      (res.headers?.["content-type"] as string) || "application/octet-stream";
+    const filename =
+      extractFilename(res.headers?.["content-disposition"]) ||
+      `contribution-tracker.${params.format}`;
+    return {
+      blob: new Blob([res.data], { type: contentType }),
+      filename,
+    };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
@@ -131,6 +210,15 @@ export type AdminManualContributionPaymentPayload = {
   description?: string;
 };
 
+export type AdminContributionUpdatePayload = {
+  amount?: number;
+  month?: number;
+  year?: number;
+  paymentMethod?: string;
+  paymentReference?: string;
+  notes?: string;
+};
+
 export type AdminManualContributionPaymentResult = {
   contribution?: {
     _id?: string;
@@ -157,6 +245,18 @@ export async function markContributionPaid(
 ): Promise<AdminManualContributionPaymentResult> {
   try {
     const res = await api.post("/admin/contributions/mark-paid", payload);
+    return res.data?.data as AdminManualContributionPaymentResult;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function updateTrackedContribution(
+  contributionId: string,
+  payload: AdminContributionUpdatePayload,
+): Promise<AdminManualContributionPaymentResult> {
+  try {
+    const res = await api.patch(`/admin/contributions/${contributionId}`, payload);
     return res.data?.data as AdminManualContributionPaymentResult;
   } catch (err) {
     throw new Error(getApiErrorMessage(err));

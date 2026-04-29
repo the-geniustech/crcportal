@@ -289,6 +289,9 @@ export default function Admin() {
   const [trackerYear, setTrackerYear] = useState(defaultPeriod.year);
   const [trackerMonth, setTrackerMonth] = useState(defaultPeriod.month);
   const [trackerGroupFilter, setTrackerGroupFilter] = useState("all");
+  const [trackerContributionType, setTrackerContributionType] = useState<
+    "revolving" | "special" | "endwell" | "festive"
+  >("revolving");
 
   const now = new Date();
   const trackerQuery = useContributionTrackerQuery(
@@ -296,6 +299,7 @@ export default function Admin() {
       year: trackerYear,
       month: trackerMonth,
       groupId: trackerGroupFilter !== "all" ? trackerGroupFilter : undefined,
+      contributionType: trackerContributionType,
     },
     canAccessCoordinatorPanels,
   );
@@ -1675,9 +1679,10 @@ export default function Admin() {
           {activeTab === "contributions" && canAccessCoordinatorPanels && (
             <ContributionTracker
               contributions={contributions}
-              // onMarkPaid={handleMarkPaid}
               year={trackerYear}
               month={trackerMonth}
+              contributionType={trackerContributionType}
+              onContributionTypeChange={setTrackerContributionType}
               onYearChange={setTrackerYear}
               onMonthChange={setTrackerMonth}
               selectedGroupId={trackerGroupFilter}

@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
   AlertTriangle,
   CheckCircle,
   Clock,
@@ -58,12 +63,21 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useMarkContributionPaidMutation } from "@/hooks/admin/useMarkContributionPaidMutation";
-import { sendContributionReminders } from "@/lib/admin";
 import {
+  downloadContributionTrackerExport,
+  listContributionTrackerEntries,
+  sendContributionReminders,
+  updateTrackedContribution,
+  type AdminContributionTrackerEntry,
+} from "@/lib/admin";
+import {
+  ContributionTypeOptions,
   calculateContributionInterestForType,
   calculateContributionUnits,
   formatNaira,
+  getContributionTypeConfig,
   getContributionTypeLabel,
+  type ContributionTypeCanonical,
   validateContributionAmount,
 } from "@/lib/contributionPolicy";
 
@@ -71,12 +85,13 @@ interface ContributionRecord {
   id: string;
   userId: string;
   groupId: string;
+  contributionType?: ContributionTypeCanonical | null;
   memberName: string;
   memberSerial?: string | null;
   groupName: string;
   expectedAmount: number;
   paidAmount: number;
-  dueDate: string;
+  dueDate: string | null;
   status: "paid" | "partial" | "pending" | "defaulted";
   monthsDefaulted: number;
 }
@@ -85,6 +100,8 @@ interface ContributionTrackerProps {
   contributions: ContributionRecord[];
   year: number;
   month: number;
+  contributionType: ContributionTypeCanonical;
+  onContributionTypeChange?: (value: ContributionTypeCanonical) => void;
   onYearChange?: (year: number) => void;
   onMonthChange?: (month: number) => void;
   selectedGroupId?: string;
@@ -110,6 +127,27 @@ type ManualPaymentFormState = {
   description: string;
 };
 
+type ContributionSortOption =
+  | "member_name_asc"
+  | "member_name_desc"
+  | "group_name_asc"
+  | "group_name_desc"
+  | "expected_desc"
+  | "expected_asc"
+  | "paid_desc"
+  | "paid_asc"
+  | "status"
+  | "defaulted_desc";
+
+type ContributionEditFormState = {
+  amount: string;
+  month: string;
+  year: string;
+  paymentMethod: ManualPaymentMethod;
+  paymentReference: string;
+  notes: string;
+};
+
 const PAYMENT_METHOD_OPTIONS: Array<{
   value: ManualPaymentMethod;
   label: string;
@@ -121,6 +159,22 @@ const PAYMENT_METHOD_OPTIONS: Array<{
   { value: "mobile_money", label: "Mobile Money" },
   { value: "cheque", label: "Cheque" },
   { value: "other", label: "Other" },
+];
+
+const SORT_OPTIONS: Array<{
+  value: ContributionSortOption;
+  label: string;
+}> = [
+  { value: "member_name_asc", label: "Member Name (A-Z)" },
+  { value: "member_name_desc", label: "Member Name (Z-A)" },
+  { value: "group_name_asc", label: "Group (A-Z)" },
+  { value: "group_name_desc", label: "Group (Z-A)" },
+  { value: "expected_desc", label: "Expected (High-Low)" },
+  { value: "expected_asc", label: "Expected (Low-High)" },
+  { value: "paid_desc", label: "Paid (High-Low)" },
+  { value: "paid_asc", label: "Paid (Low-High)" },
+  { value: "status", label: "Status" },
+  { value: "defaulted_desc", label: "Most Defaulted" },
 ];
 
 const buildPageItems = (currentPage: number, totalPages: number) => {
@@ -163,23 +217,80 @@ const parseRecordPeriod = (
   };
 };
 
-const getDefaultManualAmount = (record: ContributionRecord) => {
+const sortContributionRecords = (
+  records: ContributionRecord[],
+  sortBy: ContributionSortOption,
+) => {
+  const next = [...records];
+  next.sort((left, right) => {
+    const memberCompare = left.memberName.localeCompare(right.memberName, "en", {
+      sensitivity: "base",
+    });
+    const groupCompare = left.groupName.localeCompare(right.groupName, "en", {
+      sensitivity: "base",
+    });
+
+    switch (sortBy) {
+      case "member_name_desc":
+        return -memberCompare || groupCompare;
+      case "group_name_asc":
+        return groupCompare || memberCompare;
+      case "group_name_desc":
+        return -groupCompare || memberCompare;
+      case "expected_desc":
+        return right.expectedAmount - left.expectedAmount || memberCompare;
+      case "expected_asc":
+        return left.expectedAmount - right.expectedAmount || memberCompare;
+      case "paid_desc":
+        return right.paidAmount - left.paidAmount || memberCompare;
+      case "paid_asc":
+        return left.paidAmount - right.paidAmount || memberCompare;
+      case "status": {
+        const statusOrder = {
+          paid: 0,
+          partial: 1,
+          pending: 2,
+          defaulted: 3,
+        };
+        return (
+          statusOrder[left.status] - statusOrder[right.status] || memberCompare
+        );
+      }
+      case "defaulted_desc":
+        return right.monthsDefaulted - left.monthsDefaulted || memberCompare;
+      case "member_name_asc":
+      default:
+        return memberCompare || groupCompare;
+    }
+  });
+  return next;
+};
+
+const getDefaultManualAmount = (
+  record: ContributionRecord,
+  contributionType: ContributionTypeCanonical,
+) => {
+  const typeConfig = getContributionTypeConfig(contributionType);
   const remaining = Math.max(
     0,
     Number(record.expectedAmount || 0) - Number(record.paidAmount || 0),
   );
   if (remaining > 0) return remaining;
-  return Math.max(Number(record.expectedAmount || 0), 5000);
+  return Math.max(
+    Number(record.expectedAmount || 0),
+    Number(typeConfig?.minAmount || 5000),
+  );
 };
 
 const buildManualPaymentDraft = (
   record: ContributionRecord,
+  contributionType: ContributionTypeCanonical,
   fallbackYear: number,
   fallbackMonth: number,
 ): ManualPaymentFormState => {
   const period = parseRecordPeriod(record, fallbackYear, fallbackMonth);
   return {
-    amount: String(getDefaultManualAmount(record)),
+    amount: String(getDefaultManualAmount(record, contributionType)),
     month: String(period.month),
     year: String(period.year),
     paymentMethod: "bank_transfer",
@@ -188,10 +299,24 @@ const buildManualPaymentDraft = (
   };
 };
 
+const buildContributionEditDraft = (
+  entry: AdminContributionTrackerEntry,
+): ContributionEditFormState => ({
+  amount: String(Number(entry.amount || 0)),
+  month: String(Number(entry.month || new Date().getMonth() + 1)),
+  year: String(Number(entry.year || new Date().getFullYear())),
+  paymentMethod:
+    (entry.paymentMethod as ManualPaymentMethod | null) || "bank_transfer",
+  paymentReference: entry.paymentReference || "",
+  notes: entry.notes || "",
+});
+
 export default function ContributionTracker({
   contributions,
   year,
   month,
+  contributionType,
+  onContributionTypeChange,
   onYearChange,
   onMonthChange,
   selectedGroupId,
@@ -199,11 +324,17 @@ export default function ContributionTracker({
   canManageActions = true,
 }: ContributionTrackerProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const markPaidMutation = useMarkContributionPaidMutation();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [sortBy, setSortBy] =
+    useState<ContributionSortOption>("member_name_asc");
   const [localGroupFilter, setLocalGroupFilter] = useState("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const [exportingFormat, setExportingFormat] = useState<null | "csv" | "xlsx">(
+    null,
+  );
   const [reminderOpen, setReminderOpen] = useState(false);
   const [reminderTargets, setReminderTargets] = useState<ContributionRecord[]>(
     [],
@@ -217,8 +348,14 @@ export default function ContributionTracker({
   const [manualPaymentOpen, setManualPaymentOpen] = useState(false);
   const [confirmManualPaymentOpen, setConfirmManualPaymentOpen] =
     useState(false);
+  const [editContributionOpen, setEditContributionOpen] = useState(false);
+  const [confirmContributionEditOpen, setConfirmContributionEditOpen] =
+    useState(false);
   const [selectedRecord, setSelectedRecord] =
     useState<ContributionRecord | null>(null);
+  const [selectedEditEntryId, setSelectedEditEntryId] = useState<string | null>(
+    null,
+  );
   const [manualPaymentForm, setManualPaymentForm] =
     useState<ManualPaymentFormState>({
       amount: "",
@@ -227,6 +364,15 @@ export default function ContributionTracker({
       paymentMethod: "bank_transfer",
       paymentReference: "",
       description: "",
+    });
+  const [editContributionForm, setEditContributionForm] =
+    useState<ContributionEditFormState>({
+      amount: "",
+      month: String(month),
+      year: String(year),
+      paymentMethod: "bank_transfer",
+      paymentReference: "",
+      notes: "",
     });
 
   const pageSize = 10;
@@ -246,7 +392,7 @@ export default function ContributionTracker({
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, groupFilter, year, month]);
+  }, [searchQuery, statusFilter, sortBy, groupFilter, year, month, contributionType]);
 
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -279,18 +425,21 @@ export default function ContributionTracker({
     [contributions, groupFilter],
   );
 
-  const filteredContributions = groupScopedContributions.filter((record) => {
+  const filteredContributions = useMemo(() => {
     const query = searchQuery.toLowerCase();
-    const matchesSearch =
-      record.memberName.toLowerCase().includes(query) ||
-      record.groupName.toLowerCase().includes(query) ||
-      (record.memberSerial
-        ? record.memberSerial.toLowerCase().includes(query)
-        : false);
-    const matchesStatus =
-      statusFilter === "all" || record.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+    const filtered = groupScopedContributions.filter((record) => {
+      const matchesSearch =
+        record.memberName.toLowerCase().includes(query) ||
+        record.groupName.toLowerCase().includes(query) ||
+        (record.memberSerial
+          ? record.memberSerial.toLowerCase().includes(query)
+          : false);
+      const matchesStatus =
+        statusFilter === "all" || record.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+    return sortContributionRecords(filtered, sortBy);
+  }, [groupScopedContributions, searchQuery, sortBy, statusFilter]);
 
   const total = filteredContributions.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
@@ -324,7 +473,79 @@ export default function ContributionTracker({
     0,
   );
   const collectionRate =
-    totalExpected > 0 ? (totalPaid / totalExpected) * 100 : 0;
+    totalExpected > 0
+      ? (totalPaid / totalExpected) * 100
+      : contributionType === "special" && groupScopedContributions.length > 0
+        ? (groupScopedContributions.filter((record) => record.paidAmount > 0)
+            .length /
+            groupScopedContributions.length) *
+          100
+        : 0;
+  const contributionTypeConfig = getContributionTypeConfig(contributionType);
+  const selectedRecordPeriod = selectedRecord
+    ? parseRecordPeriod(selectedRecord, year, month)
+    : { year, month };
+  const trackerEntriesQuery = useQuery({
+    queryKey: [
+      "admin",
+      "contributions",
+      "tracker",
+      "entries",
+      selectedRecord?.userId ?? "none",
+      selectedRecord?.groupId ?? "none",
+      contributionType,
+      selectedRecordPeriod.year,
+      selectedRecordPeriod.month,
+    ],
+    enabled: editContributionOpen && !!selectedRecord,
+    queryFn: async () =>
+      listContributionTrackerEntries({
+        userId: String(selectedRecord?.userId || ""),
+        groupId: String(selectedRecord?.groupId || ""),
+        year: selectedRecordPeriod.year,
+        month: selectedRecordPeriod.month,
+        contributionType,
+      }),
+  });
+  const updateContributionMutation = useMutation({
+    mutationFn: ({
+      contributionId,
+      payload,
+    }: {
+      contributionId: string;
+      payload: {
+        amount: number;
+        month: number;
+        year: number;
+        paymentMethod?: string;
+        paymentReference?: string;
+        notes?: string;
+      };
+    }) => updateTrackedContribution(contributionId, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "contributions", "tracker"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["group-contributions"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "groups"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "financial-reports"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["transactions", "me"],
+        }),
+      ]);
+    },
+  });
+  const contributionEntries = useMemo(
+    () => trackerEntriesQuery.data ?? [],
+    [trackerEntriesQuery.data],
+  );
 
   const manualAmount = Number(manualPaymentForm.amount);
   const manualMonth = Number(manualPaymentForm.month);
@@ -339,7 +560,7 @@ export default function ContributionTracker({
     ? calculateContributionUnits(manualAmount)
     : 0;
   const computedInterest = Number.isFinite(manualAmount)
-    ? calculateContributionInterestForType("revolving", manualAmount)
+    ? calculateContributionInterestForType(contributionType, manualAmount)
     : 0;
   const predictedStatus =
     totalAfterPayment >= expectedAmount && expectedAmount > 0
@@ -354,14 +575,27 @@ export default function ContributionTracker({
         message: "Enter a valid contribution amount.",
       };
     }
-    return validateContributionAmount("revolving", manualAmount);
-  }, [manualAmount]);
+    return validateContributionAmount(contributionType, manualAmount);
+  }, [contributionType, manualAmount]);
 
   const manualQuickAmounts = useMemo(() => {
     const recommended = selectedRecord
-      ? getDefaultManualAmount(selectedRecord)
+      ? getDefaultManualAmount(selectedRecord, contributionType)
       : 0;
-    const values = [recommended, expectedAmount, 5000, 10000, 15000, 25000];
+    const minimumAmount = Number(contributionTypeConfig?.minAmount || 5000);
+    const stepAmount = Number(
+      contributionTypeConfig?.stepAmount ||
+        contributionTypeConfig?.unitAmount ||
+        minimumAmount,
+    );
+    const values = [
+      recommended,
+      expectedAmount,
+      minimumAmount,
+      minimumAmount + stepAmount,
+      minimumAmount + stepAmount * 2,
+      minimumAmount + stepAmount * 4,
+    ];
     const seen = new Set<number>();
     return values.filter((value) => {
       const safeValue = Math.round(Number(value || 0));
@@ -370,7 +604,59 @@ export default function ContributionTracker({
       seen.add(safeValue);
       return true;
     });
-  }, [expectedAmount, selectedRecord]);
+  }, [contributionType, contributionTypeConfig, expectedAmount, selectedRecord]);
+
+  useEffect(() => {
+    if (!editContributionOpen) return;
+    if (contributionEntries.length === 0) {
+      setSelectedEditEntryId(null);
+      return;
+    }
+
+    setSelectedEditEntryId((current) => {
+      if (current && contributionEntries.some((entry) => entry.id === current)) {
+        return current;
+      }
+      return contributionEntries[0]?.id ?? null;
+    });
+  }, [contributionEntries, editContributionOpen]);
+
+  const selectedEditEntry = useMemo(
+    () =>
+      contributionEntries.find((entry) => entry.id === selectedEditEntryId) ||
+      null,
+    [contributionEntries, selectedEditEntryId],
+  );
+
+  useEffect(() => {
+    if (!selectedEditEntry) return;
+    setEditContributionForm(buildContributionEditDraft(selectedEditEntry));
+    setConfirmContributionEditOpen(false);
+  }, [selectedEditEntry]);
+
+  const editAmount = Number(editContributionForm.amount);
+  const editMonth = Number(editContributionForm.month);
+  const editYear = Number(editContributionForm.year);
+  const editPreviousAmount = Number(selectedEditEntry?.amount || 0);
+  const editAmountDelta = editAmount - editPreviousAmount;
+  const editComputedUnits = Number.isFinite(editAmount)
+    ? calculateContributionUnits(editAmount)
+    : 0;
+  const editComputedInterest = Number.isFinite(editAmount)
+    ? calculateContributionInterestForType(contributionType, editAmount)
+    : 0;
+  const editValidation = useMemo(() => {
+    if (!selectedEditEntry) {
+      return { valid: false, message: "Select a contribution entry to edit." };
+    }
+    if (!Number.isFinite(editAmount) || editAmount <= 0) {
+      return {
+        valid: false,
+        message: "Enter a valid contribution amount.",
+      };
+    }
+    return validateContributionAmount(contributionType, editAmount);
+  }, [contributionType, editAmount, selectedEditEntry]);
 
   const reminderSummary = useMemo(() => {
     if (reminderTargets.length === 0) return "No recipients selected";
@@ -393,50 +679,60 @@ export default function ContributionTracker({
         month: "long",
       },
     );
+  const selectedEditMonthLabel =
+    monthOptions[editMonth - 1] ||
+    new Date(editYear, Math.max(editMonth - 1, 0), 1).toLocaleDateString(
+      "en-US",
+      {
+        month: "long",
+      },
+    );
 
-  const exportCsv = () => {
-    const headers = [
-      "Member Serial",
-      "Member Name",
-      "Group",
-      "Expected",
-      "Paid",
-      "Due Date",
-      "Status",
-      "Months Defaulted",
-    ];
+  const handleExport = async (format: "csv" | "xlsx") => {
+    if (filteredContributions.length === 0) {
+      toast({
+        title: "Nothing to export",
+        description:
+          "No contribution records match the current filters for export.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    const rows = filteredContributions.map((record) => [
-      record.memberSerial ?? "-",
-      record.memberName,
-      record.groupName,
-      record.expectedAmount,
-      record.paidAmount,
-      record.dueDate,
-      record.status,
-      record.monthsDefaulted,
-    ]);
-
-    const csvEscape = (value: string | number) => {
-      const raw = String(value ?? "");
-      if (/[",\n]/.test(raw)) {
-        return `"${raw.replace(/"/g, '""')}"`;
-      }
-      return raw;
-    };
-
-    const csvBody = [headers, ...rows]
-      .map((row) => row.map((value) => csvEscape(value)).join(","))
-      .join("\n");
-
-    const csv = `\uFEFF${csvBody}`;
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "contribution-tracker-export.csv";
-    link.click();
-    URL.revokeObjectURL(url);
+    try {
+      setExportingFormat(format);
+      const { blob, filename } = await downloadContributionTrackerExport({
+        year,
+        month,
+        groupId: groupFilter !== "all" ? groupFilter : undefined,
+        contributionType,
+        status: statusFilter !== "all" ? statusFilter : undefined,
+        search: searchQuery.trim() || undefined,
+        sort: sortBy,
+        format,
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+      toast({
+        title: "Export ready",
+        description: `Contribution tracker ${format.toUpperCase()} downloaded successfully.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Export failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to export contribution tracker.",
+        variant: "destructive",
+      });
+    } finally {
+      setExportingFormat(null);
+    }
   };
 
   const getStatusBadge = (status: string, monthsDefaulted: number) => {
@@ -488,6 +784,21 @@ export default function ContributionTracker({
     });
   };
 
+  const resetEditContributionFlow = () => {
+    setEditContributionOpen(false);
+    setConfirmContributionEditOpen(false);
+    setSelectedEditEntryId(null);
+    setSelectedRecord(null);
+    setEditContributionForm({
+      amount: "",
+      month: String(month),
+      year: String(year),
+      paymentMethod: "bank_transfer",
+      paymentReference: "",
+      notes: "",
+    });
+  };
+
   const openReminderModal = (targets: ContributionRecord[]) => {
     if (!canManageActions) return;
     if (targets.length === 0) {
@@ -506,9 +817,19 @@ export default function ContributionTracker({
   const openManualPaymentModal = (record: ContributionRecord) => {
     if (!canManageActions) return;
     setSelectedRecord(record);
-    setManualPaymentForm(buildManualPaymentDraft(record, year, month));
+    setManualPaymentForm(
+      buildManualPaymentDraft(record, contributionType, year, month),
+    );
     setConfirmManualPaymentOpen(false);
     setManualPaymentOpen(true);
+  };
+
+  const openEditContributionModal = (record: ContributionRecord) => {
+    if (!canManageActions) return;
+    setSelectedRecord(record);
+    setSelectedEditEntryId(null);
+    setConfirmContributionEditOpen(false);
+    setEditContributionOpen(true);
   };
 
   const buildChannelSummary = (
@@ -579,6 +900,81 @@ export default function ContributionTracker({
     }
   };
 
+  const handleReviewContributionEdit = () => {
+    if (!selectedEditEntry) {
+      toast({
+        title: "No contribution entry selected",
+        description: "Choose the posted contribution entry you want to edit.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!editValidation.valid) {
+      toast({
+        title: "Invalid update",
+        description:
+          editValidation.message || "Enter a valid contribution amount.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!Number.isFinite(editMonth) || editMonth < 1 || editMonth > 12) {
+      toast({
+        title: "Invalid month",
+        description: "Select a valid contribution month.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!Number.isFinite(editYear) || editYear < 2000 || editYear > 2100) {
+      toast({
+        title: "Invalid year",
+        description: "Select a valid contribution year.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setConfirmContributionEditOpen(true);
+  };
+
+  const handleConfirmContributionEdit = async () => {
+    if (!selectedRecord || !selectedEditEntry) return;
+
+    try {
+      const result = await updateContributionMutation.mutateAsync({
+        contributionId: selectedEditEntry.id,
+        payload: {
+          amount: editAmount,
+          month: editMonth,
+          year: editYear,
+          paymentMethod: editContributionForm.paymentMethod,
+          paymentReference:
+            editContributionForm.paymentReference.trim() || undefined,
+          notes: editContributionForm.notes.trim() || undefined,
+        },
+      });
+
+      toast({
+        title: "Contribution updated",
+        description: `${selectedRecord.memberName}'s ${getContributionTypeLabel(contributionType).toLowerCase()} entry was updated successfully${result.transaction?.reference ? ` (ref: ${result.transaction.reference})` : ""}.`,
+      });
+      resetEditContributionFlow();
+    } catch (error) {
+      toast({
+        title: "Update failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to update this contribution entry.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleReviewManualPayment = () => {
     if (!selectedRecord) return;
 
@@ -628,7 +1024,7 @@ export default function ContributionTracker({
         amount: manualAmount,
         month: manualMonth,
         year: manualYear,
-        contributionType: "revolving",
+        contributionType,
         paymentMethod: manualPaymentForm.paymentMethod,
         paymentReference:
           manualPaymentForm.paymentReference.trim() || undefined,
@@ -637,7 +1033,7 @@ export default function ContributionTracker({
 
       toast({
         title: "Payment recorded",
-        description: `${selectedRecord.memberName}'s manual ${getContributionTypeLabel("revolving").toLowerCase()} payment of ${formatNaira(manualAmount)} for ${selectedMonthLabel} ${manualYear} has been posted successfully${result.transaction?.reference ? ` (ref: ${result.transaction.reference})` : ""}.`,
+        description: `${selectedRecord.memberName}'s manual ${getContributionTypeLabel(contributionType).toLowerCase()} payment of ${formatNaira(manualAmount)} for ${selectedMonthLabel} ${manualYear} has been posted successfully${result.transaction?.reference ? ` (ref: ${result.transaction.reference})` : ""}.`,
       });
 
       resetManualPaymentFlow();
@@ -661,7 +1057,11 @@ export default function ContributionTracker({
         <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
           <div className="flex justify-between items-center">
             <div>
-              <p className="text-gray-500 text-sm">Collection Rate</p>
+              <p className="text-gray-500 text-sm">
+                {contributionType === "special"
+                  ? "Participation Rate"
+                  : "Collection Rate"}
+              </p>
               <p className="font-bold text-emerald-600 text-2xl">
                 {collectionRate.toFixed(1)}%
               </p>
@@ -672,7 +1072,11 @@ export default function ContributionTracker({
         </div>
 
         <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
-          <p className="text-gray-500 text-sm">Total Expected</p>
+          <p className="text-gray-500 text-sm">
+            {contributionType === "special"
+              ? "Monthly Benchmark"
+              : "Total Expected"}
+          </p>
           <p className="font-bold text-gray-900 text-2xl">
             {formatNaira(totalExpected)}
           </p>
@@ -757,6 +1161,25 @@ export default function ContributionTracker({
             />
           </div>
 
+          <Select
+            value={contributionType}
+            onValueChange={(value) =>
+              onContributionTypeChange?.(value as ContributionTypeCanonical)
+            }
+            disabled={!onContributionTypeChange}
+          >
+            <SelectTrigger className="w-full md:w-52">
+              <SelectValue placeholder="Contribution type" />
+            </SelectTrigger>
+            <SelectContent>
+              {ContributionTypeOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-full md:w-40">
               <SelectValue placeholder="Status" />
@@ -767,6 +1190,22 @@ export default function ContributionTracker({
               <SelectItem value="partial">Partial</SelectItem>
               <SelectItem value="pending">Pending</SelectItem>
               <SelectItem value="defaulted">Defaulted</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={sortBy}
+            onValueChange={(value) => setSortBy(value as ContributionSortOption)}
+          >
+            <SelectTrigger className="w-full md:w-48">
+              <SelectValue placeholder="Sort records" />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
 
@@ -811,10 +1250,30 @@ export default function ContributionTracker({
             </SelectContent>
           </Select>
 
-          <Button variant="outline" className="gap-2" onClick={exportCsv}>
-            <Download className="w-4 h-4" />
-            Export
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                className="gap-2"
+                disabled={!!exportingFormat || filteredContributions.length === 0}
+              >
+                {exportingFormat ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4" />
+                )}
+                Export
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => void handleExport("csv")}>
+                Export CSV
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void handleExport("xlsx")}>
+                Export Excel (.xlsx)
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -894,11 +1353,19 @@ export default function ContributionTracker({
                   <td className="px-4 py-3 text-gray-600 text-sm">
                     <div className="space-y-1">
                       <div>
-                        {new Date(record.dueDate).toLocaleDateString("en-NG")}
+                        {record.dueDate
+                          ? new Date(record.dueDate).toLocaleDateString("en-NG")
+                          : "Anytime"}
                       </div>
-                      <span className="inline-flex bg-emerald-50 px-2 py-0.5 rounded-full font-medium text-[11px] text-emerald-700">
-                        Open: 27th-4th
-                      </span>
+                      {record.dueDate ? (
+                        <span className="inline-flex bg-emerald-50 px-2 py-0.5 rounded-full font-medium text-[11px] text-emerald-700">
+                          Open: 27th-4th
+                        </span>
+                      ) : (
+                        <span className="inline-flex bg-slate-100 px-2 py-0.5 rounded-full font-medium text-[11px] text-slate-700">
+                          Flexible contribution
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3">
@@ -923,8 +1390,13 @@ export default function ContributionTracker({
                             Remind
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            onClick={() => openEditContributionModal(record)}
+                            disabled={record.paidAmount <= 0}
+                          >
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => openManualPaymentModal(record)}
-                            disabled={record.status === "paid"}
                           >
                             Mark Paid
                           </DropdownMenuItem>
@@ -1064,6 +1536,469 @@ export default function ContributionTracker({
       </Dialog>
 
       <Dialog
+        open={editContributionOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetEditContributionFlow();
+            return;
+          }
+          setEditContributionOpen(true);
+        }}
+      >
+        <DialogContent className="max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>Edit Posted Contribution</DialogTitle>
+            <DialogDescription>
+              Choose the exact posted entry to edit. Updates will reconcile the
+              contribution record, linked transaction, and member/group totals.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedRecord && (
+            <div className="space-y-6">
+              <div className="grid gap-3 rounded-xl border border-amber-100 bg-amber-50/70 p-4 md:grid-cols-4">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-amber-700">
+                    Member
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {selectedRecord.memberName}
+                  </p>
+                  {selectedRecord.memberSerial && (
+                    <p className="text-xs text-gray-500">
+                      {selectedRecord.memberSerial}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-amber-700">
+                    Group
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {selectedRecord.groupName}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-amber-700">
+                    Contribution Type
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {getContributionTypeLabel(contributionType)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-amber-700">
+                    Period Total
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {formatNaira(selectedRecord.paidAmount)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-[320px,1fr]">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-semibold text-gray-900">
+                      Posted Entries
+                    </h4>
+                    {trackerEntriesQuery.isFetching && (
+                      <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                    )}
+                  </div>
+
+                  {trackerEntriesQuery.isLoading ? (
+                    <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-gray-200 p-6 text-sm text-gray-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading posted entries...
+                    </div>
+                  ) : contributionEntries.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-gray-200 p-6 text-sm text-gray-500">
+                      No posted entries were found for this period yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {contributionEntries.map((entry) => {
+                        const isSelected = entry.id === selectedEditEntryId;
+                        return (
+                          <button
+                            key={entry.id}
+                            type="button"
+                            onClick={() => setSelectedEditEntryId(entry.id)}
+                            className={`w-full rounded-xl border p-4 text-left transition ${
+                              isSelected
+                                ? "border-emerald-500 bg-emerald-50 shadow-sm"
+                                : "border-gray-200 bg-white hover:border-emerald-200 hover:bg-emerald-50/40"
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold text-gray-900">
+                                  {formatNaira(entry.amount)}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {monthOptions[entry.month - 1]} {entry.year}
+                                </p>
+                              </div>
+                              <Badge
+                                className={
+                                  isSelected
+                                    ? "bg-emerald-600 text-white"
+                                    : "bg-slate-100 text-slate-700"
+                                }
+                              >
+                                {entry.status}
+                              </Badge>
+                            </div>
+                            <div className="mt-3 space-y-1 text-xs text-gray-500">
+                              <p>
+                                Method:{" "}
+                                {entry.paymentMethod
+                                  ? entry.paymentMethod.replace(/_/g, " ")
+                                  : "-"}
+                              </p>
+                              <p>
+                                Tx Ref: {entry.transaction?.reference || "-"}
+                              </p>
+                              <p>
+                                Updated:{" "}
+                                {entry.updatedAt
+                                  ? new Date(entry.updatedAt).toLocaleString(
+                                      "en-NG",
+                                    )
+                                  : "-"}
+                              </p>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-5">
+                  {!selectedEditEntry ? (
+                    <div className="rounded-xl border border-dashed border-gray-200 p-8 text-center text-sm text-gray-500">
+                      Select a posted contribution entry to continue editing.
+                    </div>
+                  ) : (
+                    <>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-contribution-amount">Amount</Label>
+                          <Input
+                            id="edit-contribution-amount"
+                            type="number"
+                            min={String(
+                              Number(contributionTypeConfig?.minAmount || 0),
+                            )}
+                            step={String(
+                              Number(
+                                contributionTypeConfig?.stepAmount ||
+                                  contributionTypeConfig?.unitAmount ||
+                                  1000,
+                              ),
+                            )}
+                            value={editContributionForm.amount}
+                            onChange={(event) =>
+                              setEditContributionForm((prev) => ({
+                                ...prev,
+                                amount: event.target.value,
+                              }))
+                            }
+                          />
+                          {!editValidation.valid && (
+                            <p className="text-sm text-rose-500">
+                              {editValidation.message}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="edit-contribution-method">
+                            Payment Method
+                          </Label>
+                          <Select
+                            value={editContributionForm.paymentMethod}
+                            onValueChange={(value) =>
+                              setEditContributionForm((prev) => ({
+                                ...prev,
+                                paymentMethod: value as ManualPaymentMethod,
+                              }))
+                            }
+                          >
+                            <SelectTrigger id="edit-contribution-method">
+                              <SelectValue placeholder="Select payment method" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {PAYMENT_METHOD_OPTIONS.map((option) => (
+                                <SelectItem
+                                  key={option.value}
+                                  value={option.value}
+                                >
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Contribution Month</Label>
+                          <Select
+                            value={editContributionForm.month}
+                            onValueChange={(value) =>
+                              setEditContributionForm((prev) => ({
+                                ...prev,
+                                month: value,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select month" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {monthOptions.map((label, idx) => (
+                                <SelectItem key={label} value={String(idx + 1)}>
+                                  {label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Contribution Year</Label>
+                          <Select
+                            value={editContributionForm.year}
+                            onValueChange={(value) =>
+                              setEditContributionForm((prev) => ({
+                                ...prev,
+                                year: value,
+                              }))
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select year" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {yearOptions.map((option) => (
+                                <SelectItem
+                                  key={option}
+                                  value={String(option)}
+                                >
+                                  {option}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor="edit-contribution-reference">
+                            Receipt / Bank Reference
+                          </Label>
+                          <Input
+                            id="edit-contribution-reference"
+                            value={editContributionForm.paymentReference}
+                            onChange={(event) =>
+                              setEditContributionForm((prev) => ({
+                                ...prev,
+                                paymentReference: event.target.value,
+                              }))
+                            }
+                            placeholder="Optional external reference"
+                          />
+                        </div>
+
+                        <div className="space-y-2 md:col-span-2">
+                          <Label htmlFor="edit-contribution-notes">
+                            Notes
+                          </Label>
+                          <Textarea
+                            id="edit-contribution-notes"
+                            rows={3}
+                            value={editContributionForm.notes}
+                            onChange={(event) =>
+                              setEditContributionForm((prev) => ({
+                                ...prev,
+                                notes: event.target.value,
+                              }))
+                            }
+                            placeholder="Optional notes for this edit"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div className="mb-3 flex items-center justify-between">
+                          <h4 className="font-semibold text-gray-900">
+                            Edit Preview
+                          </h4>
+                          <Badge className="bg-blue-100 text-blue-700">
+                            Delta{" "}
+                            {Number.isFinite(editAmountDelta)
+                              ? formatNaira(editAmountDelta)
+                              : formatNaira(0)}
+                          </Badge>
+                        </div>
+                        <div className="grid gap-3 text-sm md:grid-cols-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">Current amount</span>
+                            <span className="font-medium text-gray-900">
+                              {formatNaira(editPreviousAmount)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">Updated amount</span>
+                            <span className="font-medium text-gray-900">
+                              {Number.isFinite(editAmount)
+                                ? formatNaira(editAmount)
+                                : formatNaira(0)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">Units</span>
+                            <span className="font-medium text-gray-900">
+                              {editComputedUnits.toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">Interest</span>
+                            <span className="font-medium text-gray-900">
+                              {formatNaira(editComputedInterest)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">Period</span>
+                            <span className="font-medium text-gray-900">
+                              {selectedEditMonthLabel} {editYear}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-500">Linked Tx Ref</span>
+                            <span className="font-medium text-gray-900">
+                              {selectedEditEntry.transaction?.reference || "-"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <DialogFooter className="gap-2 sm:gap-0">
+                        <Button
+                          variant="outline"
+                          onClick={resetEditContributionFlow}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          className="bg-emerald-600 hover:bg-emerald-700"
+                          onClick={handleReviewContributionEdit}
+                          disabled={
+                            !selectedEditEntry || updateContributionMutation.isPending
+                          }
+                        >
+                          Review Update
+                        </Button>
+                      </DialogFooter>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={confirmContributionEditOpen}
+        onOpenChange={setConfirmContributionEditOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Contribution Update</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will update the contribution entry, reconcile the linked
+              transaction, and adjust member/group totals by the amount delta.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {selectedRecord && selectedEditEntry && (
+            <div className="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-gray-500">Member</span>
+                <span className="text-right font-medium text-gray-900">
+                  {selectedRecord.memberName}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-gray-500">Contribution type</span>
+                <span className="text-right font-medium text-gray-900">
+                  {getContributionTypeLabel(contributionType)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-gray-500">Existing amount</span>
+                <span className="text-right font-medium text-gray-900">
+                  {formatNaira(editPreviousAmount)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-gray-500">Updated amount</span>
+                <span className="text-right font-semibold text-gray-900">
+                  {formatNaira(Number.isFinite(editAmount) ? editAmount : 0)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-gray-500">Amount delta</span>
+                <span className="text-right font-medium text-gray-900">
+                  {formatNaira(Number.isFinite(editAmountDelta) ? editAmountDelta : 0)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-gray-500">New period</span>
+                <span className="text-right font-medium text-gray-900">
+                  {selectedEditMonthLabel} {editYear}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-gray-500">Units / Interest</span>
+                <span className="text-right font-medium text-gray-900">
+                  {editComputedUnits.toLocaleString()} units /{" "}
+                  {formatNaira(editComputedInterest)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel asChild>
+              <Button
+                variant="outline"
+                disabled={updateContributionMutation.isPending}
+              >
+                Back
+              </Button>
+            </AlertDialogCancel>
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-700"
+              disabled={updateContributionMutation.isPending}
+              onClick={() => void handleConfirmContributionEdit()}
+            >
+              {updateContributionMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Updating...
+                </>
+              ) : (
+                "Confirm Update"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
         open={manualPaymentOpen}
         onOpenChange={(open) => {
           if (!open) {
@@ -1111,7 +2046,7 @@ export default function ContributionTracker({
                     Contribution Type
                   </p>
                   <p className="mt-1 font-semibold text-gray-900">
-                    {getContributionTypeLabel("revolving")}
+                    {getContributionTypeLabel(contributionType)}
                   </p>
                 </div>
               </div>
@@ -1122,8 +2057,14 @@ export default function ContributionTracker({
                   <Input
                     id="manual-payment-amount"
                     type="number"
-                    min="5000"
-                    step="5000"
+                    min={String(Number(contributionTypeConfig?.minAmount || 0))}
+                    step={String(
+                      Number(
+                        contributionTypeConfig?.stepAmount ||
+                          contributionTypeConfig?.unitAmount ||
+                          1000,
+                      ),
+                    )}
                     value={manualPaymentForm.amount}
                     onChange={(event) =>
                       setManualPaymentForm((prev) => ({
@@ -1158,6 +2099,11 @@ export default function ContributionTracker({
                   {!manualPaymentValidation.valid && (
                     <p className="text-rose-500 text-sm">
                       {manualPaymentValidation.message}
+                    </p>
+                  )}
+                  {contributionTypeConfig?.description && (
+                    <p className="text-gray-500 text-xs">
+                      {contributionTypeConfig.description}
                     </p>
                   )}
                 </div>
