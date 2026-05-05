@@ -29,6 +29,7 @@ interface GroupCardProps {
   onJoinRequest: (id: string) => void;
   onOpenContributionDashboard: (id: string) => void;
   onOpenLoanDashboard: (id: string) => void;
+  onOpenFormPaymentsDashboard: (id: string) => void;
   joinDisabled?: boolean;
   joinDisabledReason?: string;
 }
@@ -40,6 +41,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   onJoinRequest,
   onOpenContributionDashboard,
   onOpenLoanDashboard,
+  onOpenFormPaymentsDashboard,
   joinDisabled = false,
   joinDisabledReason,
 }) => {
@@ -104,6 +106,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={() => onOpenLoanDashboard(group.id)}>
                 Loan Dashboard
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onOpenFormPaymentsDashboard(group.id)}
+              >
+                Form Payments
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => onOpenContributionDashboard(group.id)}

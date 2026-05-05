@@ -8,6 +8,7 @@ import GroupFilters from "@/components/groups/GroupFilters";
 import GroupManagementPanel from "@/components/groups/GroupManagementPanel";
 import GroupContributionDashboardModal from "@/components/groups/GroupContributionDashboardModal";
 import GroupLoanDashboardModal from "@/components/groups/GroupLoanDashboardModal";
+import GroupFormPaymentsDashboardModal from "@/components/groups/GroupFormPaymentsDashboardModal";
 import GroupChat from "@/components/groups/GroupChat";
 import { useMyGroupMembershipsQuery } from "@/hooks/groups/useMyGroupMembershipsQuery";
 import { useJoinGroupMutation } from "@/hooks/groups/useJoinGroupMutation";
@@ -185,6 +186,8 @@ const GroupsContent: React.FC = () => {
   const [showContributionDashboard, setShowContributionDashboard] =
     useState(false);
   const [showLoanDashboard, setShowLoanDashboard] = useState(false);
+  const [showFormPaymentsDashboard, setShowFormPaymentsDashboard] =
+    useState(false);
   const [showChat, setShowChat] = useState(false);
   const [chatMessages, setChatMessages] = useState(sampleChatMessages);
 
@@ -792,6 +795,9 @@ const GroupsContent: React.FC = () => {
     const group = groupsData.find((g) => g.id === groupId);
     if (group) {
       setSelectedGroup(group);
+      setShowContributionDashboard(false);
+      setShowLoanDashboard(false);
+      setShowFormPaymentsDashboard(false);
       setShowGroupPanel(true);
     }
   };
@@ -802,6 +808,7 @@ const GroupsContent: React.FC = () => {
       setSelectedGroup(group);
       setShowGroupPanel(false);
       setShowLoanDashboard(false);
+      setShowFormPaymentsDashboard(false);
       setShowContributionDashboard(true);
     }
   };
@@ -812,7 +819,19 @@ const GroupsContent: React.FC = () => {
       setSelectedGroup(group);
       setShowGroupPanel(false);
       setShowContributionDashboard(false);
+      setShowFormPaymentsDashboard(false);
       setShowLoanDashboard(true);
+    }
+  };
+
+  const handleOpenFormPaymentsDashboard = (groupId: string) => {
+    const group = groupsData.find((g) => g.id === groupId);
+    if (group) {
+      setSelectedGroup(group);
+      setShowGroupPanel(false);
+      setShowContributionDashboard(false);
+      setShowLoanDashboard(false);
+      setShowFormPaymentsDashboard(true);
     }
   };
 
@@ -1029,6 +1048,9 @@ const GroupsContent: React.FC = () => {
                       handleOpenContributionDashboard
                     }
                     onOpenLoanDashboard={handleOpenLoanDashboard}
+                    onOpenFormPaymentsDashboard={
+                      handleOpenFormPaymentsDashboard
+                    }
                     joinDisabled={Boolean(joinBlockedReason)}
                     joinDisabledReason={joinBlockedReason || undefined}
                   />
@@ -1097,6 +1119,13 @@ const GroupsContent: React.FC = () => {
         group={selectedGroup}
         loans={loansForDetails}
         loansLoading={groupLoansQuery.isLoading}
+        currentMemberRole={selectedMembershipRole}
+      />
+
+      <GroupFormPaymentsDashboardModal
+        isOpen={showFormPaymentsDashboard}
+        onClose={() => setShowFormPaymentsDashboard(false)}
+        group={selectedGroup}
         currentMemberRole={selectedMembershipRole}
       />
     </div>

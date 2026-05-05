@@ -122,6 +122,9 @@ const LoanTracker = lazy(() => import("@/components/admin/LoanTracker"));
 const LoanReviewPanel = lazy(
   () => import("@/components/admin/LoanReviewPanel"),
 );
+const FormPaymentTracker = lazy(
+  () => import("@/components/admin/FormPaymentTracker"),
+);
 const MembersManagementPanel = lazy(
   () => import("@/components/admin/MembersManagementPanel"),
 );
@@ -808,6 +811,7 @@ export default function Admin() {
         label: "Loan Tracker",
         icon: Wallet,
       },
+      { id: "form-payments", label: "Form Payments", icon: FileText },
       { id: "withdrawals", label: "Withdrawals", icon: ArrowDownRight },
       { id: "reports", label: "Financial Reports", icon: BarChart3 },
       { id: "interest-settings", label: "Interest Settings", icon: Percent },
@@ -822,6 +826,7 @@ export default function Admin() {
 
     const adminOnly = new Set([
       "audit-logs",
+      "form-payments",
       "interest-settings",
       "summary-income",
       "interest-sharing",
@@ -1728,6 +1733,18 @@ export default function Admin() {
               }
             >
               <LoanTracker canManageActions={canAccessCoordinatorPanels} />
+            </Suspense>
+          )}
+
+          {activeTab === "form-payments" && isAdmin && (
+            <Suspense
+              fallback={
+                <div className="bg-white shadow-sm p-8 border border-gray-100 rounded-2xl text-gray-500 text-sm">
+                  Loading form payment tracker...
+                </div>
+              }
+            >
+              <FormPaymentTracker />
             </Suspense>
           )}
 

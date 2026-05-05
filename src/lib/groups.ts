@@ -3,6 +3,11 @@ import type {
   ContributionTypeCanonical,
   ContributionTypeValue,
 } from "./contributionPolicy";
+import type {
+  AdminFormPayment,
+  AdminFormPaymentListParams,
+  AdminFormPaymentSummary,
+} from "./adminFormPayments";
 import type { GroupRole } from "./roles";
 
 export type BackendGroup = {
@@ -265,6 +270,72 @@ export async function listGroupContributions(
   try {
     const res = await api.get(`/groups/${groupId}/contributions`, { params });
     return (res.data?.data?.contributions ?? []) as BackendContribution[];
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type GroupFormPaymentsResponse = {
+  payments: AdminFormPayment[];
+  summary: AdminFormPaymentSummary;
+  scope: "group" | "member";
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    results: number;
+  };
+};
+
+const emptyFormPaymentSummary: AdminFormPaymentSummary = {
+  totalRecords: 0,
+  totalAmount: 0,
+  pendingCount: 0,
+  paidCount: 0,
+  defaultedCount: 0,
+  pendingAmount: 0,
+  paidAmount: 0,
+  defaultedAmount: 0,
+};
+
+export async function listGroupFormPayments(
+  groupId: string,
+  params: AdminFormPaymentListParams = {},
+): Promise<GroupFormPaymentsResponse> {
+  try {
+    const res = await api.get(`/groups/${groupId}/form-payments`, { params });
+    const payload = res.data ?? {};
+    return {
+      payments: (payload?.data?.payments ?? []) as AdminFormPayment[],
+      summary: (payload?.data?.summary ??
+        emptyFormPaymentSummary) as AdminFormPaymentSummary,
+      scope: (payload?.data?.scope ?? "member") as "group" | "member",
+      meta: {
+        total: Number(payload?.total ?? 0),
+        page: Number(payload?.page ?? params.page ?? 1),
+        limit: Number(payload?.limit ?? params.limit ?? 0),
+        results: Number(payload?.results ?? 0),
+      },
+    };
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function downloadGroupFormPaymentsExport(
+  groupId: string,
+  params: AdminFormPaymentListParams & { format: "pdf" | "csv" | "xlsx" },
+): Promise<{ blob: Blob; filename: string | null; mimeType: string | null }> {
+  try {
+    const res = await api.get(`/groups/${groupId}/form-payments/export`, {
+      params,
+      responseType: "blob",
+    });
+    return {
+      blob: res.data as Blob,
+      filename: extractFilename(res.headers?.["content-disposition"]),
+      mimeType: (res.headers?.["content-type"] as string) || null,
+    };
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }
