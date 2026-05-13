@@ -270,6 +270,7 @@ export type AdminContributionPeriodDeletePayload = {
   month: number;
   year: number;
   contributionType?: ContributionTypeCanonical;
+  reason?: string;
 };
 
 export type AdminContributionPeriodDeleteResult = {
@@ -279,6 +280,10 @@ export type AdminContributionPeriodDeleteResult = {
   deletedTransactions: number;
   updatedTransactions: number;
   recurringSchedulesRebuilt: number;
+  auditTransaction?: {
+    id?: string;
+    reference?: string | null;
+  } | null;
 };
 
 export async function markContributionUnpaid(
