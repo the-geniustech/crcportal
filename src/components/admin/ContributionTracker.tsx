@@ -62,6 +62,7 @@ import { useMarkContributionPaidMutation } from "@/hooks/admin/useMarkContributi
 import {
   downloadContributionTrackerExport,
   listContributionTrackerEntries,
+  markContributionUnpaid,
   sendContributionReminders,
   updateTrackedContribution,
   type AdminContributionTrackerEntry,
@@ -389,11 +390,15 @@ export default function ContributionTracker({
   const [editContributionOpen, setEditContributionOpen] = useState(false);
   const [confirmContributionEditOpen, setConfirmContributionEditOpen] =
     useState(false);
+  const [markUnpaidOpen, setMarkUnpaidOpen] = useState(false);
+  const [confirmMarkUnpaidOpen, setConfirmMarkUnpaidOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] =
     useState<ContributionRecord | null>(null);
   const [selectedEditEntryId, setSelectedEditEntryId] = useState<string | null>(
     null,
   );
+  const [markUnpaidConfirmation, setMarkUnpaidConfirmation] = useState("");
+  const [markUnpaidReason, setMarkUnpaidReason] = useState("");
   const [manualPaymentForm, setManualPaymentForm] =
     useState<ManualPaymentFormState>({
       amount: "",
@@ -543,7 +548,7 @@ export default function ContributionTracker({
       selectedRecordPeriod.year,
       selectedRecordPeriod.month,
     ],
-    enabled: editContributionOpen && !!selectedRecord,
+    enabled: (editContributionOpen || markUnpaidOpen) && !!selectedRecord,
     queryFn: async () =>
       listContributionTrackerEntries({
         userId: String(selectedRecord?.userId || ""),
@@ -568,6 +573,50 @@ export default function ContributionTracker({
         notes?: string;
       };
     }) => updateTrackedContribution(contributionId, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "contributions", "tracker"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["group-contributions"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "groups"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "financial-reports"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["transactions", "me"],
+        }),
+      ]);
+    },
+  });
+  const markUnpaidMutation = useMutation({
+    mutationFn: ({
+      userId,
+      groupId,
+      month: selectedMonth,
+      year: selectedYear,
+      contributionType: selectedType,
+      reason,
+    }: {
+      userId: string;
+      groupId: string;
+      month: number;
+      year: number;
+      contributionType: ContributionTypeCanonical;
+      reason?: string;
+    }) =>
+      markContributionUnpaid({
+        userId,
+        groupId,
+        month: selectedMonth,
+        year: selectedYear,
+        contributionType: selectedType,
+        reason,
+      }),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -741,6 +790,17 @@ export default function ContributionTracker({
         month: "long",
       },
     );
+  const selectedRecordPaidEntryCount = contributionEntries.length;
+  const selectedRecordPaidEntryTotal = contributionEntries.reduce(
+    (sum, entry) => sum + Number(entry.amount || 0),
+    0,
+  );
+  const selectedRecordDeletionAmount =
+    selectedRecordPaidEntryCount > 0
+      ? selectedRecordPaidEntryTotal
+      : Number(selectedRecord?.paidAmount || 0);
+  const canReviewMarkUnpaid =
+    markUnpaidConfirmation.trim().toUpperCase() === "MARK UNPAID";
 
   const handleExport = async (format: "csv" | "xlsx") => {
     if (filteredContributions.length === 0) {
@@ -853,6 +913,14 @@ export default function ContributionTracker({
     });
   };
 
+  const resetMarkUnpaidFlow = () => {
+    setMarkUnpaidOpen(false);
+    setConfirmMarkUnpaidOpen(false);
+    setMarkUnpaidConfirmation("");
+    setMarkUnpaidReason("");
+    setSelectedRecord(null);
+  };
+
   const openReminderModal = (targets: ContributionRecord[]) => {
     if (!canManageActions) return;
     if (targets.length === 0) {
@@ -884,6 +952,15 @@ export default function ContributionTracker({
     setSelectedEditEntryId(null);
     setConfirmContributionEditOpen(false);
     setEditContributionOpen(true);
+  };
+
+  const openMarkUnpaidModal = (record: ContributionRecord) => {
+    if (!canManageActions) return;
+    setSelectedRecord(record);
+    setMarkUnpaidConfirmation("");
+    setMarkUnpaidReason("");
+    setConfirmMarkUnpaidOpen(false);
+    setMarkUnpaidOpen(true);
   };
 
   const buildChannelSummary = (
@@ -1024,6 +1101,84 @@ export default function ContributionTracker({
           error instanceof Error
             ? error.message
             : "Unable to update this contribution entry.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleReviewMarkUnpaid = () => {
+    if (!selectedRecord) return;
+
+    if (Number(selectedRecord.paidAmount || 0) <= 0) {
+      toast({
+        title: "Nothing to reverse",
+        description:
+          "There is no recorded contribution in this period to mark as unpaid.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!canReviewMarkUnpaid) {
+      toast({
+        title: "Confirmation required",
+        description:
+          "Type MARK UNPAID exactly to continue with this destructive action.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setConfirmMarkUnpaidOpen(true);
+  };
+
+  const handleConfirmMarkUnpaid = async () => {
+    if (!selectedRecord) return;
+
+    const targetPeriod = parseRecordPeriod(selectedRecord, year, month);
+
+    try {
+      const result = await markUnpaidMutation.mutateAsync({
+        userId: selectedRecord.userId,
+        groupId: selectedRecord.groupId,
+        month: targetPeriod.month,
+        year: targetPeriod.year,
+        contributionType,
+        reason: markUnpaidReason.trim() || undefined,
+      });
+
+      const reversedAmount = result.countedAmount || result.deletedAmount || 0;
+      const segments = [
+        `${result.deletedContributions} entr${result.deletedContributions === 1 ? "y" : "ies"} removed`,
+        `${formatContributionUnits(reversedAmount)} units reversed (${formatNaira(reversedAmount)})`,
+      ];
+
+      if (result.deletedTransactions > 0) {
+        segments.push(
+          `${result.deletedTransactions} transaction${result.deletedTransactions === 1 ? "" : "s"} deleted`,
+        );
+      }
+      if (result.updatedTransactions > 0) {
+        segments.push(
+          `${result.updatedTransactions} transaction${result.updatedTransactions === 1 ? "" : "s"} adjusted`,
+        );
+      }
+      if (result.auditTransaction?.reference) {
+        segments.push(`Audit ref: ${result.auditTransaction.reference}`);
+      }
+
+      toast({
+        title: "Contribution period marked as unpaid",
+        description: segments.join(" | "),
+      });
+      resetMarkUnpaidFlow();
+    } catch (error) {
+      toast({
+        title: "Unable to mark unpaid",
+        description:
+          error instanceof Error
+            ? error.message
+            : "The contribution records could not be reversed.",
         variant: "destructive",
       });
     }
@@ -1457,6 +1612,13 @@ export default function ContributionTracker({
                             onClick={() => openManualPaymentModal(record)}
                           >
                             Mark Paid
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => openMarkUnpaidModal(record)}
+                            disabled={record.paidAmount <= 0}
+                            className="text-rose-600 focus:text-rose-700"
+                          >
+                            Mark Unpaid
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -2457,6 +2619,226 @@ export default function ContributionTracker({
                 </>
               ) : (
                 "Confirm and Post Payment"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={markUnpaidOpen} onOpenChange={setMarkUnpaidOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-rose-700">
+              Mark Contribution as Unpaid
+            </DialogTitle>
+            <DialogDescription>
+              This prepares a reversal for the selected contribution period.
+              Review the impact carefully before continuing.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedRecord && (
+            <div className="space-y-4">
+              <div className="bg-rose-50 p-4 border border-rose-200 rounded-xl">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="mt-0.5 w-5 h-5 text-rose-600" />
+                  <div>
+                    <p className="font-semibold text-rose-800">
+                      This action removes posted contribution entries.
+                    </p>
+                    <p className="mt-1 text-rose-700 text-sm">
+                      It also adjusts group/member balances, reconciles linked
+                      transactions, and writes an audit transaction.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="gap-3 grid md:grid-cols-2 bg-gray-50 p-4 border border-gray-200 rounded-xl text-sm">
+                <div>
+                  <p className="font-medium text-gray-500 text-xs uppercase tracking-wide">
+                    Member
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {selectedRecord.memberName}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-500 text-xs uppercase tracking-wide">
+                    Group
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {selectedRecord.groupName}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-500 text-xs uppercase tracking-wide">
+                    Contribution Period
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {monthOptions[selectedRecordPeriod.month - 1]}{" "}
+                    {selectedRecordPeriod.year}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-500 text-xs uppercase tracking-wide">
+                    Posted Entries
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {trackerEntriesQuery.isFetching &&
+                    selectedRecordPaidEntryCount === 0
+                      ? "Loading..."
+                      : selectedRecordPaidEntryCount.toLocaleString()}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-500 text-xs uppercase tracking-wide">
+                    Units to Reverse
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {formatContributionUnits(selectedRecordDeletionAmount)}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-gray-500 text-xs uppercase tracking-wide">
+                    Actual Amount
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {formatNaira(selectedRecordDeletionAmount)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="mark-unpaid-reason">Reason</Label>
+                <Textarea
+                  id="mark-unpaid-reason"
+                  rows={3}
+                  value={markUnpaidReason}
+                  onChange={(event) => setMarkUnpaidReason(event.target.value)}
+                  placeholder="Optional note explaining why this contribution period is being reversed"
+                />
+                <p className="text-gray-500 text-xs">
+                  This note will be attached to the reversal audit record.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="mark-unpaid-confirmation">
+                  Type <span className="font-semibold">MARK UNPAID</span> to
+                  continue
+                </Label>
+                <Input
+                  id="mark-unpaid-confirmation"
+                  value={markUnpaidConfirmation}
+                  onChange={(event) =>
+                    setMarkUnpaidConfirmation(event.target.value)
+                  }
+                  placeholder="MARK UNPAID"
+                  autoComplete="off"
+                />
+              </div>
+
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button variant="outline" onClick={resetMarkUnpaidFlow}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleReviewMarkUnpaid}
+                  disabled={markUnpaidMutation.isPending}
+                >
+                  Review Reversal
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={confirmMarkUnpaidOpen}
+        onOpenChange={setConfirmMarkUnpaidOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-rose-700">
+              Confirm Contribution Reversal
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove the posted contribution records for
+              the selected period and write a reversal audit trail.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {selectedRecord && (
+            <div className="space-y-3 bg-rose-50 p-4 border border-rose-200 rounded-xl text-sm">
+              <div className="flex justify-between items-center gap-4">
+                <span className="text-rose-700">Member</span>
+                <span className="font-medium text-gray-900 text-right">
+                  {selectedRecord.memberName}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-4">
+                <span className="text-rose-700">Contribution type</span>
+                <span className="font-medium text-gray-900 text-right">
+                  {getContributionTypeLabel(contributionType)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-4">
+                <span className="text-rose-700">Contribution period</span>
+                <span className="font-medium text-gray-900 text-right">
+                  {monthOptions[selectedRecordPeriod.month - 1]}{" "}
+                  {selectedRecordPeriod.year}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-4">
+                <span className="text-rose-700">Entries to remove</span>
+                <span className="font-medium text-gray-900 text-right">
+                  {selectedRecordPaidEntryCount.toLocaleString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-4">
+                <span className="text-rose-700">Units to reverse</span>
+                <span className="font-semibold text-gray-900 text-right">
+                  {formatContributionUnits(selectedRecordDeletionAmount)}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-4">
+                <span className="text-rose-700">Actual amount</span>
+                <span className="font-semibold text-gray-900 text-right">
+                  {formatNaira(selectedRecordDeletionAmount)}
+                </span>
+              </div>
+              {markUnpaidReason.trim() && (
+                <div className="flex justify-between items-start gap-4">
+                  <span className="text-rose-700">Reason</span>
+                  <span className="font-medium text-gray-900 text-right">
+                    {markUnpaidReason.trim()}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel asChild>
+              <Button variant="outline" disabled={markUnpaidMutation.isPending}>
+                Back
+              </Button>
+            </AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={markUnpaidMutation.isPending}
+              onClick={() => void handleConfirmMarkUnpaid()}
+            >
+              {markUnpaidMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 w-4 h-4 animate-spin" />
+                  Reversing...
+                </>
+              ) : (
+                "Confirm and Mark Unpaid"
               )}
             </Button>
           </AlertDialogFooter>
