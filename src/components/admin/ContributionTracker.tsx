@@ -1508,6 +1508,9 @@ export default function ContributionTracker({
                   Paid Units
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
+                  Amount Paid
+                </th>
+                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Due Date
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
@@ -1524,7 +1527,7 @@ export default function ContributionTracker({
               {pagedContributions.length === 0 && (
                 <tr>
                   <td
-                    colSpan={canManageActions ? 7 : 6}
+                    colSpan={canManageActions ? 8 : 7}
                     className="px-4 py-10 text-gray-500 text-sm text-center"
                   >
                     No contribution records match the current filters.
@@ -1562,6 +1565,11 @@ export default function ContributionTracker({
                     >
                       {formatUnitNumber(getRecordPaidUnits(record))}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 font-medium text-gray-900 text-sm">
+                    {Number(record.paidAmount || 0) > 0
+                      ? formatNaira(record.paidAmount)
+                      : "-"}
                   </td>
                   <td className="px-4 py-3 text-gray-600 text-sm">
                     <div className="space-y-1">
