@@ -148,10 +148,10 @@ const termsSections: Section[] = [
       {
         title: "Saving Opportunity",
         items: [
-          "Revolving contribution: uniform monthly amount January–October; minimum ₦5,000; voluntary but compulsory once opted in; withdrawals only at October ending.",
-          "Special contribution: voluntary bulk contribution (minimum ₦1,000,000) paid end of January to end of October; withdrawable monthly; interest paid by end of October.",
-          "Endwell contribution: monthly savings towards retirement or minimum 5 years; minimum ₦5,000; notify one month before collection.",
-          "Festival contribution: monthly savings for a specific festival; minimum ₦5,000; withdrawable only for that festival.",
+          "Revolving contribution: uniform monthly amount January to October; minimum NGN 1,000 and payable in NGN 1,000 units; voluntary but compulsory once opted in; withdrawals only at October ending.",
+          "Special contribution: voluntary bulk contribution paid end of January to end of October; minimum NGN 1,000 and payable in NGN 1,000 units; withdrawable monthly; interest paid by end of October.",
+          "Endwell contribution: monthly savings towards retirement or minimum 5 years; minimum NGN 1,000 and payable in NGN 1,000 units; notify one month before collection.",
+          "Festival contribution: monthly savings for a specific festival; minimum NGN 1,000 and payable in NGN 1,000 units; withdrawable only for that festival.",
         ],
       },
       {

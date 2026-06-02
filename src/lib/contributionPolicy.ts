@@ -36,30 +36,34 @@ export const ContributionTypeConfig: Record<
   revolving: {
     label: "Revolving Contribution",
     description:
-      "Uniform monthly contribution with NGN 1,000 per unit. Minimum NGN 5,000 per month.",
-    minAmount: 5_000,
+      "Uniform monthly contribution with NGN 1,000 per unit. Amounts must be positive multiples of NGN 1,000.",
+    minAmount: 1_000,
     unitAmount: 1_000,
-    stepAmount: 5_000,
+    stepAmount: 1_000,
   },
   special: {
     label: "Special Contribution",
     description:
-      "Flexible savings with NGN 1,000 per unit. Minimum NGN 1,000,000 per contribution.",
-    minAmount: 1_000_000,
+      "Flexible savings with NGN 1,000 per unit. Amounts must be positive multiples of NGN 1,000.",
+    minAmount: 1_000,
     unitAmount: 1_000,
-    stepAmount: 5_000,
+    stepAmount: 1_000,
   },
   endwell: {
     label: "Endwell Contribution",
     description:
-      "Monthly savings towards retirement or long-term goals (minimum five years).",
-    minAmount: 5_000,
+      "Monthly savings towards retirement or long-term goals. Amounts must be positive multiples of NGN 1,000.",
+    minAmount: 1_000,
+    unitAmount: 1_000,
+    stepAmount: 1_000,
   },
   festive: {
     label: "Festive Contribution",
     description:
-      "Monthly contribution for specific festivals (e.g., Christmas or Eid).",
-    minAmount: 2_000,
+      "Monthly contribution for specific festivals. Amounts must be positive multiples of NGN 1,000.",
+    minAmount: 1_000,
+    unitAmount: 1_000,
+    stepAmount: 1_000,
   },
 };
 
@@ -136,9 +140,9 @@ export function calculateContributionUnits(amount: number) {
 }
 
 export function calculateContributionInterest(amount: number) {
-  const units = calculateContributionUnits(amount);
-  if (!units) return 0;
-  return Math.round(units * CONTRIBUTION_INTEREST_PER_UNIT * 100) / 100;
+  // Contribution interest is now computed on cumulative balances server-side.
+  // Keep this helper aligned with the backend legacy policy helper.
+  return 0;
 }
 
 export function isContributionInterestEligible(value?: string | null) {
@@ -149,7 +153,7 @@ export function calculateContributionInterestForType(
   value: string | null | undefined,
   amount: number,
 ) {
-  return calculateContributionInterest(amount);
+  return 0;
 }
 
 export function validateContributionAmount(

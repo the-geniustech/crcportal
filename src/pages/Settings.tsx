@@ -185,8 +185,8 @@ const SettingsContent: React.FC = () => {
           nextErrors[key] = "Enter a valid number of units.";
           return;
         }
-        if (value < 5 || value % 5 !== 0) {
-          nextErrors[key] = "Units must be at least 5 and in multiples of 5.";
+        if (!Number.isInteger(value) || value < 1) {
+          nextErrors[key] = "Units must be a positive whole number.";
           return;
         }
         payloadUnits[key] = value;
@@ -370,17 +370,17 @@ const SettingsContent: React.FC = () => {
     {
       key: "revolving",
       label: "Revolving Units",
-      helper: "Minimum 5 units, in multiples of 5.",
+      helper: "1 unit = NGN 1,000. Enter a positive whole number.",
     },
     {
       key: "endwell",
       label: "Endwell Units",
-      helper: "Minimum 5 units, in multiples of 5.",
+      helper: "1 unit = NGN 1,000. Enter a positive whole number.",
     },
     {
       key: "festive",
       label: "Festive Units",
-      helper: "Minimum 5 units, in multiples of 5.",
+      helper: "1 unit = NGN 1,000. Enter a positive whole number.",
     },
   ];
 
@@ -460,8 +460,8 @@ const SettingsContent: React.FC = () => {
                     <Input
                       id={`contribution-units-${field.key}`}
                       type="number"
-                      min={5}
-                      step={5}
+                      min={1}
+                      step={1}
                       value={contributionUnits[field.key]}
                       onChange={(event) => {
                         const value = event.target.value;

@@ -66,6 +66,8 @@ export type AdminContributionTrackerRecord = {
   groupName: string;
   expectedAmount: number;
   paidAmount: number;
+  expectedUnits?: number;
+  paidUnits?: number;
   dueDate: string | null;
   status: "paid" | "partial" | "pending" | "defaulted";
   monthsDefaulted: number;
@@ -353,6 +355,7 @@ export async function listAdminGroups(
             withCoordinators: number;
             contributionPeriod: { year: number; month: number };
             totalCollected: number;
+            totalContributionsYtd?: number;
             categories?: string[];
             locations?: string[];
             contributionTypeTotalsYtd?: {

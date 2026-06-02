@@ -257,7 +257,10 @@ export default function RecurringPaymentModal({
       });
     }
 
-    const baseList = [5000, 10000, 25000, 50000];
+    const config = getContributionTypeConfig(contributionType);
+    const step = config?.stepAmount ?? config?.unitAmount ?? 1000;
+    const base = Math.max(step, config?.minAmount ?? step);
+    const baseList = [base, base * 2, base * 3, base * 5, base * 10];
     if (
       paymentType === "group_contribution" &&
       contributionType === "revolving" &&
@@ -489,6 +492,21 @@ export default function RecurringPaymentModal({
 
   const selectedPaymentType = paymentTypes.find((t) => t.value === paymentType);
   const selectedFrequency = frequencies.find((f) => f.value === frequency);
+  const contributionAmountConfig = getContributionTypeConfig(contributionType);
+  const amountInputMin =
+    paymentType === "group_contribution"
+      ? String(contributionAmountConfig?.minAmount ?? 1000)
+      : paymentType === "loan_repayment"
+        ? "0.01"
+        : "100";
+  const amountInputStep =
+    paymentType === "group_contribution"
+      ? String(
+          contributionAmountConfig?.stepAmount ??
+            contributionAmountConfig?.unitAmount ??
+            1000,
+        )
+      : "0.01";
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -662,8 +680,8 @@ export default function RecurringPaymentModal({
                 setAmount(e.target.value);
                 setAmountTouched(true);
               }}
-              min={paymentType === "loan_repayment" ? "0.01" : "100"}
-              step="0.01"
+              min={amountInputMin}
+              step={amountInputStep}
               className="font-semibold text-lg"
             />
             {paymentType === "loan_repayment" && selectedLoanInfo && (

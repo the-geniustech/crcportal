@@ -16,7 +16,10 @@ import {
   History,
   Loader2,
   Mail,
+  MoreVertical,
+  Pencil,
   Search,
+  Undo2,
   Wallet,
 } from "lucide-react";
 import {
@@ -31,6 +34,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Dialog,
   DialogContent,
@@ -79,6 +88,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAdminLoanRepaymentHistoryQuery } from "@/hooks/admin/useAdminLoanRepaymentHistoryQuery";
 import { useAdminLoanTrackerQuery } from "@/hooks/admin/useAdminLoanTrackerQuery";
+import { useMarkAdminLoanRepaymentUnpaidMutation } from "@/hooks/admin/useMarkAdminLoanRepaymentUnpaidMutation";
 import { useRecordAdminLoanManualRepaymentMutation } from "@/hooks/admin/useRecordAdminLoanManualRepaymentMutation";
 import {
   downloadAdminLoanRepaymentReceiptPdf,
@@ -244,6 +254,10 @@ export default function LoanTracker({
   const [selectedLoan, setSelectedLoan] = useState<AdminLoanTrackerItem | null>(
     null,
   );
+  const [unpaidLoan, setUnpaidLoan] = useState<AdminLoanTrackerItem | null>(
+    null,
+  );
+  const [unpaidReason, setUnpaidReason] = useState("");
   const [historyLoan, setHistoryLoan] = useState<AdminLoanTrackerItem | null>(
     null,
   );
@@ -281,6 +295,7 @@ export default function LoanTracker({
     Boolean(historyLoan),
   );
   const recordRepaymentMutation = useRecordAdminLoanManualRepaymentMutation();
+  const markUnpaidMutation = useMarkAdminLoanRepaymentUnpaidMutation();
 
   const loans = useMemo(
     () => trackerQuery.data?.loans ?? [],
@@ -366,6 +381,23 @@ export default function LoanTracker({
     setReceiptUploadProgress(0);
     setReceiptUploadError(null);
     setReceiptInputKey((current) => current + 1);
+  };
+
+  const openRepaymentFlow = (loan: AdminLoanTrackerItem) => {
+    setSelectedLoan(loan);
+    setRepaymentForm(getDefaultFormState(loan));
+    setShowRepaymentModal(true);
+  };
+
+  const openMarkUnpaidDialog = (loan: AdminLoanTrackerItem) => {
+    setUnpaidLoan(loan);
+    setUnpaidReason("");
+  };
+
+  const closeMarkUnpaidDialog = () => {
+    if (markUnpaidMutation.isPending) return;
+    setUnpaidLoan(null);
+    setUnpaidReason("");
   };
 
   const clearReceiptAttachment = () => {
@@ -645,6 +677,33 @@ export default function LoanTracker({
     }
   };
 
+  const handleConfirmMarkUnpaid = async () => {
+    if (!unpaidLoan) return;
+
+    try {
+      const result = await markUnpaidMutation.mutateAsync({
+        applicationId: unpaidLoan._id,
+        reason: unpaidReason.trim() || null,
+      });
+      toast({
+        title: "Loan repayment marked unpaid",
+        description: `${formatCurrency(
+          result.reversedAmount,
+        )} was reversed from ${unpaidLoan.borrowerName}'s latest repayment.`,
+      });
+      closeMarkUnpaidDialog();
+    } catch (error) {
+      toast({
+        title: "Unable to mark unpaid",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Please try again in a moment.",
+        variant: "destructive",
+      });
+    }
+  };
+
   return (
     <div className="space-y-6">
       {trackerQuery.isError && (
@@ -782,7 +841,7 @@ export default function LoanTracker({
                 <TableHead>Outstanding</TableHead>
                 <TableHead>Progress</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Action</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -898,32 +957,59 @@ export default function LoanTracker({
                     </TableCell>
                     <TableCell>{getTrackerBadge(loan.trackerStatus)}</TableCell>
                     <TableCell className="text-right">
-                      <div className="flex sm:flex-row flex-col sm:justify-end items-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setHistoryLoan(loan)}
-                        >
-                          <History className="mr-1.5 w-4 h-4" />
-                          History
-                        </Button>
-                        <Button
-                          size="sm"
-                          className="bg-emerald-600 hover:bg-emerald-700"
-                          disabled={
-                            !canManageActions ||
-                            loan.trackerStatus === "completed" ||
-                            loan.remainingBalance <= 0
-                          }
-                          onClick={() => {
-                            setSelectedLoan(loan);
-                            setRepaymentForm(getDefaultFormState(loan));
-                            setShowRepaymentModal(true);
-                          }}
-                        >
-                          Mark Paid
-                        </Button>
-                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label={`Open actions for ${loan.borrowerName}`}
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onClick={() => setHistoryLoan(loan)}>
+                            <History className="mr-2 h-4 w-4" />
+                            History
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => openRepaymentFlow(loan)}
+                            disabled={
+                              !canManageActions ||
+                              loan.trackerStatus === "completed" ||
+                              loan.remainingBalance <= 0
+                            }
+                          >
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => openRepaymentFlow(loan)}
+                            disabled={
+                              !canManageActions ||
+                              loan.trackerStatus === "completed" ||
+                              loan.remainingBalance <= 0
+                            }
+                          >
+                            <CheckCircle2 className="mr-2 h-4 w-4" />
+                            Mark Paid
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-red-600 focus:text-red-700"
+                            onClick={() => openMarkUnpaidDialog(loan)}
+                            disabled={
+                              !canManageActions ||
+                              loan.repaidSoFar <= 0 ||
+                              markUnpaidMutation.isPending
+                            }
+                          >
+                            <Undo2 className="mr-2 h-4 w-4" />
+                            Mark Unpaid
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 );
@@ -1590,6 +1676,89 @@ export default function LoanTracker({
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={Boolean(unpaidLoan)}
+        onOpenChange={(open) => {
+          if (!open) closeMarkUnpaidDialog();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Mark Latest Loan Repayment Unpaid?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This reverses the latest successful repayment for{" "}
+              <span className="font-medium text-gray-900">
+                {unpaidLoan?.borrowerName || "this borrower"}
+              </span>
+              , updates the repayment schedule, and marks the linked transaction
+              as reversed for audit history.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+
+          {unpaidLoan && (
+            <div className="space-y-4">
+              <div className="space-y-3 rounded-xl border border-red-100 bg-red-50 p-4 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-red-700">Loan</span>
+                  <span className="text-right font-medium text-red-950">
+                    {unpaidLoan.loanCode ||
+                      normalizeLoanTypeLabel(unpaidLoan.loanType)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-red-700">Repaid so far</span>
+                  <span className="font-medium text-red-950">
+                    {formatCurrency(unpaidLoan.repaidSoFar)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <span className="text-red-700">Outstanding</span>
+                  <span className="font-medium text-red-950">
+                    {formatCurrency(unpaidLoan.remainingBalance)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="loan-unpaid-reason">Reason</Label>
+                <Textarea
+                  id="loan-unpaid-reason"
+                  value={unpaidReason}
+                  onChange={(event) => setUnpaidReason(event.target.value)}
+                  rows={3}
+                  placeholder="Optional reason, e.g. payment reversed by bank, duplicate posting, wrong member..."
+                />
+              </div>
+            </div>
+          )}
+
+          <AlertDialogFooter>
+            <AlertDialogCancel asChild>
+              <Button
+                variant="outline"
+                disabled={markUnpaidMutation.isPending}
+              >
+                Cancel
+              </Button>
+            </AlertDialogCancel>
+            <Button
+              className="bg-red-600 hover:bg-red-700"
+              disabled={markUnpaidMutation.isPending || !unpaidLoan}
+              onClick={() => void handleConfirmMarkUnpaid()}
+            >
+              {markUnpaidMutation.isPending ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Reversing...
+                </>
+              ) : (
+                "Mark Unpaid"
+              )}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={Boolean(receiptEmailTarget)}

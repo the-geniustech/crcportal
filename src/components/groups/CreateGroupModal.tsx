@@ -34,6 +34,20 @@ const categories = [
   "Trade",
 ];
 
+const DEFAULT_GROUP_FORM_VALUES: GroupFormData = {
+  name: "",
+  description: "",
+  category: "",
+  location: "",
+  image: "",
+  isOpen: true,
+  maxMembers: 50,
+  monthlyContribution: 10000,
+  meetingFrequency: "monthly",
+  meetingDay: "Saturday",
+  rules: "",
+};
+
 const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   isOpen,
   onClose,
@@ -45,33 +59,24 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const isEdit = mode === "edit";
 
-  const defaultValues: GroupFormData = {
-    name: "",
-    description: "",
-    category: "",
-    location: "",
-    image: "",
-    isOpen: true,
-    maxMembers: 50,
-    monthlyContribution: 10000,
-    meetingFrequency: "monthly",
-    meetingDay: "Saturday",
-    rules: "",
-  };
-
   const mergedDefaults = useMemo(() => {
-    const merged = { ...defaultValues, ...(initialValues ?? {}) };
+    const merged = { ...DEFAULT_GROUP_FORM_VALUES, ...(initialValues ?? {}) };
     return {
       ...merged,
       isOpen:
-        typeof merged.isOpen === "boolean" ? merged.isOpen : defaultValues.isOpen,
-      maxMembers: Number(merged.maxMembers ?? defaultValues.maxMembers),
+        typeof merged.isOpen === "boolean"
+          ? merged.isOpen
+          : DEFAULT_GROUP_FORM_VALUES.isOpen,
+      maxMembers: Number(
+        merged.maxMembers ?? DEFAULT_GROUP_FORM_VALUES.maxMembers,
+      ),
       monthlyContribution: Number(
-        merged.monthlyContribution ?? defaultValues.monthlyContribution,
+        merged.monthlyContribution ??
+          DEFAULT_GROUP_FORM_VALUES.monthlyContribution,
       ),
       meetingFrequency:
-        merged.meetingFrequency || defaultValues.meetingFrequency,
-      meetingDay: merged.meetingDay || defaultValues.meetingDay,
+        merged.meetingFrequency || DEFAULT_GROUP_FORM_VALUES.meetingFrequency,
+      meetingDay: merged.meetingDay || DEFAULT_GROUP_FORM_VALUES.meetingDay,
     } as GroupFormData;
   }, [initialValues]);
 
@@ -108,7 +113,10 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     if (formData.maxMembers < 5)
       newErrors.maxMembers = "Minimum 5 members required";
     if (formData.monthlyContribution < 1000)
-      newErrors.monthlyContribution = "Minimum ₦1,000 contribution";
+      newErrors.monthlyContribution = "Minimum NGN 1,000 contribution";
+    else if (formData.monthlyContribution % 1000 !== 0)
+      newErrors.monthlyContribution =
+        "Monthly contribution must be in multiples of NGN 1,000";
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -136,7 +144,7 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({
     }
 
     onSubmit(getValues());
-    reset(defaultValues);
+    reset(DEFAULT_GROUP_FORM_VALUES);
     setStep(1);
   };
 

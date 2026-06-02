@@ -7,6 +7,8 @@ export type AdminFormPaymentType =
   | "soft_loan"
   | "special_loan";
 
+export type AdminFormPaymentFilterType = AdminFormPaymentType | "bss_loan";
+
 export type AdminFormPaymentStatus = "pending" | "paid" | "defaulted";
 
 export type AdminFormPaymentSort =
@@ -79,7 +81,7 @@ export interface AdminFormPaymentListResponse {
 
 export interface AdminFormPaymentListParams {
   search?: string;
-  formType?: AdminFormPaymentType | "all";
+  formType?: AdminFormPaymentFilterType | "all";
   paymentStatus?: AdminFormPaymentStatus | "all";
   groupId?: string;
   from?: string;

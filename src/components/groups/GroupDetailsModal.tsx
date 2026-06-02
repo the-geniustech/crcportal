@@ -928,8 +928,7 @@ const GroupDetailsModal: React.FC<GroupDetailsModalProps> = ({
           ) : group.isOpen ? (
             joinDisabled ? (
               <p className="flex-1 py-3 text-gray-500 text-center">
-                {joinDisabledReason ||
-                  "You can only join one group. Group 0 is the only additional group allowed."}
+                {joinDisabledReason || "Joining this group is unavailable."}
               </p>
             ) : (
               <button

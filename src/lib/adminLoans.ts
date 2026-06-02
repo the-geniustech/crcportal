@@ -263,6 +263,15 @@ export type AdminManualLoanRepaymentResponse = {
   } | null;
 };
 
+export type AdminLoanMarkUnpaidResponse = {
+  transaction: unknown;
+  application: AdminLoanApplication;
+  reversedAmount: number;
+  reversedPrincipal: number;
+  reversedInterest: number;
+  nextPayment?: AdminManualLoanRepaymentResponse["nextPayment"];
+};
+
 export type AdminLoanListResponse = {
   applications: AdminLoanApplication[];
   otpResendCooldownSeconds: number;
@@ -801,6 +810,23 @@ export async function recordAdminLoanManualRepayment(
       },
     );
     return res.data?.data as AdminManualLoanRepaymentResponse;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export async function markAdminLoanRepaymentUnpaid(
+  applicationId: string,
+  payload: { reason?: string | null } = {},
+): Promise<AdminLoanMarkUnpaidResponse> {
+  try {
+    const res = await api.post(
+      `/admin/loans/applications/${applicationId}/mark-unpaid`,
+      {
+        reason: payload.reason ?? null,
+      },
+    );
+    return res.data?.data as AdminLoanMarkUnpaidResponse;
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }

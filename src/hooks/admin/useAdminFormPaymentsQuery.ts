@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   listAdminFormPayments,
   type AdminFormPaymentListParams,
@@ -27,6 +27,11 @@ export function useAdminFormPaymentsQuery(
       limit,
     ],
     enabled,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    placeholderData: keepPreviousData,
     queryFn: () =>
       listAdminFormPayments({
         ...params,

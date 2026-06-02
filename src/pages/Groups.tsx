@@ -329,7 +329,7 @@ const GroupsContent: React.FC = () => {
             : typeof value === "string"
               ? Number(value)
               : null;
-        return Number.isFinite(num) ? Number(num) : null;
+        return Number.isInteger(num) && num > 0 ? Number(num) : null;
       };
       const unitsByType = {
         revolving: null as number | null,
@@ -626,20 +626,6 @@ const GroupsContent: React.FC = () => {
     return ids;
   }, [myGroupsQuery.data]);
 
-  const hasNonZeroMembership = useMemo(() => {
-    const memberships = myGroupsQuery.data ?? [];
-    if (!Array.isArray(memberships) || memberships.length === 0) return false;
-
-    return memberships.some((m) => {
-      const group =
-        typeof m.groupId === "object" && m.groupId
-          ? (m.groupId as BackendGroup)
-          : null;
-      if (!group) return false;
-      return Number(group.groupNumber) !== 0;
-    });
-  }, [myGroupsQuery.data]);
-
   const groupsData: GroupUI[] = useMemo(() => {
     const memberships = myGroupsQuery.data ?? [];
     if (!Array.isArray(memberships) || memberships.length === 0) return [];
@@ -835,15 +821,16 @@ const GroupsContent: React.FC = () => {
     }
   };
 
-  const joinLimitReason =
-    "You can only join one group. Group 0 is the only additional group allowed.";
-
   const getJoinBlockReason = (group?: GroupUI | null) => {
     if (!group) return null;
-    if (group.groupNumber === 0) return null;
-    if (myGroupIdSet.has(group.id)) return null;
-    if (!hasNonZeroMembership) return null;
-    return joinLimitReason;
+    if (myGroupIdSet.has(group.id)) {
+      return "You are already a member of this group.";
+    }
+    const maxMembers = Number(group.maxMembers ?? 0);
+    if (maxMembers > 0 && Number(group.memberCount ?? 0) >= maxMembers) {
+      return "This group is full.";
+    }
+    return null;
   };
 
   const handleJoinRequest = async (groupId: string) => {

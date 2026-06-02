@@ -29,9 +29,9 @@ import { useToast } from "@/hooks/use-toast";
 import { downloadGroupFormPaymentsExport } from "@/lib/groups";
 import type {
   AdminFormPayment,
+  AdminFormPaymentFilterType,
   AdminFormPaymentSort,
   AdminFormPaymentStatus,
-  AdminFormPaymentType,
 } from "@/lib/adminFormPayments";
 import type { GroupRole } from "@/lib/roles";
 
@@ -59,15 +59,13 @@ interface GroupFormPaymentsDashboardModalProps {
 }
 
 const FORM_TYPE_OPTIONS: Array<{
-  value: FilterValue<AdminFormPaymentType>;
+  value: FilterValue<AdminFormPaymentFilterType>;
   label: string;
 }> = [
   { value: "all", label: "All Forms" },
   { value: "membership_registration", label: "Membership Registration" },
   { value: "revolving_loan", label: "Revolving Loan" },
-  { value: "bridging_loan", label: "BSS Bridging Loan" },
-  { value: "soft_loan", label: "BSS Soft Loan" },
-  { value: "special_loan", label: "BSS Special Loan" },
+  { value: "bss_loan", label: "BSS Loan Form" },
 ];
 
 const STATUS_OPTIONS: Array<{
@@ -116,10 +114,30 @@ function formatDate(value?: string | null) {
 }
 
 function formTypeLabel(value?: string | null) {
+  if (
+    value === "bridging_loan" ||
+    value === "soft_loan" ||
+    value === "special_loan"
+  ) {
+    return "BSS Loan Form";
+  }
+
   return (
     FORM_TYPE_OPTIONS.find((option) => option.value === value)?.label ||
     "Form Payment"
   );
+}
+
+function formTypeGroupKey(value?: string | null) {
+  if (
+    value === "bridging_loan" ||
+    value === "soft_loan" ||
+    value === "special_loan"
+  ) {
+    return "bss_loan";
+  }
+
+  return value || "unknown";
 }
 
 function statusPill(status: AdminFormPaymentStatus) {
@@ -181,7 +199,7 @@ const GroupFormPaymentsDashboardModal: React.FC<
   const [searchInput, setSearchInput] = useState("");
   const deferredSearch = useDeferredValue(searchInput.trim());
   const [formType, setFormType] =
-    useState<FilterValue<AdminFormPaymentType>>("all");
+    useState<FilterValue<AdminFormPaymentFilterType>>("all");
   const [paymentStatus, setPaymentStatus] =
     useState<FilterValue<AdminFormPaymentStatus>>("all");
   const [sortBy, setSortBy] =
@@ -251,7 +269,7 @@ const GroupFormPaymentsDashboardModal: React.FC<
   const totalsByFormType = useMemo(() => {
     const map = new Map<string, { count: number; amount: number }>();
     payments.forEach((payment) => {
-      const key = payment.formType;
+      const key = formTypeGroupKey(payment.formType);
       const current = map.get(key) || { count: 0, amount: 0 };
       current.count += 1;
       current.amount += Number(payment.amount || 0);
@@ -412,7 +430,7 @@ const GroupFormPaymentsDashboardModal: React.FC<
               <Select
                 value={formType}
                 onValueChange={(value) =>
-                  setFormType(value as FilterValue<AdminFormPaymentType>)
+                  setFormType(value as FilterValue<AdminFormPaymentFilterType>)
                 }
               >
                 <SelectTrigger>

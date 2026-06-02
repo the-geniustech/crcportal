@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -43,6 +43,7 @@ interface GroupMember {
   memberNumber?: number | null;
   contributionUnitsByType?: {
     revolving?: number | null;
+    special?: number | null;
     endwell?: number | null;
     festive?: number | null;
   } | null;
@@ -102,7 +103,14 @@ const MONTHS = [
   { value: 12, label: "Dec", long: "December" },
 ];
 
-type DashboardContributionType = ContributionTypeCanonical | "interest";
+type DashboardContributionType = ContributionTypeCanonical | "all" | "interest";
+
+const ALL_META = {
+  value: "all",
+  label: "All",
+  description:
+    "Combined contribution performance across revolving, special, endwell, and festive tabs.",
+} as const;
 
 const INTEREST_META = {
   value: "interest",
@@ -115,7 +123,19 @@ const DASHBOARD_TYPES: Array<{
   value: DashboardContributionType;
   label: string;
   description: string;
-}> = [...ContributionTypeOptions, INTEREST_META];
+}> = [ALL_META, ...ContributionTypeOptions, INTEREST_META];
+
+const CONTRIBUTION_TYPE_KEYS = ContributionTypeOptions.map(
+  (type) => type.value,
+) as ContributionTypeCanonical[];
+
+const CONTRIBUTION_TYPE_SHORT_LABELS: Record<ContributionTypeCanonical, string> =
+  {
+    revolving: "R",
+    special: "S",
+    endwell: "E",
+    festive: "F",
+  };
 
 const CONTRIBUTION_SORT_OPTIONS = [
   { value: "name_asc", label: "Name A-Z" },
@@ -128,7 +148,8 @@ const CONTRIBUTION_SORT_OPTIONS = [
   { value: "arrears_asc", label: "Arrears Lowest" },
 ] as const;
 
-type ContributionSortOption = (typeof CONTRIBUTION_SORT_OPTIONS)[number]["value"];
+type ContributionSortOption =
+  (typeof CONTRIBUTION_SORT_OPTIONS)[number]["value"];
 
 const paidStatuses = new Set(["completed", "verified"]);
 
@@ -143,10 +164,39 @@ const formatCurrency = (value: number) => {
   return currencyFormatter.format(safe);
 };
 
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
+const formatRateDelta = (value: number) =>
+  `${value > 0 ? "+" : ""}${Math.round(value)}% vs overall`;
+
 const contributionSortCollator = new Intl.Collator("en", {
   numeric: true,
   sensitivity: "base",
 });
+
+type MonthContributionCell = {
+  amount: number;
+  hasRecord: boolean;
+  byType: Partial<Record<ContributionTypeCanonical, number>>;
+};
+
+type ContributionMemberRow = {
+  member: GroupMember;
+  units: number | null;
+  expectedMonthly: number;
+  monthAmounts: MonthContributionCell[];
+  ytdTotal: number;
+  expectedYtd: number;
+  arrears: number;
+  status: "ARREARS" | "ON TRACK";
+  ytdByType: Partial<Record<ContributionTypeCanonical, number>>;
+};
 
 const GroupContributionDashboardModal: React.FC<
   GroupContributionDashboardModalProps
@@ -314,9 +364,13 @@ const GroupContributionDashboardModal: React.FC<
         ? Number(group?.memberCount ?? 0)
         : 0;
   const effectiveType: ContributionTypeCanonical =
-    selectedType === "interest" ? selectedInterestType : selectedType;
+    selectedType === "interest"
+      ? selectedInterestType
+      : selectedType === "all"
+        ? "revolving"
+        : selectedType;
 
-  const getExpectedMonthlyBase = (type: ContributionTypeCanonical) => {
+  const getExpectedMonthlyBase = useCallback((type: ContributionTypeCanonical) => {
     const target = targets?.[type];
     if (typeof target === "number" && Number.isFinite(target) && target > 0) {
       return target;
@@ -324,17 +378,20 @@ const GroupContributionDashboardModal: React.FC<
     const base = Number(group?.monthlyContribution ?? 0);
     if (type === "revolving" && base > 0) return base;
     return ContributionTypeConfig[type]?.minAmount ?? 0;
-  };
+  }, [group?.monthlyContribution, targets]);
 
   const expectedMonthlyBase = getExpectedMonthlyBase(effectiveType);
   const expectedMonthly = expectedMonthlyBase;
-  const unitAmountForType =
-    unitAmounts?.[effectiveType] ??
-    ContributionTypeConfig[effectiveType]?.unitAmount ??
-    CONTRIBUTION_UNIT_BASE;
-  const resolvedUnitAmount = unitAmountForType;
+  const getUnitAmountForType = useCallback(
+    (type: ContributionTypeCanonical) =>
+      unitAmounts?.[type] ??
+      ContributionTypeConfig[type]?.unitAmount ??
+      CONTRIBUTION_UNIT_BASE,
+    [unitAmounts],
+  );
+  const resolvedUnitAmount = getUnitAmountForType(effectiveType);
 
-  const resolveMemberUnits = (
+  const resolveMemberUnits = useCallback((
     member: GroupMember,
     type: ContributionTypeCanonical,
   ) => {
@@ -343,19 +400,19 @@ const GroupContributionDashboardModal: React.FC<
     const raw = Number(member.contributionUnitsByType[type] ?? NaN);
     if (!Number.isFinite(raw) || raw <= 0) return null;
     return raw;
-  };
+  }, [currentYear, selectedYear]);
 
-  const resolveMemberExpectedMonthly = (
+  const resolveMemberExpectedMonthly = useCallback((
     member: GroupMember,
     type: ContributionTypeCanonical,
   ) => {
-    if (selectedType === "interest") return 0;
     const units = resolveMemberUnits(member, type);
-    if (units && resolvedUnitAmount) {
-      return units * resolvedUnitAmount;
+    const unitAmount = getUnitAmountForType(type);
+    if (units && unitAmount) {
+      return units * unitAmount;
     }
-    return expectedMonthly;
-  };
+    return getExpectedMonthlyBase(type);
+  }, [resolveMemberUnits, getExpectedMonthlyBase, getUnitAmountForType]);
 
   const contributionDataset =
     selectedType === "interest"
@@ -367,86 +424,180 @@ const GroupContributionDashboardModal: React.FC<
       contributionDataset.filter(
         (contribution) =>
           contribution.year === selectedYear &&
-          contribution.type === effectiveType &&
+          (selectedType === "all"
+            ? CONTRIBUTION_TYPE_KEYS.includes(contribution.type)
+            : contribution.type === effectiveType) &&
           contribution.month >= 1 &&
           contribution.month <= 12,
       ),
-    [contributionDataset, selectedYear, effectiveType],
+    [contributionDataset, selectedYear, effectiveType, selectedType],
   );
 
-  const memberMonthMap = useMemo(() => {
-    const map = new Map<
-      string,
-      Map<number, { amount: number; hasRecord: boolean; status: string }>
-    >();
-    for (const contribution of filteredContributions) {
-      if (!contribution.memberId) continue;
-      const month = contribution.month;
-      if (!month) continue;
-      const memberMap = map.get(contribution.memberId) ?? new Map();
-      const current = memberMap.get(month) ?? {
+  const buildContributionRows = useCallback((
+    mode: ContributionTypeCanonical | "all",
+  ): ContributionMemberRow[] => {
+    const relevantTypes =
+      mode === "all" ? CONTRIBUTION_TYPE_KEYS : ([mode] as ContributionTypeCanonical[]);
+
+    const memberMonthMap = new Map<string, Map<number, MonthContributionCell>>();
+    for (const contribution of normalizedContributions) {
+      if (
+        contribution.year !== selectedYear ||
+        !relevantTypes.includes(contribution.type) ||
+        contribution.month < 1 ||
+        contribution.month > 12
+      ) {
+        continue;
+      }
+      const memberMap = memberMonthMap.get(contribution.memberId) ?? new Map();
+      const current = memberMap.get(contribution.month) ?? {
         amount: 0,
         hasRecord: false,
-        status: "pending",
+        byType: {},
       };
       current.hasRecord = true;
       if (paidStatuses.has(contribution.status)) {
-        const value =
-          selectedType === "interest"
-            ? Number(contribution.interestAmount ?? 0)
-            : Number(contribution.amount ?? 0);
-        current.amount += value;
-        current.status = "paid";
-      } else if (contribution.status === "overdue") {
-        current.status = "overdue";
+        current.amount += Number(contribution.amount ?? 0);
+        current.byType[contribution.type] =
+          Number(current.byType[contribution.type] ?? 0) +
+          Number(contribution.amount ?? 0);
       }
-      memberMap.set(month, current);
-      map.set(contribution.memberId, memberMap);
+      memberMap.set(contribution.month, current);
+      memberMonthMap.set(contribution.memberId, memberMap);
     }
-    return map;
-  }, [filteredContributions, selectedType]);
 
-  const allMemberRows = useMemo(() => {
-    const sorted = [...scopedMembers].sort((a, b) =>
-      a.name.localeCompare(b.name),
-    );
-    return sorted.map((member) => {
-      const monthAmounts = MONTHS.map(({ value }) => {
-        const record = memberMonthMap.get(member.id)?.get(value);
+    return [...scopedMembers]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((member) => {
+        const monthAmounts = MONTHS.map(({ value }) => {
+          const record = memberMonthMap.get(member.id)?.get(value);
+          return {
+            amount: record?.amount ?? 0,
+            hasRecord: record?.hasRecord ?? false,
+            byType: record?.byType ?? {},
+          };
+        });
+        const ytdByType = relevantTypes.reduce(
+          (acc, type) => {
+            acc[type] = monthAmounts
+              .slice(0, monthsToDate)
+              .reduce(
+                (sum, month) => sum + Number(month.byType[type] ?? 0),
+                0,
+              );
+            return acc;
+          },
+          {} as Partial<Record<ContributionTypeCanonical, number>>,
+        );
+        const ytdTotal = Object.values(ytdByType).reduce(
+          (sum, value) => sum + Number(value ?? 0),
+          0,
+        );
+        const units =
+          mode === "all"
+            ? (() => {
+                const totalUnits = relevantTypes.reduce(
+                  (sum, type) => sum + Number(resolveMemberUnits(member, type) ?? 0),
+                  0,
+                );
+                return totalUnits > 0 ? totalUnits : null;
+              })()
+            : resolveMemberUnits(member, mode);
+        const expectedMonthlyForMember =
+          mode === "all"
+            ? relevantTypes.reduce(
+                (sum, type) => sum + resolveMemberExpectedMonthly(member, type),
+                0,
+              )
+            : resolveMemberExpectedMonthly(member, mode);
+        const expectedYtd = expectedMonthlyForMember * monthsToDate;
+        const arrears = Math.max(expectedYtd - ytdTotal, 0);
         return {
-          amount: record?.amount ?? 0,
-          hasRecord: record?.hasRecord ?? false,
+          member,
+          units,
+          expectedMonthly: expectedMonthlyForMember,
+          monthAmounts,
+          ytdTotal,
+          expectedYtd,
+          arrears,
+          status: arrears > 0 ? "ARREARS" : "ON TRACK",
+          ytdByType,
         };
       });
-      const ytdTotal = monthAmounts
-        .slice(0, monthsToDate)
-        .reduce((sum, month) => sum + month.amount, 0);
-      const units = resolveMemberUnits(member, effectiveType);
-      const expectedMonthlyForMember = resolveMemberExpectedMonthly(
-        member,
-        effectiveType,
-      );
-      const expectedYtd = expectedMonthlyForMember * monthsToDate;
-      const arrears = Math.max(expectedYtd - ytdTotal, 0);
-      return {
-        member,
-        units,
-        expectedMonthly: expectedMonthlyForMember,
-        monthAmounts,
-        ytdTotal,
-        expectedYtd,
-        arrears,
-        status: arrears > 0 ? "ARREARS" : "ON TRACK",
-      };
-    });
   }, [
-    scopedMembers,
-    memberMonthMap,
     monthsToDate,
-    expectedMonthly,
+    normalizedContributions,
+    scopedMembers,
+    selectedYear,
     resolveMemberExpectedMonthly,
     resolveMemberUnits,
   ]);
+
+  const contributionRowsByMode = useMemo(
+    () => ({
+      all: buildContributionRows("all"),
+      revolving: buildContributionRows("revolving"),
+      special: buildContributionRows("special"),
+      endwell: buildContributionRows("endwell"),
+      festive: buildContributionRows("festive"),
+    }),
+    [buildContributionRows],
+  );
+
+  const interestMemberRows = useMemo<ContributionMemberRow[]>(() => {
+    const memberMonthMap = new Map<string, Map<number, MonthContributionCell>>();
+    for (const contribution of filteredContributions) {
+      const memberMap = memberMonthMap.get(contribution.memberId) ?? new Map();
+      const current = memberMap.get(contribution.month) ?? {
+        amount: 0,
+        hasRecord: false,
+        byType: {},
+      };
+      current.hasRecord = true;
+      if (paidStatuses.has(contribution.status)) {
+        const interestValue = Number(contribution.interestAmount ?? 0);
+        current.amount += interestValue;
+        current.byType[selectedInterestType] =
+          Number(current.byType[selectedInterestType] ?? 0) + interestValue;
+      }
+      memberMap.set(contribution.month, current);
+      memberMonthMap.set(contribution.memberId, memberMap);
+    }
+
+    return [...scopedMembers]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((member) => {
+        const monthAmounts = MONTHS.map(({ value }) => {
+          const record = memberMonthMap.get(member.id)?.get(value);
+          return {
+            amount: record?.amount ?? 0,
+            hasRecord: record?.hasRecord ?? false,
+            byType: record?.byType ?? {},
+          };
+        });
+        const ytdTotal = monthAmounts
+          .slice(0, monthsToDate)
+          .reduce((sum, month) => sum + month.amount, 0);
+        return {
+          member,
+          units: null,
+          expectedMonthly: 0,
+          monthAmounts,
+          ytdTotal,
+          expectedYtd: ytdTotal,
+          arrears: 0,
+          status: "ON TRACK",
+          ytdByType: {
+            [selectedInterestType]: ytdTotal,
+          },
+        };
+      });
+  }, [filteredContributions, monthsToDate, scopedMembers, selectedInterestType]);
+
+  const allMemberRows =
+    selectedType === "interest"
+      ? interestMemberRows
+      : contributionRowsByMode[selectedType];
 
   const visibleRows = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -542,7 +693,7 @@ const GroupContributionDashboardModal: React.FC<
 
   const averageExpectedMonthly = useMemo(() => {
     const denominator = totalMembers * monthsToDate;
-    if (!denominator) return selectedType === "interest" ? 0 : expectedMonthly;
+    if (!denominator) return 0;
     if (selectedType === "interest") {
       return collectionSummary.collectedTotal / denominator;
     }
@@ -550,7 +701,6 @@ const GroupContributionDashboardModal: React.FC<
   }, [
     collectionSummary.expectedTotal,
     collectionSummary.collectedTotal,
-    expectedMonthly,
     monthsToDate,
     totalMembers,
     selectedType,
@@ -558,38 +708,79 @@ const GroupContributionDashboardModal: React.FC<
 
   const totalsByType = useMemo(() => {
     return ContributionTypeOptions.map((type) => {
-      const expectedMonthlyAmount = getExpectedMonthlyBase(type.value);
-      const expectedTotal = expectedMonthlyAmount * totalMembers * monthsToDate;
-      const collectedTotal = normalizedContributions
-        .filter(
-          (contribution) =>
-            contribution.year === selectedYear &&
-            contribution.type === type.value &&
-            contribution.month <= monthsToDate &&
-            paidStatuses.has(contribution.status),
-        )
-        .reduce((sum, contribution) => sum + contribution.amount, 0);
+      const rows = contributionRowsByMode[type.value] ?? [];
+      const expectedTotal = rows.reduce(
+        (sum, row) => sum + Number(row.expectedYtd ?? 0),
+        0,
+      );
+      const collectedTotal = rows.reduce(
+        (sum, row) => sum + Number(row.ytdTotal ?? 0),
+        0,
+      );
       const arrears = Math.max(expectedTotal - collectedTotal, 0);
       const rate =
         expectedTotal > 0
           ? Math.round((collectedTotal / expectedTotal) * 100)
           : 0;
+      const membersInArrears = rows.filter((row) => row.arrears > 0).length;
       return {
         ...type,
         expectedTotal,
         collectedTotal,
         arrears,
         rate,
+        membersInArrears,
       };
     });
   }, [
-    normalizedContributions,
-    selectedYear,
-    monthsToDate,
-    totalMembers,
-    targets,
-    group?.monthlyContribution,
+    contributionRowsByMode,
   ]);
+
+  const allContributionSummary = useMemo(() => {
+    const expectedTotal = totalsByType.reduce(
+      (sum, type) => sum + Number(type.expectedTotal ?? 0),
+      0,
+    );
+    const collectedTotal = totalsByType.reduce(
+      (sum, type) => sum + Number(type.collectedTotal ?? 0),
+      0,
+    );
+    const arrears = Math.max(expectedTotal - collectedTotal, 0);
+    const collectionRate =
+      expectedTotal > 0 ? Math.round((collectedTotal / expectedTotal) * 100) : 0;
+    const membersInArrears = contributionRowsByMode.all.filter(
+      (row) => row.arrears > 0,
+    ).length;
+    return {
+      expectedTotal,
+      collectedTotal,
+      arrears,
+      collectionRate,
+      membersInArrears,
+    };
+  }, [contributionRowsByMode.all, totalsByType]);
+
+  const allTypeComparisons = useMemo(() => {
+    const overallCollected = Math.max(allContributionSummary.collectedTotal, 1);
+    return totalsByType.map((type) => {
+      const shareOfCollection = Math.round(
+        (Number(type.collectedTotal || 0) / overallCollected) * 100,
+      );
+      const rateGap = Number(type.rate || 0) - allContributionSummary.collectionRate;
+      const arrearsWeight =
+        allContributionSummary.arrears > 0
+          ? Math.round(
+              (Number(type.arrears || 0) / allContributionSummary.arrears) * 100,
+            )
+          : 0;
+      return {
+        ...type,
+        shareOfCollection,
+        rateGap,
+        arrearsWeight,
+      };
+    });
+  }, [allContributionSummary, totalsByType]);
 
   const tableTotals = useMemo(() => {
     const monthTotals = MONTHS.map((_, monthIndex) =>
@@ -621,7 +812,9 @@ const GroupContributionDashboardModal: React.FC<
   }, [visibleRows, monthsToDate]);
 
   const selectedTypeMeta =
-    selectedType === "interest"
+    selectedType === "all"
+      ? ALL_META
+      : selectedType === "interest"
       ? {
           ...INTEREST_META,
           label: `Interest Earned \u00b7 ${
@@ -660,8 +853,279 @@ const GroupContributionDashboardModal: React.FC<
       ? `Planned units for ${settingsYear}`
       : `Planned units (current year ${settingsYear})`;
 
+  const formatTypeBreakdown = (
+    byType: Partial<Record<ContributionTypeCanonical, number>>,
+  ) =>
+    CONTRIBUTION_TYPE_KEYS.filter((type) => Number(byType[type] ?? 0) > 0)
+      .map(
+        (type) =>
+          `${CONTRIBUTION_TYPE_SHORT_LABELS[type]}: ${formatCurrency(
+            Number(byType[type] ?? 0),
+          )}`,
+      )
+      .join(" | ");
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportAllCsv = () => {
+    if (!group) return;
+    const lines: string[] = [];
+    const pushRow = (values: Array<string | number>) => {
+      lines.push(
+        values
+          .map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`)
+          .join(","),
+      );
+    };
+
+    pushRow(["Group Contribution Dashboard - All Types Summary"]);
+    pushRow([group.name]);
+    pushRow([`Year`, selectedYear]);
+    pushRow([`Members`, visibleRows.length]);
+    pushRow([`Expected YTD`, formatCurrency(allContributionSummary.expectedTotal)]);
+    pushRow([`Collected YTD`, formatCurrency(allContributionSummary.collectedTotal)]);
+    pushRow([`Arrears YTD`, formatCurrency(allContributionSummary.arrears)]);
+    pushRow([`Collection Rate`, `${allContributionSummary.collectionRate}%`]);
+    pushRow([]);
+    pushRow([
+      "Type",
+      "Expected YTD",
+      "Collected YTD",
+      "Arrears",
+      "Collection Rate",
+      "Share of Collected",
+      "Members in Arrears",
+    ]);
+    allTypeComparisons.forEach((type) => {
+      pushRow([
+        type.label,
+        formatCurrency(type.expectedTotal),
+        formatCurrency(type.collectedTotal),
+        formatCurrency(type.arrears),
+        `${type.rate}%`,
+        `${type.shareOfCollection}%`,
+        type.membersInArrears,
+      ]);
+    });
+    pushRow([]);
+    pushRow([
+      "S/N",
+      "Member Name",
+      "Serial",
+      "Units",
+      "Type Mix",
+      ...MONTHS.map((month) => month.label),
+      "YTD Total",
+      "Expected YTD",
+      "Arrears",
+      "Status",
+    ]);
+    visibleRows.forEach((row, index) => {
+      pushRow([
+        index + 1,
+        row.member.name,
+        row.member.memberSerial ?? "-",
+        row.units ?? "-",
+        formatTypeBreakdown(row.ytdByType) || "-",
+        ...row.monthAmounts.map((month) => {
+          if (month.amount <= 0) return "-";
+          const breakdown = formatTypeBreakdown(month.byType);
+          return breakdown
+            ? `${formatCurrency(month.amount)} (${breakdown})`
+            : formatCurrency(month.amount);
+        }),
+        formatCurrency(row.ytdTotal),
+        formatCurrency(row.expectedYtd),
+        formatCurrency(row.arrears),
+        row.status,
+      ]);
+    });
+      pushRow([
+        "Totals",
+        `${visibleRows.length} members`,
+        "-",
+        tableTotals.unitsTotal > 0 ? tableTotals.unitsTotal : "-",
+        "-",
+        ...tableTotals.monthTotals.map((total) =>
+          total > 0 ? formatCurrency(total) : "-",
+        ),
+        formatCurrency(tableTotals.ytdTotal),
+        formatCurrency(tableTotals.expectedYtd),
+        formatCurrency(tableTotals.arrears),
+        tableTotals.status,
+      ]);
+
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const safeName = group.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    downloadBlob(
+      blob,
+      `group-contribution-all-summary-${safeName}-${selectedYear}.csv`,
+    );
+  };
+
+  const exportAllPdf = () => {
+    if (!group) return;
+    const printWindow = window.open("", "_blank", "noopener,noreferrer");
+    if (!printWindow) {
+      throw new Error("Unable to open print window for PDF export.");
+    }
+
+    const rowsHtml = visibleRows
+      .map((row, index) => {
+        const monthCells = row.monthAmounts
+          .map((month) => {
+            if (month.amount <= 0) return "<td>-</td>";
+            const breakdown = formatTypeBreakdown(month.byType);
+            return `<td><div>${escapeHtml(
+              formatCurrency(month.amount),
+            )}</div>${
+              breakdown
+                ? `<div class="sub">${escapeHtml(breakdown)}</div>`
+                : ""
+            }</td>`;
+          })
+          .join("");
+
+        return `<tr>
+          <td>${index + 1}</td>
+          <td>${escapeHtml(row.member.name)}</td>
+          <td>${escapeHtml(row.member.memberSerial ?? "-")}</td>
+          <td>${escapeHtml(String(row.units ?? "-"))}</td>
+          <td>${escapeHtml(formatTypeBreakdown(row.ytdByType) || "-")}</td>
+          ${monthCells}
+          <td>${escapeHtml(formatCurrency(row.ytdTotal))}</td>
+          <td>${escapeHtml(formatCurrency(row.expectedYtd))}</td>
+          <td>${escapeHtml(formatCurrency(row.arrears))}</td>
+          <td>${escapeHtml(row.status)}</td>
+        </tr>`;
+      })
+      .join("");
+
+    const comparisonHtml = allTypeComparisons
+      .map(
+        (type) => `<tr>
+          <td>${escapeHtml(type.label)}</td>
+          <td>${escapeHtml(formatCurrency(type.expectedTotal))}</td>
+          <td>${escapeHtml(formatCurrency(type.collectedTotal))}</td>
+          <td>${escapeHtml(formatCurrency(type.arrears))}</td>
+          <td>${escapeHtml(`${type.rate}%`)}</td>
+          <td>${escapeHtml(`${type.shareOfCollection}%`)}</td>
+          <td>${escapeHtml(formatRateDelta(type.rateGap))}</td>
+        </tr>`,
+      )
+      .join("");
+
+    printWindow.document.write(`<!doctype html>
+      <html>
+        <head>
+          <title>${escapeHtml(group.name)} - All Contributions ${selectedYear}</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #0f172a; }
+            h1 { margin: 0 0 4px; font-size: 24px; }
+            h2 { margin: 24px 0 12px; font-size: 16px; }
+            p { margin: 0; color: #475569; }
+            .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+            .card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 12px; }
+            .label { font-size: 11px; text-transform: uppercase; color: #64748b; }
+            .value { margin-top: 8px; font-size: 18px; font-weight: 700; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { border: 1px solid #e2e8f0; padding: 6px 8px; vertical-align: top; text-align: left; }
+            th { background: #f8fafc; }
+            .sub { margin-top: 2px; color: #64748b; font-size: 9px; }
+          </style>
+        </head>
+        <body>
+          <h1>${escapeHtml(group.name)}</h1>
+          <p>All contribution types summary · ${selectedYear}</p>
+          <div class="grid">
+            <div class="card"><div class="label">Expected YTD</div><div class="value">${escapeHtml(formatCurrency(allContributionSummary.expectedTotal))}</div></div>
+            <div class="card"><div class="label">Collected YTD</div><div class="value">${escapeHtml(formatCurrency(allContributionSummary.collectedTotal))}</div></div>
+            <div class="card"><div class="label">Arrears</div><div class="value">${escapeHtml(formatCurrency(allContributionSummary.arrears))}</div></div>
+            <div class="card"><div class="label">Collection Rate</div><div class="value">${escapeHtml(`${allContributionSummary.collectionRate}%`)}</div></div>
+          </div>
+          <h2>Comparison by Contribution Type</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Expected</th>
+                <th>Collected</th>
+                <th>Arrears</th>
+                <th>Rate</th>
+                <th>Share</th>
+                <th>Gap vs Overall</th>
+              </tr>
+            </thead>
+            <tbody>${comparisonHtml}</tbody>
+          </table>
+          <h2>Member Ledger</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>S/N</th>
+                <th>Member</th>
+                <th>Serial</th>
+                <th>Units</th>
+                <th>Type Mix</th>
+                ${MONTHS.map((month) => `<th>${month.label}</th>`).join("")}
+                <th>YTD Total</th>
+                <th>Expected YTD</th>
+                <th>Arrears</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </body>
+      </html>`);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+  };
+
   const handleExport = async (format: "pdf" | "csv" | "xlsx") => {
     if (!group) return;
+    if (selectedType === "all") {
+      setExportingFormat(format);
+      try {
+        if (format === "csv") {
+          exportAllCsv();
+        } else if (format === "pdf") {
+          exportAllPdf();
+        } else {
+          throw new Error(
+            "XLSX export is not available for the All tab yet. Use CSV or PDF.",
+          );
+        }
+        toast({
+          title: "Export Complete",
+          description:
+            format === "pdf"
+              ? "Print dialog opened. Choose Save as PDF to download the report."
+              : `Aggregated contribution summary exported as ${format.toUpperCase()}.`,
+        });
+      } catch (error) {
+        toast({
+          title: "Export failed",
+          description:
+            error instanceof Error ? error.message : `Unable to export ${format}`,
+          variant: "destructive",
+        });
+      } finally {
+        setExportingFormat(null);
+      }
+      return;
+    }
+
     setExportingFormat(format);
     try {
       const response = await downloadGroupContributionLedgerExport(group.id, {
@@ -853,12 +1317,14 @@ const GroupContributionDashboardModal: React.FC<
                     >
                       Export CSV
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => void handleExport("xlsx")}
-                      disabled={exportingFormat === "xlsx"}
-                    >
-                      Export XLSX
-                    </DropdownMenuItem>
+                    {selectedType !== "all" && (
+                      <DropdownMenuItem
+                        onClick={() => void handleExport("xlsx")}
+                        disabled={exportingFormat === "xlsx"}
+                      >
+                        Export XLSX
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -868,7 +1334,7 @@ const GroupContributionDashboardModal: React.FC<
               <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
                 <div className="flex justify-between items-center">
                   <p className="text-gray-500 text-xs uppercase tracking-wide">
-                    Expected YTD
+                    {selectedType === "all" ? "Total Expected YTD" : "Expected YTD"}
                   </p>
                   <Users className="w-4 h-4 text-emerald-500" />
                 </div>
@@ -884,7 +1350,9 @@ const GroupContributionDashboardModal: React.FC<
               <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
                 <div className="flex justify-between items-center">
                   <p className="text-gray-500 text-xs uppercase tracking-wide">
-                    Collected YTD
+                    {selectedType === "all"
+                      ? "Total Contributions"
+                      : "Collected YTD"}
                   </p>
                   <TrendingUp className="w-4 h-4 text-emerald-500" />
                 </div>
@@ -898,11 +1366,22 @@ const GroupContributionDashboardModal: React.FC<
                     ? "-"
                     : `${collectionSummary.collectionRate}% collection rate`}
                 </p>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-emerald-100">
+                  <div
+                    className="h-full rounded-full bg-emerald-500 transition-all"
+                    style={{
+                      width: `${Math.min(
+                        Math.max(collectionSummary.collectionRate, 0),
+                        100,
+                      )}%`,
+                    }}
+                  />
+                </div>
               </div>
               <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
                 <div className="flex justify-between items-center">
                   <p className="text-gray-500 text-xs uppercase tracking-wide">
-                    Arrears YTD
+                    {selectedType === "all" ? "Arrears Summary" : "Arrears YTD"}
                   </p>
                   <AlertTriangle className="w-4 h-4 text-rose-500" />
                 </div>
@@ -916,6 +1395,24 @@ const GroupContributionDashboardModal: React.FC<
                     ? "-"
                     : `${collectionSummary.membersInArrears} members behind`}
                 </p>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-rose-100">
+                  <div
+                    className="h-full rounded-full bg-rose-500 transition-all"
+                    style={{
+                      width: `${Math.min(
+                        collectionSummary.expectedTotal > 0
+                          ? Math.max(
+                              (collectionSummary.arrears /
+                                collectionSummary.expectedTotal) *
+                                100,
+                              0,
+                            )
+                          : 0,
+                        100,
+                      )}%`,
+                    }}
+                  />
+                </div>
               </div>
               <div className="bg-white shadow-sm p-4 border border-slate-200 rounded-2xl">
                 <div className="flex justify-between items-center">
@@ -968,11 +1465,14 @@ const GroupContributionDashboardModal: React.FC<
               <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
                 <div>
                   <p className="font-semibold text-gray-900 text-sm">
-                    Totals by Contribution Type
+                    {selectedType === "all"
+                      ? "Comparison to Individual Contribution Types"
+                      : "Totals by Contribution Type"}
                   </p>
                   <p className="text-gray-500 text-xs">
-                    Tracking totals across all four contribution types in the
-                    same format.
+                    {selectedType === "all"
+                      ? "See how the combined all-types position compares with each individual contribution stream."
+                      : "Tracking totals across all four contribution types in the same format."}
                   </p>
                 </div>
                 <span className="text-gray-400 text-xs">
@@ -980,7 +1480,7 @@ const GroupContributionDashboardModal: React.FC<
                 </span>
               </div>
               <div className="gap-4 grid md:grid-cols-2 xl:grid-cols-4">
-                {totalsByType.map((type) => (
+                {allTypeComparisons.map((type) => (
                   <div
                     key={type.value}
                     className={`rounded-xl border px-4 py-3 ${
@@ -994,8 +1494,22 @@ const GroupContributionDashboardModal: React.FC<
                         {type.label}
                       </p>
                       <span className="font-semibold text-gray-500 text-xs">
-                        {type.rate}%
+                        {type.rate}% rate
                       </span>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          type.rate >= 85
+                            ? "bg-emerald-500"
+                            : type.rate >= 60
+                              ? "bg-amber-500"
+                              : "bg-rose-500"
+                        }`}
+                        style={{
+                          width: `${Math.min(Math.max(type.rate, 0), 100)}%`,
+                        }}
+                      />
                     </div>
                     <div className="space-y-1 mt-3 text-gray-500 text-xs">
                       <div className="flex justify-between">
@@ -1010,6 +1524,14 @@ const GroupContributionDashboardModal: React.FC<
                           {formatCurrency(type.collectedTotal)}
                         </span>
                       </div>
+                      {selectedType === "all" && (
+                        <div className="flex justify-between">
+                          <span>Share of all</span>
+                          <span className="font-semibold text-sky-600">
+                            {type.shareOfCollection}%
+                          </span>
+                        </div>
+                      )}
                       <div className="flex justify-between">
                         <span>Arrears</span>
                         <span
@@ -1020,6 +1542,26 @@ const GroupContributionDashboardModal: React.FC<
                           {formatCurrency(type.arrears)}
                         </span>
                       </div>
+                      {selectedType === "all" && (
+                        <>
+                          <div className="flex justify-between">
+                            <span>Rate gap</span>
+                            <span
+                              className={`font-semibold ${
+                                type.rateGap >= 0 ? "text-emerald-600" : "text-rose-600"
+                              }`}
+                            >
+                              {formatRateDelta(type.rateGap)}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Members in arrears</span>
+                            <span className="font-semibold text-gray-900">
+                              {type.membersInArrears}
+                            </span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1030,17 +1572,21 @@ const GroupContributionDashboardModal: React.FC<
               <div className="flex flex-wrap justify-between items-center gap-3 px-5 py-4 border-slate-200 border-b">
                 <div>
                   <p className="font-semibold text-gray-900 text-sm">
-                    {selectedType === "interest"
+                    {selectedType === "all"
+                      ? "All Contributions Summary Ledger"
+                      : selectedType === "interest"
                       ? "Member Interest Ledger"
                       : "Member Contribution Ledger"}
                   </p>
                   <p className="text-gray-500 text-xs">
-                    {selectedTypeMeta?.label} tracking in {selectedYear}
+                    {selectedType === "all"
+                      ? `Combined monthly and type-by-type contribution tracking in ${selectedYear}`
+                      : `${selectedTypeMeta?.label} tracking in ${selectedYear}`}
                   </p>
                 </div>
                 <div className="text-gray-500 text-xs">
                   Avg Expected Monthly: {formatCurrency(averageExpectedMonthly)}
-                  {resolvedUnitAmount ? (
+                  {selectedType !== "all" && resolvedUnitAmount ? (
                     <span>
                       {" "}
                       | Planned Units (avg):{" "}
@@ -1050,8 +1596,10 @@ const GroupContributionDashboardModal: React.FC<
                   ) : (
                     <span>
                       {" "}
-                      | Planned Units (avg):{" "}
-                      {plannedUnitsSummary.average ?? "-"}
+                      | Planned Units (avg): {plannedUnitsSummary.average ?? "-"}
+                      {selectedType === "all"
+                        ? " across tracked contribution types"
+                        : ""}
                     </span>
                   )}
                 </div>
@@ -1082,6 +1630,11 @@ const GroupContributionDashboardModal: React.FC<
                         <th className="px-4 py-3 font-semibold text-left">
                           Units
                         </th>
+                        {selectedType === "all" && (
+                          <th className="px-4 py-3 font-semibold text-left">
+                            Type Mix
+                          </th>
+                        )}
                         {MONTHS.map((month) => (
                           <th
                             key={month.value}
@@ -1131,14 +1684,29 @@ const GroupContributionDashboardModal: React.FC<
                           <td className="px-4 py-3 text-gray-600">
                             {row.units ?? "-"}
                           </td>
+                          {selectedType === "all" && (
+                            <td className="px-4 py-3 text-gray-600 text-xs">
+                              {formatTypeBreakdown(row.ytdByType) || "-"}
+                            </td>
+                          )}
                           {row.monthAmounts.map((month, index) => (
                             <td
                               key={`${row.member.id}-${MONTHS[index].value}`}
                               className="px-3 py-3 text-gray-700 text-center"
                             >
-                              {month.amount > 0
-                                ? formatCurrency(month.amount)
-                                : "-"}
+                              {month.amount > 0 ? (
+                                <div className="space-y-1">
+                                  <div>{formatCurrency(month.amount)}</div>
+                                  {selectedType === "all" &&
+                                    formatTypeBreakdown(month.byType) && (
+                                      <div className="text-[10px] text-slate-400">
+                                        {formatTypeBreakdown(month.byType)}
+                                      </div>
+                                    )}
+                                </div>
+                              ) : (
+                                "-"
+                              )}
                             </td>
                           ))}
                           <td className="px-4 py-3 font-medium text-gray-900">
@@ -1178,6 +1746,11 @@ const GroupContributionDashboardModal: React.FC<
                             ? tableTotals.unitsTotal
                             : "-"}
                         </td>
+                        {selectedType === "all" && (
+                          <td className="px-4 py-3 text-gray-500 text-sm">
+                            -
+                          </td>
+                        )}
                         {tableTotals.monthTotals.map((total, index) => (
                           <td
                             key={`total-${MONTHS[index].value}`}
@@ -1220,3 +1793,7 @@ const GroupContributionDashboardModal: React.FC<
 };
 
 export default GroupContributionDashboardModal;
+
+/*
+
+*/

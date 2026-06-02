@@ -500,6 +500,21 @@ export default function PaymentModal({
   };
 
   const selectedPaymentType = paymentTypes.find((t) => t.value === paymentType);
+  const contributionAmountConfig = getContributionTypeConfig(contributionType);
+  const amountInputMin =
+    paymentType === "group_contribution"
+      ? String(contributionAmountConfig?.minAmount ?? 1000)
+      : paymentType === "loan_repayment"
+        ? "0.01"
+        : "100";
+  const amountInputStep =
+    paymentType === "group_contribution"
+      ? String(
+          contributionAmountConfig?.stepAmount ??
+            contributionAmountConfig?.unitAmount ??
+            1000,
+        )
+      : "0.01";
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -719,8 +734,8 @@ export default function PaymentModal({
                   setAmount(e.target.value);
                   setAmountTouched(true);
                 }}
-                min={paymentType === "loan_repayment" ? "0.01" : "100"}
-                step="0.01"
+                min={amountInputMin}
+                step={amountInputStep}
                 className="font-semibold text-lg"
                 disabled={isBulk}
               />

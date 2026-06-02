@@ -4,9 +4,10 @@ import {
   CheckCircle2,
   Clock3,
   Download,
-  Eye,
   FileText,
   Loader2,
+  MoreVertical,
+  Pencil,
   Search,
   XCircle,
 } from "lucide-react";
@@ -54,25 +55,25 @@ import { useToast } from "@/hooks/use-toast";
 import {
   downloadAdminFormPaymentsExport,
   type AdminFormPayment,
+  type AdminFormPaymentFilterType,
   type AdminFormPaymentSort,
   type AdminFormPaymentStatus,
-  type AdminFormPaymentType,
 } from "@/lib/adminFormPayments";
 import { cn } from "@/lib/utils";
 
 type FilterValue<T extends string> = T | "all";
 
 const FORM_TYPE_OPTIONS: Array<{
-  value: FilterValue<AdminFormPaymentType>;
+  value: FilterValue<AdminFormPaymentFilterType>;
   label: string;
 }> = [
   { value: "all", label: "All form types" },
   { value: "membership_registration", label: "Membership Registration" },
   { value: "revolving_loan", label: "Revolving Loan" },
-  { value: "bridging_loan", label: "BSS Bridging Loan" },
-  { value: "soft_loan", label: "BSS Soft Loan" },
-  { value: "special_loan", label: "BSS Special Loan" },
+  { value: "bss_loan", label: "BSS Loan Form" },
 ];
+
+const DEFAULT_PAYMENT_STATUS: FilterValue<AdminFormPaymentStatus> = "all";
 
 const STATUS_OPTIONS: Array<{
   value: FilterValue<AdminFormPaymentStatus>;
@@ -104,6 +105,21 @@ const currencyFormatter = new Intl.NumberFormat("en-NG", {
   currency: "NGN",
   maximumFractionDigits: 0,
 });
+
+function formatDateInputValue(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getCurrentYearDateRange() {
+  const today = new Date();
+  return {
+    from: `${today.getFullYear()}-01-01`,
+    to: formatDateInputValue(today),
+  };
+}
 
 function formatCurrency(value?: number | null) {
   const safe = Number(value ?? 0);
@@ -161,10 +177,30 @@ function statusBadge(status: AdminFormPaymentStatus) {
 }
 
 function formTypeLabel(value?: string | null) {
+  if (
+    value === "bridging_loan" ||
+    value === "soft_loan" ||
+    value === "special_loan"
+  ) {
+    return "BSS Loan Form";
+  }
+
   return (
     FORM_TYPE_OPTIONS.find((option) => option.value === value)?.label ||
     "Form Payment"
   );
+}
+
+function displayFormLabel(payment: Pick<AdminFormPayment, "formType" | "formLabel">) {
+  if (
+    payment.formType === "bridging_loan" ||
+    payment.formType === "soft_loan" ||
+    payment.formType === "special_loan"
+  ) {
+    return "BSS Loan Form";
+  }
+
+  return payment.formLabel || formTypeLabel(payment.formType);
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -261,15 +297,16 @@ function StatCard({
 
 export default function FormPaymentTracker() {
   const { toast } = useToast();
+  const [defaultDateRange] = useState(() => getCurrentYearDateRange());
   const [searchInput, setSearchInput] = useState("");
   const deferredSearch = useDeferredValue(searchInput.trim());
   const [formType, setFormType] =
-    useState<FilterValue<AdminFormPaymentType>>("all");
+    useState<FilterValue<AdminFormPaymentFilterType>>("all");
   const [paymentStatus, setPaymentStatus] =
-    useState<FilterValue<AdminFormPaymentStatus>>("all");
+    useState<FilterValue<AdminFormPaymentStatus>>(DEFAULT_PAYMENT_STATUS);
   const [groupId, setGroupId] = useState("all");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromDate, setFromDate] = useState(defaultDateRange.from);
+  const [toDate, setToDate] = useState(defaultDateRange.to);
   const [sortBy, setSortBy] =
     useState<AdminFormPaymentSort>("submitted_desc");
   const [page, setPage] = useState(1);
@@ -328,10 +365,10 @@ export default function FormPaymentTracker() {
   const hasActiveFilters =
     Boolean(deferredSearch) ||
     formType !== "all" ||
-    paymentStatus !== "all" ||
+    paymentStatus !== DEFAULT_PAYMENT_STATUS ||
     groupId !== "all" ||
-    Boolean(fromDate) ||
-    Boolean(toDate) ||
+    fromDate !== defaultDateRange.from ||
+    toDate !== defaultDateRange.to ||
     sortBy !== "submitted_desc";
 
   const detail = useMemo(
@@ -347,10 +384,10 @@ export default function FormPaymentTracker() {
   const resetFilters = () => {
     setSearchInput("");
     setFormType("all");
-    setPaymentStatus("all");
+    setPaymentStatus(DEFAULT_PAYMENT_STATUS);
     setGroupId("all");
-    setFromDate("");
-    setToDate("");
+    setFromDate(defaultDateRange.from);
+    setToDate(defaultDateRange.to);
     setSortBy("submitted_desc");
     setPage(1);
   };
@@ -420,6 +457,51 @@ export default function FormPaymentTracker() {
     setSelectedPayment(null);
   };
 
+  const updatePaymentStatus = (
+    payment: AdminFormPayment,
+    nextStatus: AdminFormPaymentStatus,
+  ) => {
+    if (payment.paymentStatus === nextStatus) {
+      toast({
+        title: "No change needed",
+        description: `${displayFormLabel(payment)} is already ${
+          nextStatus === "pending" ? "unpaid" : nextStatus
+        }.`,
+      });
+      return;
+    }
+
+    updateMutation.mutate(
+      {
+        paymentId: payment.id,
+        payload: { paymentStatus: nextStatus },
+      },
+      {
+        onSuccess: (updatedPayment) => {
+          toast({
+            title:
+              nextStatus === "paid"
+                ? "Form payment marked paid"
+                : "Form payment marked unpaid",
+            description: `${displayFormLabel(updatedPayment)} is now ${
+              nextStatus === "pending" ? "unpaid" : nextStatus
+            }.`,
+          });
+        },
+        onError: (error) => {
+          toast({
+            title: "Update failed",
+            description:
+              error instanceof Error
+                ? error.message
+                : "Unable to update form payment.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  };
+
   const saveReview = (statusOverride?: AdminFormPaymentStatus) => {
     if (!activePayment) return;
     const nextStatus = statusOverride || reviewStatus;
@@ -435,7 +517,7 @@ export default function FormPaymentTracker() {
         onSuccess: (payment) => {
           toast({
             title: "Form payment updated",
-            description: `${payment.formLabel} is now ${payment.paymentStatus}.`,
+            description: `${displayFormLabel(payment)} is now ${payment.paymentStatus}.`,
           });
           setSelectedPayment(payment);
         },
@@ -476,7 +558,7 @@ export default function FormPaymentTracker() {
             <div className="mt-3 grid gap-2 text-emerald-50">
               <span>Membership Registration: {formatCurrency(2000)}</span>
               <span>Revolving Loan: {formatCurrency(1000)}</span>
-              <span>BSS Loan Forms: {formatCurrency(2000)}</span>
+              <span>BSS Loan Form: {formatCurrency(2000)}</span>
             </div>
           </div>
         </div>
@@ -526,7 +608,12 @@ export default function FormPaymentTracker() {
             allLabel="All groups"
             placeholder="Filter group"
           />
-          <Select value={formType} onValueChange={(value) => setFormType(value as FilterValue<AdminFormPaymentType>)}>
+          <Select
+            value={formType}
+            onValueChange={(value) =>
+              setFormType(value as FilterValue<AdminFormPaymentFilterType>)
+            }
+          >
             <SelectTrigger>
               <SelectValue placeholder="Form type" />
             </SelectTrigger>
@@ -585,7 +672,11 @@ export default function FormPaymentTracker() {
           <span>
             {paymentsQuery.isFetching
               ? "Refreshing form payment records..."
-              : `${meta?.total ?? 0} records found`}
+              : `${meta?.total ?? 0} ${
+                  paymentStatus === "defaulted" ? "defaulted records" : "records"
+                } found from ${formatPlainDate(fromDate)} to ${formatPlainDate(
+                  toDate,
+                )}`}
           </span>
           <div className="flex items-center gap-2">
             {paymentsQuery.isFetching && (
@@ -668,7 +759,23 @@ export default function FormPaymentTracker() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {paymentsQuery.isLoading ? (
+              {paymentsQuery.isError ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="py-12 text-center">
+                    <div className="mx-auto max-w-md">
+                      <AlertTriangle className="mx-auto h-10 w-10 text-red-300" />
+                      <h4 className="mt-3 font-medium text-gray-900">
+                        Unable to load form payments
+                      </h4>
+                      <p className="mt-1 text-sm text-gray-500">
+                        {paymentsQuery.error instanceof Error
+                          ? paymentsQuery.error.message
+                          : "Please refresh and try again."}
+                      </p>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : paymentsQuery.isLoading ? (
                 <TableRow>
                   <TableCell colSpan={7} className="py-12 text-center">
                     <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
@@ -729,7 +836,7 @@ export default function FormPaymentTracker() {
                     </TableCell>
                     <TableCell>
                       <div className="font-medium text-gray-900">
-                        {payment.formLabel}
+                        {displayFormLabel(payment)}
                       </div>
                       <div className="text-xs text-gray-500">
                         {formTypeLabel(payment.formType)}
@@ -748,16 +855,42 @@ export default function FormPaymentTracker() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="gap-2"
-                        onClick={() => openReview(payment)}
-                      >
-                        <Eye className="h-4 w-4" />
-                        Review
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label={`Open actions for ${payment.memberName || "form payment"}`}
+                            disabled={updateMutation.isPending}
+                          >
+                            <MoreVertical className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem onClick={() => openReview(payment)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => updatePaymentStatus(payment, "paid")}
+                            disabled={payment.paymentStatus === "paid"}
+                          >
+                            <CheckCircle2 className="mr-2 h-4 w-4" />
+                            Mark Paid
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              updatePaymentStatus(payment, "pending")
+                            }
+                            disabled={payment.paymentStatus === "pending"}
+                          >
+                            <Clock3 className="mr-2 h-4 w-4" />
+                            Mark Unpaid
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
                 ))
@@ -823,7 +956,7 @@ export default function FormPaymentTracker() {
                           {formTypeLabel(activePayment.formType)}
                         </p>
                         <h3 className="mt-1 text-xl font-bold text-gray-900">
-                          {activePayment.formLabel}
+                          {displayFormLabel(activePayment)}
                         </h3>
                         <p className="mt-1 text-sm text-gray-500">
                           Reference: {activePayment.sourceReference || "-"}

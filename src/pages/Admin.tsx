@@ -248,7 +248,7 @@ export default function Admin() {
   const [groupSearchQuery, setGroupSearchQuery] = useState("");
   const [groupCategory, setGroupCategory] = useState("All Categories");
   const [groupLocation, setGroupLocation] = useState("All Locations");
-  const [groupSortBy, setGroupSortBy] = useState("popular");
+  const [groupSortBy, setGroupSortBy] = useState("groupNumber");
   const [groupPage, setGroupPage] = useState(1);
   const groupPageSize = 10;
   const [coordinatorPage, setCoordinatorPage] = useState(1);
@@ -697,12 +697,15 @@ export default function Admin() {
 
   const formatCompactNaira = (amount: number) => {
     const n = Number(amount || 0);
-    if (!Number.isFinite(n)) return "?0";
+    const naira = "\u20A6";
+    if (!Number.isFinite(n)) return `${naira}0`;
     const abs = Math.abs(n);
-    if (abs >= 1_000_000_000) return `?${(n / 1_000_000_000).toFixed(1)}B`;
-    if (abs >= 1_000_000) return `?${(n / 1_000_000).toFixed(1)}M`;
-    if (abs >= 1_000) return `?${(n / 1_000).toFixed(1)}K`;
-    return `?${Math.round(n).toLocaleString()}`;
+    if (abs >= 1_000_000_000)
+      return `${naira}${(n / 1_000_000_000).toFixed(1)}B`;
+    if (abs >= 1_000_000)
+      return `${naira}${(n / 1_000_000).toFixed(1)}M`;
+    if (abs >= 1_000) return `${naira}${(n / 1_000).toFixed(1)}K`;
+    return `${naira}${Math.round(n).toLocaleString()}`;
   };
 
   const stats = useMemo(() => {
@@ -732,12 +735,15 @@ export default function Admin() {
           );
 
     const ytdContributionTotals = groupSummary?.contributionTypeTotalsYtd;
-    const ytdContributions = ytdContributionTotals
-      ? Object.values(ytdContributionTotals).reduce(
-          (sum, value) => sum + Number(value || 0),
-          0,
-        )
-      : null;
+    const ytdContributions =
+      typeof groupSummary?.totalContributionsYtd === "number"
+        ? groupSummary.totalContributionsYtd
+        : ytdContributionTotals
+          ? Object.values(ytdContributionTotals).reduce(
+              (sum, value) => sum + Number(value || 0),
+              0,
+            )
+          : null;
     const totalContributions =
       ytdContributions !== null
         ? ytdContributions
@@ -778,6 +784,8 @@ export default function Admin() {
     loanApplications,
     groupSummary?.totalMembers,
     groupSummary?.totalCollected,
+    groupSummary?.totalContributionsYtd,
+    groupSummary?.contributionTypeTotalsYtd,
     manageableGroups,
     upcomingMeetingsQuery.data,
     recentCompletedMeetingsQuery.data,
@@ -1824,7 +1832,7 @@ export default function Admin() {
                     </div>
                     <div>
                       <p className="font-bold text-gray-900 text-2xl">
-                        {formatCompactNaira(groupSummary?.totalCollected ?? 0)}
+                        {formatCompactNaira(stats.totalContributions)}
                       </p>
                       <p className="text-gray-500 text-sm">
                         Total Contributions

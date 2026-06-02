@@ -16,6 +16,7 @@ interface GroupFiltersProps {
 }
 
 const sortOptions = [
+  { value: 'groupNumber', label: 'Group Number' },
   { value: 'popular', label: 'Most Popular' },
   { value: 'newest', label: 'Newest First' },
   { value: 'savings', label: 'Highest Savings' },

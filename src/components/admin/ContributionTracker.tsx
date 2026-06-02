@@ -62,7 +62,6 @@ import { useMarkContributionPaidMutation } from "@/hooks/admin/useMarkContributi
 import {
   downloadContributionTrackerExport,
   listContributionTrackerEntries,
-  markContributionUnpaid,
   sendContributionReminders,
   updateTrackedContribution,
   type AdminContributionTrackerEntry,
@@ -88,6 +87,8 @@ interface ContributionRecord {
   groupName: string;
   expectedAmount: number;
   paidAmount: number;
+  expectedUnits?: number;
+  paidUnits?: number;
   dueDate: string | null;
   status: "paid" | "partial" | "pending" | "defaulted";
   monthsDefaulted: number;
@@ -166,10 +167,10 @@ const SORT_OPTIONS: Array<{
   { value: "member_name_desc", label: "Member Name (Z-A)" },
   { value: "group_name_asc", label: "Group (A-Z)" },
   { value: "group_name_desc", label: "Group (Z-A)" },
-  { value: "expected_desc", label: "Expected (High-Low)" },
-  { value: "expected_asc", label: "Expected (Low-High)" },
-  { value: "paid_desc", label: "Paid (High-Low)" },
-  { value: "paid_asc", label: "Paid (Low-High)" },
+  { value: "expected_desc", label: "Expected Units (High-Low)" },
+  { value: "expected_asc", label: "Expected Units (Low-High)" },
+  { value: "paid_desc", label: "Paid Units (High-Low)" },
+  { value: "paid_asc", label: "Paid Units (Low-High)" },
   { value: "status", label: "Status" },
   { value: "defaulted_desc", label: "Most Defaulted" },
 ];
@@ -267,6 +268,42 @@ const sortContributionRecords = (
   return next;
 };
 
+const formatUnitNumber = (value: number) => {
+  const safe = Number(value);
+  if (!Number.isFinite(safe) || safe <= 0) return "0";
+  return new Intl.NumberFormat("en-NG", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: Number.isInteger(safe) ? 0 : 2,
+  }).format(safe);
+};
+
+const amountToUnitNumber = (amount: number) =>
+  calculateContributionUnits(Number(amount || 0));
+
+const formatContributionUnits = (amount: number) =>
+  formatUnitNumber(amountToUnitNumber(amount));
+
+const formatContributionUnitDelta = (amount: number) => {
+  const units = Number(amount || 0) / 1000;
+  if (!Number.isFinite(units) || units === 0) return "0";
+  const sign = units > 0 ? "+" : "-";
+  return `${sign}${formatUnitNumber(Math.abs(units))}`;
+};
+
+const getRecordExpectedUnits = (record: ContributionRecord) => {
+  const explicit = Number(record.expectedUnits);
+  return Number.isFinite(explicit)
+    ? explicit
+    : amountToUnitNumber(record.expectedAmount);
+};
+
+const getRecordPaidUnits = (record: ContributionRecord) => {
+  const explicit = Number(record.paidUnits);
+  return Number.isFinite(explicit)
+    ? explicit
+    : amountToUnitNumber(record.paidAmount);
+};
+
 const getDefaultManualAmount = (
   record: ContributionRecord,
   contributionType: ContributionTypeCanonical,
@@ -279,7 +316,7 @@ const getDefaultManualAmount = (
   if (remaining > 0) return remaining;
   return Math.max(
     Number(record.expectedAmount || 0),
-    Number(typeConfig?.minAmount || 5000),
+    Number(typeConfig?.minAmount || 1000),
   );
 };
 
@@ -352,15 +389,11 @@ export default function ContributionTracker({
   const [editContributionOpen, setEditContributionOpen] = useState(false);
   const [confirmContributionEditOpen, setConfirmContributionEditOpen] =
     useState(false);
-  const [markUnpaidOpen, setMarkUnpaidOpen] = useState(false);
-  const [confirmMarkUnpaidOpen, setConfirmMarkUnpaidOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] =
     useState<ContributionRecord | null>(null);
   const [selectedEditEntryId, setSelectedEditEntryId] = useState<string | null>(
     null,
   );
-  const [markUnpaidConfirmation, setMarkUnpaidConfirmation] = useState("");
-  const [markUnpaidReason, setMarkUnpaidReason] = useState("");
   const [manualPaymentForm, setManualPaymentForm] =
     useState<ManualPaymentFormState>({
       amount: "",
@@ -510,7 +543,7 @@ export default function ContributionTracker({
       selectedRecordPeriod.year,
       selectedRecordPeriod.month,
     ],
-    enabled: (editContributionOpen || markUnpaidOpen) && !!selectedRecord,
+    enabled: editContributionOpen && !!selectedRecord,
     queryFn: async () =>
       listContributionTrackerEntries({
         userId: String(selectedRecord?.userId || ""),
@@ -535,50 +568,6 @@ export default function ContributionTracker({
         notes?: string;
       };
     }) => updateTrackedContribution(contributionId, payload),
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: ["admin", "contributions", "tracker"],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["group-contributions"],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["admin", "groups"],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["admin", "financial-reports"],
-        }),
-        queryClient.invalidateQueries({
-          queryKey: ["transactions", "me"],
-        }),
-      ]);
-    },
-  });
-  const markUnpaidMutation = useMutation({
-    mutationFn: ({
-      userId,
-      groupId,
-      month,
-      year,
-      contributionType: selectedType,
-      reason,
-    }: {
-      userId: string;
-      groupId: string;
-      month: number;
-      year: number;
-      contributionType: ContributionTypeCanonical;
-      reason?: string;
-    }) =>
-      markContributionUnpaid({
-        userId,
-        groupId,
-        month,
-        year,
-        contributionType: selectedType,
-        reason,
-      }),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({
@@ -639,7 +628,7 @@ export default function ContributionTracker({
     const recommended = selectedRecord
       ? getDefaultManualAmount(selectedRecord, contributionType)
       : 0;
-    const minimumAmount = Number(contributionTypeConfig?.minAmount || 5000);
+    const minimumAmount = Number(contributionTypeConfig?.minAmount || 1000);
     const stepAmount = Number(
       contributionTypeConfig?.stepAmount ||
         contributionTypeConfig?.unitAmount ||
@@ -752,17 +741,6 @@ export default function ContributionTracker({
         month: "long",
       },
     );
-  const selectedRecordPaidEntryCount = contributionEntries.length;
-  const selectedRecordPaidEntryTotal = contributionEntries.reduce(
-    (sum, entry) => sum + Number(entry.amount || 0),
-    0,
-  );
-  const selectedRecordDeletionAmount =
-    selectedRecordPaidEntryCount > 0
-      ? selectedRecordPaidEntryTotal
-      : Number(selectedRecord?.paidAmount || 0);
-  const canReviewMarkUnpaid =
-    markUnpaidConfirmation.trim().toUpperCase() === "MARK UNPAID";
 
   const handleExport = async (format: "csv" | "xlsx") => {
     if (filteredContributions.length === 0) {
@@ -875,14 +853,6 @@ export default function ContributionTracker({
     });
   };
 
-  const resetMarkUnpaidFlow = () => {
-    setMarkUnpaidOpen(false);
-    setConfirmMarkUnpaidOpen(false);
-    setMarkUnpaidConfirmation("");
-    setMarkUnpaidReason("");
-    setSelectedRecord(null);
-  };
-
   const openReminderModal = (targets: ContributionRecord[]) => {
     if (!canManageActions) return;
     if (targets.length === 0) {
@@ -914,15 +884,6 @@ export default function ContributionTracker({
     setSelectedEditEntryId(null);
     setConfirmContributionEditOpen(false);
     setEditContributionOpen(true);
-  };
-
-  const openMarkUnpaidModal = (record: ContributionRecord) => {
-    if (!canManageActions) return;
-    setSelectedRecord(record);
-    setMarkUnpaidConfirmation("");
-    setMarkUnpaidReason("");
-    setConfirmMarkUnpaidOpen(false);
-    setMarkUnpaidOpen(true);
   };
 
   const buildChannelSummary = (
@@ -1144,83 +1105,6 @@ export default function ContributionTracker({
     }
   };
 
-  const handleReviewMarkUnpaid = () => {
-    if (!selectedRecord) return;
-
-    if (Number(selectedRecord.paidAmount || 0) <= 0) {
-      toast({
-        title: "Nothing to reverse",
-        description:
-          "There is no recorded contribution in this period to mark as unpaid.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!canReviewMarkUnpaid) {
-      toast({
-        title: "Confirmation required",
-        description:
-          "Type MARK UNPAID exactly to continue with this destructive action.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    setConfirmMarkUnpaidOpen(true);
-  };
-
-  const handleConfirmMarkUnpaid = async () => {
-    if (!selectedRecord) return;
-
-    const targetPeriod = parseRecordPeriod(selectedRecord, year, month);
-
-    try {
-      const result = await markUnpaidMutation.mutateAsync({
-        userId: selectedRecord.userId,
-        groupId: selectedRecord.groupId,
-        month: targetPeriod.month,
-        year: targetPeriod.year,
-        contributionType,
-        reason: markUnpaidReason.trim() || undefined,
-      });
-
-      const segments = [
-        `${result.deletedContributions} entr${result.deletedContributions === 1 ? "y" : "ies"} removed`,
-        `${formatNaira(result.countedAmount || result.deletedAmount || 0)} reversed`,
-      ];
-
-      if (result.deletedTransactions > 0) {
-        segments.push(
-          `${result.deletedTransactions} transaction${result.deletedTransactions === 1 ? "" : "s"} deleted`,
-        );
-      }
-      if (result.updatedTransactions > 0) {
-        segments.push(
-          `${result.updatedTransactions} transaction${result.updatedTransactions === 1 ? "" : "s"} adjusted`,
-        );
-      }
-      if (result.auditTransaction?.reference) {
-        segments.push(`Audit ref: ${result.auditTransaction.reference}`);
-      }
-
-      toast({
-        title: "Contribution period marked as unpaid",
-        description: segments.join(" | "),
-      });
-      resetMarkUnpaidFlow();
-    } catch (error) {
-      toast({
-        title: "Unable to mark unpaid",
-        description:
-          error instanceof Error
-            ? error.message
-            : "The contribution records could not be reversed.",
-        variant: "destructive",
-      });
-    }
-  };
-
   return (
     <div className="space-y-4">
       <div className="gap-4 grid grid-cols-1 md:grid-cols-4">
@@ -1244,18 +1128,18 @@ export default function ContributionTracker({
         <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
           <p className="text-gray-500 text-sm">
             {contributionType === "special"
-              ? "Monthly Benchmark"
-              : "Total Expected"}
+              ? "Monthly Benchmark Units"
+              : "Total Expected Units"}
           </p>
           <p className="font-bold text-gray-900 text-2xl">
-            {formatNaira(totalExpected)}
+            {formatContributionUnits(totalExpected)}
           </p>
         </div>
 
         <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
-          <p className="text-gray-500 text-sm">Total Collected</p>
+          <p className="text-gray-500 text-sm">Total Collected Units</p>
           <p className="font-bold text-emerald-600 text-2xl">
-            {formatNaira(totalPaid)}
+            {formatContributionUnits(totalPaid)}
           </p>
         </div>
 
@@ -1463,10 +1347,10 @@ export default function ContributionTracker({
                   Group
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
-                  Expected
+                  Expected Units
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
-                  Paid
+                  Paid Units
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Due Date
@@ -1511,7 +1395,7 @@ export default function ContributionTracker({
                     {record.groupName}
                   </td>
                   <td className="px-4 py-3 font-medium text-sm">
-                    {formatNaira(record.expectedAmount)}
+                    {formatUnitNumber(getRecordExpectedUnits(record))}
                   </td>
                   <td className="px-4 py-3 text-sm">
                     <span
@@ -1521,7 +1405,7 @@ export default function ContributionTracker({
                           : "text-amber-600"
                       }
                     >
-                      {formatNaira(record.paidAmount)}
+                      {formatUnitNumber(getRecordPaidUnits(record))}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-gray-600 text-sm">
@@ -1573,13 +1457,6 @@ export default function ContributionTracker({
                             onClick={() => openManualPaymentModal(record)}
                           >
                             Mark Paid
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => openMarkUnpaidModal(record)}
-                            disabled={record.paidAmount <= 0}
-                            className="text-rose-600 focus:text-rose-700"
-                          >
-                            Mark Unpaid
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -1769,10 +1646,10 @@ export default function ContributionTracker({
                 </div>
                 <div>
                   <p className="font-medium text-amber-700 text-xs uppercase tracking-wide">
-                    Period Total
+                    Period Units
                   </p>
                   <p className="mt-1 font-semibold text-gray-900">
-                    {formatNaira(selectedRecord.paidAmount)}
+                    {formatContributionUnits(selectedRecord.paidAmount)}
                   </p>
                 </div>
               </div>
@@ -1815,7 +1692,7 @@ export default function ContributionTracker({
                             <div className="flex justify-between items-start gap-3">
                               <div>
                                 <p className="font-semibold text-gray-900">
-                                  {formatNaira(entry.amount)}
+                                  {formatContributionUnits(entry.amount)}
                                 </p>
                                 <p className="text-gray-500 text-xs">
                                   {monthOptions[entry.month - 1]} {entry.year}
@@ -1867,7 +1744,7 @@ export default function ContributionTracker({
                       <div className="gap-4 grid md:grid-cols-2">
                         <div className="space-y-2">
                           <Label htmlFor="edit-contribution-amount">
-                            Amount
+                            Amount (NGN)
                           </Label>
                           <Input
                             id="edit-contribution-amount"
@@ -1895,6 +1772,10 @@ export default function ContributionTracker({
                               {editValidation.message}
                             </p>
                           )}
+                          <p className="text-gray-500 text-xs">
+                            Enter the actual amount. It must be a positive
+                            multiple of NGN 1,000.
+                          </p>
                         </div>
 
                         <div className="space-y-2">
@@ -2014,29 +1895,29 @@ export default function ContributionTracker({
                             Edit Preview
                           </h4>
                           <Badge className="bg-blue-100 text-blue-700">
-                            Delta{" "}
+                            Unit Delta{" "}
                             {Number.isFinite(editAmountDelta)
-                              ? formatNaira(editAmountDelta)
-                              : formatNaira(0)}
+                              ? formatContributionUnitDelta(editAmountDelta)
+                              : "0"}
                           </Badge>
                         </div>
                         <div className="gap-3 grid md:grid-cols-2 text-sm">
                           <div className="flex justify-between items-center">
                             <span className="text-gray-500">
-                              Current amount
+                              Current units
                             </span>
                             <span className="font-medium text-gray-900">
-                              {formatNaira(editPreviousAmount)}
+                              {formatContributionUnits(editPreviousAmount)}
                             </span>
                           </div>
                           <div className="flex justify-between items-center">
                             <span className="text-gray-500">
-                              Updated amount
+                              Updated units
                             </span>
                             <span className="font-medium text-gray-900">
                               {Number.isFinite(editAmount)
-                                ? formatNaira(editAmount)
-                                : formatNaira(0)}
+                                ? formatContributionUnits(editAmount)
+                                : "0"}
                             </span>
                           </div>
                           <div className="flex justify-between items-center">
@@ -2102,7 +1983,7 @@ export default function ContributionTracker({
             <AlertDialogTitle>Confirm Contribution Update</AlertDialogTitle>
             <AlertDialogDescription>
               This will update the contribution entry, reconcile the linked
-              transaction, and adjust member/group totals by the amount delta.
+              transaction, and adjust member/group totals by the unit delta.
             </AlertDialogDescription>
           </AlertDialogHeader>
 
@@ -2121,23 +2002,25 @@ export default function ContributionTracker({
                 </span>
               </div>
               <div className="flex justify-between items-center gap-4">
-                <span className="text-gray-500">Existing amount</span>
+                <span className="text-gray-500">Existing units</span>
                 <span className="font-medium text-gray-900 text-right">
-                  {formatNaira(editPreviousAmount)}
+                  {formatContributionUnits(editPreviousAmount)}
                 </span>
               </div>
               <div className="flex justify-between items-center gap-4">
-                <span className="text-gray-500">Updated amount</span>
+                <span className="text-gray-500">Updated units</span>
                 <span className="font-semibold text-gray-900 text-right">
-                  {formatNaira(Number.isFinite(editAmount) ? editAmount : 0)}
+                  {Number.isFinite(editAmount)
+                    ? formatContributionUnits(editAmount)
+                    : "0"}
                 </span>
               </div>
               <div className="flex justify-between items-center gap-4">
-                <span className="text-gray-500">Amount delta</span>
+                <span className="text-gray-500">Unit delta</span>
                 <span className="font-medium text-gray-900 text-right">
-                  {formatNaira(
-                    Number.isFinite(editAmountDelta) ? editAmountDelta : 0,
-                  )}
+                  {Number.isFinite(editAmountDelta)
+                    ? formatContributionUnitDelta(editAmountDelta)
+                    : "0"}
                 </span>
               </div>
               <div className="flex justify-between items-center gap-4">
@@ -2238,7 +2121,7 @@ export default function ContributionTracker({
 
               <div className="gap-4 grid md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="manual-payment-amount">Amount</Label>
+                  <Label htmlFor="manual-payment-amount">Amount (NGN)</Label>
                   <Input
                     id="manual-payment-amount"
                     type="number"
@@ -2291,6 +2174,10 @@ export default function ContributionTracker({
                       {contributionTypeConfig.description}
                     </p>
                   )}
+                  <p className="text-gray-500 text-xs">
+                    Enter the actual amount received. It must be a positive
+                    multiple of NGN 1,000.
+                  </p>
                 </div>
 
                 <div className="space-y-2">
@@ -2416,29 +2303,29 @@ export default function ContributionTracker({
                 </div>
                 <div className="gap-3 grid md:grid-cols-2 text-sm">
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Expected this month</span>
+                    <span className="text-gray-500">Expected units</span>
                     <span className="font-medium text-gray-900">
-                      {formatNaira(expectedAmount)}
+                      {formatContributionUnits(expectedAmount)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Already recorded</span>
+                    <span className="text-gray-500">Recorded units</span>
                     <span className="font-medium text-gray-900">
-                      {formatNaira(alreadyPaidAmount)}
+                      {formatContributionUnits(alreadyPaidAmount)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Posting now</span>
+                    <span className="text-gray-500">Posting units</span>
                     <span className="font-medium text-gray-900">
                       {Number.isFinite(manualAmount)
-                        ? formatNaira(manualAmount)
-                        : formatNaira(0)}
+                        ? formatContributionUnits(manualAmount)
+                        : "0"}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Total after posting</span>
+                    <span className="text-gray-500">Total units after posting</span>
                     <span className="font-medium text-gray-900">
-                      {formatNaira(totalAfterPayment)}
+                      {formatContributionUnits(totalAfterPayment)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
@@ -2455,16 +2342,16 @@ export default function ContributionTracker({
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-gray-500">
-                      Remaining after posting
+                      Remaining units after posting
                     </span>
                     <span className="font-medium text-gray-900">
-                      {formatNaira(remainingAfterPayment)}
+                      {formatContributionUnits(remainingAfterPayment)}
                     </span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-gray-500">Excess above expected</span>
+                    <span className="text-gray-500">Excess units above expected</span>
                     <span className="font-medium text-gray-900">
-                      {formatNaira(excessAfterPayment)}
+                      {formatContributionUnits(excessAfterPayment)}
                     </span>
                   </div>
                 </div>
@@ -2527,7 +2414,7 @@ export default function ContributionTracker({
                 </span>
               </div>
               <div className="flex justify-between items-center gap-4">
-                <span className="text-gray-500">Amount to post</span>
+                <span className="text-gray-500">Payment amount (NGN)</span>
                 <span className="font-semibold text-gray-900 text-right">
                   {formatNaira(
                     Number.isFinite(manualAmount) ? manualAmount : 0,
@@ -2570,251 +2457,6 @@ export default function ContributionTracker({
                 </>
               ) : (
                 "Confirm and Post Payment"
-              )}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog
-        open={markUnpaidOpen}
-        onOpenChange={(open) => {
-          if (!open) {
-            resetMarkUnpaidFlow();
-            return;
-          }
-          setMarkUnpaidOpen(true);
-        }}
-      >
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle className="text-rose-700">
-              Mark Contribution Period as Unpaid
-            </DialogTitle>
-            <DialogDescription>
-              This will reverse the selected paid or partial contribution period
-              back to unpaid. Related contribution entries will be removed,
-              member and group balances will be adjusted, linked transactions
-              will be reconciled, and a reversal audit record will be written.
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedRecord && (
-            <div className="space-y-5">
-              <div className="rounded-xl border border-rose-200 bg-rose-50 p-4">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600" />
-                  <div className="space-y-1 text-sm">
-                    <p className="font-semibold text-rose-700">
-                      Warning: this action rolls back recorded financial activity.
-                    </p>
-                    <p className="text-rose-700/90">
-                      Use this only when the contribution for this member and
-                      period was posted in error and must be professionally
-                      reversed.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-3 rounded-xl border border-gray-200 bg-gray-50 p-4 md:grid-cols-2">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Member
-                  </p>
-                  <p className="mt-1 font-semibold text-gray-900">
-                    {selectedRecord.memberName}
-                  </p>
-                  {selectedRecord.memberSerial && (
-                    <p className="text-xs text-gray-500">
-                      {selectedRecord.memberSerial}
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Group
-                  </p>
-                  <p className="mt-1 font-semibold text-gray-900">
-                    {selectedRecord.groupName}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Contribution Type
-                  </p>
-                  <p className="mt-1 font-semibold text-gray-900">
-                    {getContributionTypeLabel(contributionType)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Contribution Period
-                  </p>
-                  <p className="mt-1 font-semibold text-gray-900">
-                    {monthOptions[selectedRecordPeriod.month - 1]}{" "}
-                    {selectedRecordPeriod.year}
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-3 rounded-xl border border-gray-200 bg-white p-4 md:grid-cols-3">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Posted Entries
-                  </p>
-                  <p className="mt-1 font-semibold text-gray-900">
-                    {trackerEntriesQuery.isFetching &&
-                    selectedRecordPaidEntryCount === 0
-                      ? "Loading..."
-                      : selectedRecordPaidEntryCount.toLocaleString()}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Amount to Reverse
-                  </p>
-                  <p className="mt-1 font-semibold text-gray-900">
-                    {formatNaira(selectedRecordDeletionAmount)}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">
-                    Current Paid Total
-                  </p>
-                  <p className="mt-1 font-semibold text-gray-900">
-                    {formatNaira(Number(selectedRecord.paidAmount || 0))}
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="mark-unpaid-reason">Reason</Label>
-                <Textarea
-                  id="mark-unpaid-reason"
-                  rows={3}
-                  value={markUnpaidReason}
-                  onChange={(event) => setMarkUnpaidReason(event.target.value)}
-                  placeholder="Optional note explaining why this contribution period is being reversed"
-                />
-                <p className="text-xs text-gray-500">
-                  This note will be attached to the reversal audit record.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="mark-unpaid-confirmation">
-                  Type <span className="font-semibold">MARK UNPAID</span> to
-                  continue
-                </Label>
-                <Input
-                  id="mark-unpaid-confirmation"
-                  value={markUnpaidConfirmation}
-                  onChange={(event) =>
-                    setMarkUnpaidConfirmation(event.target.value)
-                  }
-                  placeholder="MARK UNPAID"
-                  autoComplete="off"
-                />
-              </div>
-
-              <DialogFooter className="gap-2 sm:gap-0">
-                <Button variant="outline" onClick={resetMarkUnpaidFlow}>
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={handleReviewMarkUnpaid}
-                  disabled={markUnpaidMutation.isPending}
-                >
-                  Review Reversal
-                </Button>
-              </DialogFooter>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={confirmMarkUnpaidOpen}
-        onOpenChange={setConfirmMarkUnpaidOpen}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-rose-700">
-              Confirm Contribution Reversal
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently remove the posted contribution records for
-              the selected period and write a reversal audit trail.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-
-          {selectedRecord && (
-            <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-rose-700">Member</span>
-                <span className="text-right font-medium text-gray-900">
-                  {selectedRecord.memberName}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-rose-700">Contribution type</span>
-                <span className="text-right font-medium text-gray-900">
-                  {getContributionTypeLabel(contributionType)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-rose-700">Contribution period</span>
-                <span className="text-right font-medium text-gray-900">
-                  {monthOptions[selectedRecordPeriod.month - 1]}{" "}
-                  {selectedRecordPeriod.year}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-rose-700">Entries to remove</span>
-                <span className="text-right font-medium text-gray-900">
-                  {selectedRecordPaidEntryCount.toLocaleString()}
-                </span>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-rose-700">Amount to reverse</span>
-                <span className="text-right font-semibold text-gray-900">
-                  {formatNaira(selectedRecordDeletionAmount)}
-                </span>
-              </div>
-              {markUnpaidReason.trim() && (
-                <div className="flex items-start justify-between gap-4">
-                  <span className="text-rose-700">Reason</span>
-                  <span className="text-right font-medium text-gray-900">
-                    {markUnpaidReason.trim()}
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
-
-          <AlertDialogFooter>
-            <AlertDialogCancel asChild>
-              <Button
-                variant="outline"
-                disabled={markUnpaidMutation.isPending}
-              >
-                Back
-              </Button>
-            </AlertDialogCancel>
-            <Button
-              variant="destructive"
-              disabled={markUnpaidMutation.isPending}
-              onClick={() => void handleConfirmMarkUnpaid()}
-            >
-              {markUnpaidMutation.isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Reversing...
-                </>
-              ) : (
-                "Confirm and Mark Unpaid"
               )}
             </Button>
           </AlertDialogFooter>
