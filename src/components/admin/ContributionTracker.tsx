@@ -1281,20 +1281,22 @@ export default function ContributionTracker({
         </div>
 
         <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
-          <p className="text-gray-500 text-sm">
-            {contributionType === "special"
-              ? "Monthly Benchmark Units"
-              : "Total Expected Units"}
-          </p>
+          <p className="text-gray-500 text-sm">Total Expected</p>
           <p className="font-bold text-gray-900 text-2xl">
-            {formatContributionUnits(totalExpected)}
+            {formatNaira(totalExpected)}
+          </p>
+          <p className="mt-1 text-gray-500 text-xs">
+            Units: {formatContributionUnits(totalExpected)}
           </p>
         </div>
 
         <div className="bg-white shadow-sm p-4 border border-gray-100 rounded-xl">
-          <p className="text-gray-500 text-sm">Total Collected Units</p>
+          <p className="text-gray-500 text-sm">Total Collected</p>
           <p className="font-bold text-emerald-600 text-2xl">
-            {formatContributionUnits(totalPaid)}
+            {formatNaira(totalPaid)}
+          </p>
+          <p className="mt-1 text-emerald-600/80 text-xs">
+            Units: {formatContributionUnits(totalPaid)}
           </p>
         </div>
 
@@ -1502,10 +1504,7 @@ export default function ContributionTracker({
                   Group
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
-                  Expected Units
-                </th>
-                <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
-                  Paid Units
+                  Units
                 </th>
                 <th className="px-4 py-3 font-medium text-gray-600 text-sm text-left">
                   Amount Paid
@@ -1527,7 +1526,7 @@ export default function ContributionTracker({
               {pagedContributions.length === 0 && (
                 <tr>
                   <td
-                    colSpan={canManageActions ? 8 : 7}
+                    colSpan={canManageActions ? 7 : 6}
                     className="px-4 py-10 text-gray-500 text-sm text-center"
                   >
                     No contribution records match the current filters.
@@ -1552,19 +1551,25 @@ export default function ContributionTracker({
                   <td className="px-4 py-3 text-gray-600 text-sm">
                     {record.groupName}
                   </td>
-                  <td className="px-4 py-3 font-medium text-sm">
-                    {formatUnitNumber(getRecordExpectedUnits(record))}
-                  </td>
                   <td className="px-4 py-3 text-sm">
-                    <span
-                      className={
-                        record.paidAmount >= record.expectedAmount
-                          ? "text-emerald-600"
-                          : "text-amber-600"
-                      }
-                    >
-                      {formatUnitNumber(getRecordPaidUnits(record))}
-                    </span>
+                    <div className="space-y-1">
+                      <p className="font-medium text-gray-900">
+                        Expected:{" "}
+                        {formatUnitNumber(getRecordExpectedUnits(record))}
+                      </p>
+                      <p
+                        className={
+                          Number(record.paidAmount || 0) > 0
+                            ? "font-medium text-emerald-600"
+                            : "font-medium text-gray-400"
+                        }
+                      >
+                        Paid:{" "}
+                        {Number(record.paidAmount || 0) > 0
+                          ? formatUnitNumber(getRecordPaidUnits(record))
+                          : "-"}
+                      </p>
+                    </div>
                   </td>
                   <td className="px-4 py-3 font-medium text-gray-900 text-sm">
                     {Number(record.paidAmount || 0) > 0
