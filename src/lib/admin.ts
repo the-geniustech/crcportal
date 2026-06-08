@@ -3,6 +3,7 @@ import type {
   ContributionTypeCanonical,
   ContributionTypeValue,
 } from "@/lib/contributionPolicy";
+import type { ContributionSettingsUnits } from "@/lib/contributionSettings";
 
 export type AdminApplicant = {
   id: string;
@@ -68,9 +69,21 @@ export type AdminContributionTrackerRecord = {
   paidAmount: number;
   expectedUnits?: number;
   paidUnits?: number;
+  contributionSettings?: AdminContributionSettings | null;
   dueDate: string | null;
   status: "paid" | "partial" | "pending" | "defaulted";
   monthsDefaulted: number;
+};
+
+export type AdminContributionSettings = {
+  year: number;
+  units: ContributionSettingsUnits;
+  updatedAt?: string | null;
+  canEdit?: boolean;
+  window?: {
+    startMonth: number;
+    endMonth: number;
+  };
 };
 
 export async function listContributionTracker(
@@ -261,6 +274,24 @@ export async function updateTrackedContribution(
   try {
     const res = await api.patch(`/admin/contributions/${contributionId}`, payload);
     return res.data?.data as AdminManualContributionPaymentResult;
+  } catch (err) {
+    throw new Error(getApiErrorMessage(err));
+  }
+}
+
+export type AdminContributionSettingsUpdatePayload = {
+  userId: string;
+  groupId: string;
+  year?: number;
+  units: Partial<ContributionSettingsUnits>;
+};
+
+export async function updateAdminContributionSettings(
+  payload: AdminContributionSettingsUpdatePayload,
+): Promise<AdminContributionSettings> {
+  try {
+    const res = await api.put("/admin/contributions/member-settings", payload);
+    return res.data?.data?.settings as AdminContributionSettings;
   } catch (err) {
     throw new Error(getApiErrorMessage(err));
   }

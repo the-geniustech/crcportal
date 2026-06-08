@@ -64,9 +64,15 @@ import {
   listContributionTrackerEntries,
   markContributionUnpaid,
   sendContributionReminders,
+  updateAdminContributionSettings,
   updateTrackedContribution,
+  type AdminContributionSettings,
   type AdminContributionTrackerEntry,
 } from "@/lib/admin";
+import type {
+  ContributionSettingsUnits,
+  PlannedContributionType,
+} from "@/lib/contributionSettings";
 import {
   ContributionTypeOptions,
   calculateContributionInterestForType,
@@ -90,6 +96,7 @@ interface ContributionRecord {
   paidAmount: number;
   expectedUnits?: number;
   paidUnits?: number;
+  contributionSettings?: AdminContributionSettings | null;
   dueDate: string | null;
   status: "paid" | "partial" | "pending" | "defaulted";
   monthsDefaulted: number;
@@ -146,6 +153,17 @@ type ContributionEditFormState = {
   paymentReference: string;
   notes: string;
 };
+
+type ContributionSettingsFormState = Record<PlannedContributionType, string>;
+
+const PLANNED_CONTRIBUTION_FIELDS: Array<{
+  key: PlannedContributionType;
+  label: string;
+}> = [
+  { key: "revolving", label: "Revolving Units" },
+  { key: "endwell", label: "Endwell Units" },
+  { key: "festive", label: "Festive Units" },
+];
 
 const PAYMENT_METHOD_OPTIONS: Array<{
   value: ManualPaymentMethod;
@@ -350,6 +368,32 @@ const buildContributionEditDraft = (
   notes: entry.notes || "",
 });
 
+const buildContributionSettingsDraft = (
+  record: ContributionRecord,
+): ContributionSettingsFormState => {
+  const units = record.contributionSettings?.units ?? null;
+  return {
+    revolving:
+      units?.revolving === null || units?.revolving === undefined
+        ? ""
+        : String(units.revolving),
+    endwell:
+      units?.endwell === null || units?.endwell === undefined
+        ? ""
+        : String(units.endwell),
+    festive:
+      units?.festive === null || units?.festive === undefined
+        ? ""
+        : String(units.festive),
+  };
+};
+
+const formatContributionSettingsPreview = (rawValue: string) => {
+  const value = Number(rawValue);
+  if (!Number.isInteger(value) || value < 1) return "Uses group default";
+  return `${formatNaira(value * 1000)} monthly`;
+};
+
 export default function ContributionTracker({
   contributions,
   year,
@@ -390,6 +434,8 @@ export default function ContributionTracker({
   const [editContributionOpen, setEditContributionOpen] = useState(false);
   const [confirmContributionEditOpen, setConfirmContributionEditOpen] =
     useState(false);
+  const [contributionSettingsOpen, setContributionSettingsOpen] =
+    useState(false);
   const [markUnpaidOpen, setMarkUnpaidOpen] = useState(false);
   const [confirmMarkUnpaidOpen, setConfirmMarkUnpaidOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] =
@@ -399,6 +445,15 @@ export default function ContributionTracker({
   );
   const [markUnpaidConfirmation, setMarkUnpaidConfirmation] = useState("");
   const [markUnpaidReason, setMarkUnpaidReason] = useState("");
+  const [contributionSettingsForm, setContributionSettingsForm] =
+    useState<ContributionSettingsFormState>({
+      revolving: "",
+      endwell: "",
+      festive: "",
+    });
+  const [contributionSettingsErrors, setContributionSettingsErrors] = useState<
+    Partial<Record<PlannedContributionType, string>>
+  >({});
   const [manualPaymentForm, setManualPaymentForm] =
     useState<ManualPaymentFormState>({
       amount: "",
@@ -536,6 +591,8 @@ export default function ContributionTracker({
   const selectedRecordPeriod = selectedRecord
     ? parseRecordPeriod(selectedRecord, year, month)
     : { year, month };
+  const selectedContributionSettingsYear =
+    selectedRecord?.contributionSettings?.year ?? new Date().getFullYear();
   const trackerEntriesQuery = useQuery({
     queryKey: [
       "admin",
@@ -589,6 +646,38 @@ export default function ContributionTracker({
         }),
         queryClient.invalidateQueries({
           queryKey: ["transactions", "me"],
+        }),
+      ]);
+    },
+  });
+  const updateContributionSettingsMutation = useMutation({
+    mutationFn: ({
+      userId,
+      groupId,
+      selectedYear,
+      units,
+    }: {
+      userId: string;
+      groupId: string;
+      selectedYear: number;
+      units: Partial<ContributionSettingsUnits>;
+    }) =>
+      updateAdminContributionSettings({
+        userId,
+        groupId,
+        year: selectedYear,
+        units,
+      }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "contributions", "tracker"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["group-contributions"],
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["admin", "groups"],
         }),
       ]);
     },
@@ -913,6 +1002,17 @@ export default function ContributionTracker({
     });
   };
 
+  const resetContributionSettingsFlow = () => {
+    setContributionSettingsOpen(false);
+    setSelectedRecord(null);
+    setContributionSettingsErrors({});
+    setContributionSettingsForm({
+      revolving: "",
+      endwell: "",
+      festive: "",
+    });
+  };
+
   const resetMarkUnpaidFlow = () => {
     setMarkUnpaidOpen(false);
     setConfirmMarkUnpaidOpen(false);
@@ -952,6 +1052,14 @@ export default function ContributionTracker({
     setSelectedEditEntryId(null);
     setConfirmContributionEditOpen(false);
     setEditContributionOpen(true);
+  };
+
+  const openContributionSettingsModal = (record: ContributionRecord) => {
+    if (!canManageActions) return;
+    setSelectedRecord(record);
+    setContributionSettingsForm(buildContributionSettingsDraft(record));
+    setContributionSettingsErrors({});
+    setContributionSettingsOpen(true);
   };
 
   const openMarkUnpaidModal = (record: ContributionRecord) => {
@@ -1101,6 +1209,61 @@ export default function ContributionTracker({
           error instanceof Error
             ? error.message
             : "Unable to update this contribution entry.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSaveContributionSettings = async () => {
+    if (!selectedRecord) return;
+
+    const nextErrors: Partial<Record<PlannedContributionType, string>> = {};
+    const payloadUnits: Partial<ContributionSettingsUnits> = {};
+
+    PLANNED_CONTRIBUTION_FIELDS.forEach((field) => {
+      const raw = contributionSettingsForm[field.key]?.trim() ?? "";
+      if (!raw) {
+        payloadUnits[field.key] = null;
+        return;
+      }
+
+      const value = Number(raw);
+      if (!Number.isFinite(value)) {
+        nextErrors[field.key] = "Enter a valid number of units.";
+        return;
+      }
+      if (!Number.isInteger(value) || value < 1) {
+        nextErrors[field.key] = "Units must be a positive whole number.";
+        return;
+      }
+      payloadUnits[field.key] = value;
+    });
+
+    if (Object.keys(nextErrors).length > 0) {
+      setContributionSettingsErrors(nextErrors);
+      return;
+    }
+
+    try {
+      await updateContributionSettingsMutation.mutateAsync({
+        userId: selectedRecord.userId,
+        groupId: selectedRecord.groupId,
+        selectedYear: selectedContributionSettingsYear,
+        units: payloadUnits,
+      });
+
+      toast({
+        title: "Contribution settings updated",
+        description: `${selectedRecord.memberName}'s ${selectedContributionSettingsYear} planned contribution units have been saved.`,
+      });
+      resetContributionSettingsFlow();
+    } catch (error) {
+      toast({
+        title: "Update failed",
+        description:
+          error instanceof Error
+            ? error.message
+            : "Unable to update contribution settings.",
         variant: "destructive",
       });
     }
@@ -1622,6 +1785,11 @@ export default function ContributionTracker({
                             Edit
                           </DropdownMenuItem>
                           <DropdownMenuItem
+                            onClick={() => openContributionSettingsModal(record)}
+                          >
+                            Update Contribution Plan
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
                             onClick={() => openManualPaymentModal(record)}
                           >
                             Mark Paid
@@ -1765,6 +1933,135 @@ export default function ContributionTracker({
               {sendingReminder ? "Sending..." : "Send Reminder"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={contributionSettingsOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            resetContributionSettingsFlow();
+            return;
+          }
+          setContributionSettingsOpen(true);
+        }}
+      >
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Update Contribution Plan</DialogTitle>
+            <DialogDescription>
+              Change this member&apos;s planned monthly contribution units for{" "}
+              {selectedContributionSettingsYear}. One unit is NGN 1,000.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedRecord && (
+            <div className="space-y-5">
+              <div className="gap-3 grid md:grid-cols-2 bg-emerald-50 p-4 border border-emerald-100 rounded-xl text-sm">
+                <div>
+                  <p className="font-medium text-emerald-700 text-xs uppercase tracking-wide">
+                    Member
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {selectedRecord.memberName}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-emerald-700 text-xs uppercase tracking-wide">
+                    Group
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {selectedRecord.groupName}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-emerald-700 text-xs uppercase tracking-wide">
+                    Current Expected
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {formatNaira(selectedRecord.expectedAmount)} (
+                    {formatContributionUnits(selectedRecord.expectedAmount)}{" "}
+                    units)
+                  </p>
+                </div>
+                <div>
+                  <p className="font-medium text-emerald-700 text-xs uppercase tracking-wide">
+                    Last Updated
+                  </p>
+                  <p className="mt-1 font-semibold text-gray-900">
+                    {selectedRecord.contributionSettings?.updatedAt
+                      ? new Date(
+                          selectedRecord.contributionSettings.updatedAt,
+                        ).toLocaleDateString("en-NG")
+                      : "Not set"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="gap-4 grid md:grid-cols-3">
+                {PLANNED_CONTRIBUTION_FIELDS.map((field) => (
+                  <div key={field.key} className="space-y-2">
+                    <Label htmlFor={`admin-contribution-plan-${field.key}`}>
+                      {field.label}
+                    </Label>
+                    <Input
+                      id={`admin-contribution-plan-${field.key}`}
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={contributionSettingsForm[field.key]}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setContributionSettingsForm((prev) => ({
+                          ...prev,
+                          [field.key]: value,
+                        }));
+                        setContributionSettingsErrors((prev) => ({
+                          ...prev,
+                          [field.key]: undefined,
+                        }));
+                      }}
+                      placeholder="e.g. 10"
+                    />
+                    <p className="text-gray-500 text-xs">
+                      {formatContributionSettingsPreview(
+                        contributionSettingsForm[field.key],
+                      )}
+                    </p>
+                    {contributionSettingsErrors[field.key] && (
+                      <p className="text-rose-600 text-xs">
+                        {contributionSettingsErrors[field.key]}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="bg-blue-50 p-3 border border-blue-100 rounded-xl text-blue-800 text-sm">
+                Leave a field blank to clear that planned unit value and fall
+                back to the group default where applicable.
+              </div>
+
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button
+                  variant="outline"
+                  onClick={resetContributionSettingsFlow}
+                  disabled={updateContributionSettingsMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                  onClick={() => void handleSaveContributionSettings()}
+                  disabled={updateContributionSettingsMutation.isPending}
+                >
+                  {updateContributionSettingsMutation.isPending
+                    ? "Saving..."
+                    : "Save Plan"}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
