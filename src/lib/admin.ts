@@ -428,6 +428,26 @@ export type AdminFinancialGroupPerformanceRow = {
   collectionGap?: number;
 };
 
+export type AdminContributionInterestRate = {
+  month: number;
+  label: string;
+  shortLabel?: string;
+  ratePerThousand: number;
+  ratePct: number;
+};
+
+export type AdminContributionInterestSettings = {
+  year: number;
+  rates: AdminContributionInterestRate[];
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+};
+
+export type AdminContributionInterestSettingsSnapshot = Pick<
+  AdminContributionInterestSettings,
+  "rates" | "updatedAt" | "updatedBy"
+>;
+
 export type AdminFinancialReportsResponse = {
   monthlyData: AdminFinancialMonthlyRow[];
   groupPerformance: AdminFinancialGroupPerformanceRow[];
@@ -438,6 +458,7 @@ export type AdminFinancialReportsResponse = {
     interestRatePct: number;
   };
   period?: { months: number; end: { year: number; month: number } };
+  interestSettings?: AdminContributionInterestSettings[];
 };
 
 export async function getAdminFinancialReports(
@@ -454,21 +475,6 @@ export async function getAdminFinancialReports(
     throw new Error(getApiErrorMessage(err));
   }
 }
-
-export type AdminContributionInterestRate = {
-  month: number;
-  label: string;
-  shortLabel?: string;
-  ratePerThousand: number;
-  ratePct: number;
-};
-
-export type AdminContributionInterestSettings = {
-  year: number;
-  rates: AdminContributionInterestRate[];
-  updatedAt?: string | null;
-  updatedBy?: string | null;
-};
 
 export async function getAdminContributionInterestSettings(params: {
   year?: number;
@@ -517,6 +523,7 @@ export type AdminContributionIncomeSummary = {
     interest: number;
     total: number;
   };
+  interestSettings?: AdminContributionInterestSettingsSnapshot;
 };
 
 export async function getAdminContributionIncomeSummary(params: {
@@ -547,6 +554,7 @@ export type AdminInterestSharingSummary = {
   monthsComputed?: number;
   totalInterest: number;
   categories: AdminInterestSharingCategory[];
+  interestSettings?: AdminContributionInterestSettingsSnapshot;
 };
 
 export async function getAdminContributionInterestSharing(params: {

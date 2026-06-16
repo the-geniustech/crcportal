@@ -27,6 +27,27 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 0,
   }).format(Number.isFinite(value) ? value : 0);
 
+const formatRate = (ratePerThousand: number, ratePct: number) => {
+  const parsedRate = Number(ratePerThousand);
+  const parsedPct = Number(ratePct);
+  const safeRate = Number.isFinite(parsedRate) ? parsedRate : 0;
+  const safePct = Number.isFinite(parsedPct) ? parsedPct : safeRate / 10;
+  return `${safeRate.toLocaleString("en-NG")}/1000 (${safePct.toLocaleString(
+    "en-NG",
+    { maximumFractionDigits: 2 },
+  )}%)`;
+};
+
+const formatDateTime = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("en-NG", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+};
+
 export default function ContributionIncomeSummary() {
   const { toast } = useToast();
   const currentYear = new Date().getFullYear();
@@ -61,6 +82,9 @@ export default function ContributionIncomeSummary() {
     interest: 0,
     total: 0,
   };
+  const interestRatesUpdatedAt = formatDateTime(
+    summaryQuery.data?.interestSettings?.updatedAt,
+  );
 
   const handleExport = async (format: "csv" | "pdf") => {
     setIsExporting(format);
@@ -202,12 +226,18 @@ export default function ContributionIncomeSummary() {
           <h3 className="text-sm font-semibold text-gray-900">
             Monthly Breakdown
           </h3>
+          {interestRatesUpdatedAt && (
+            <p className="mt-1 text-xs text-slate-500">
+              Interest rates last updated {interestRatesUpdatedAt}
+            </p>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-5 py-3 text-left">Month</th>
+                <th className="px-5 py-3 text-left">Rate / 1000</th>
                 <th className="px-5 py-3 text-left">Monthly Contributions</th>
                 <th className="px-5 py-3 text-left">Interest</th>
                 <th className="px-5 py-3 text-left">Total</th>
@@ -219,6 +249,9 @@ export default function ContributionIncomeSummary() {
                 <tr key={row.month} className="hover:bg-slate-50/60">
                   <td className="px-5 py-3 font-medium text-slate-700">
                     {row.label}
+                  </td>
+                  <td className="whitespace-nowrap px-5 py-3 text-slate-600">
+                    {formatRate(row.ratePerThousand, row.ratePct)}
                   </td>
                   <td className="px-5 py-3 text-slate-600">
                     {formatCurrency(row.contributions)}
@@ -237,7 +270,7 @@ export default function ContributionIncomeSummary() {
               {months.length === 0 && !summaryQuery.isLoading && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-5 py-6 text-center text-sm text-slate-500"
                   >
                     No contribution data available for this year.
